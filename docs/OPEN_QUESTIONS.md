@@ -11,3 +11,10 @@
 ## 外部服务
 
 启动检查发现 Docker 服务可用。LLM 用固定模拟响应完成离线安全与流水线测试；真实模型凭证不写入仓库。PostgreSQL、Redis、MinIO 的实际可用性与验证结果由实施阶段补充，不能以 mock 通过替代集成测试结论。
+
+## 实施工具链阻塞
+
+当前安装 `@earendil-works/pi-coding-agent` 1.0.0、其依赖 `@earendil-works/pi-agent-core` 1.0.0 与 `pi-subagents` 0.74.0。扩展后台启动器强制解析 `@earendil-works/pi-agent-core/node`，但 core 的 exports 仅 `.` 和 `./package.json`，不含 `./node`。因此不是 AskData 代码失败，也不是缺少模型凭证；子代理尚未开始执行。
+
+待处理：全局宿主/扩展版本兼容修复，并使用相同 subagent 协议及同一模型重试。全局工具链不属于 AskData 项目依赖，尚未修改。失败运行与工作区证据见 PROGRESS.md。
+
