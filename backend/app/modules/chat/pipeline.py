@@ -10,7 +10,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi.encoders import jsonable_encoder
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.core.audit import QueryLogWriter
 from app.core.datasource import Datasource
@@ -334,11 +334,50 @@ class Stage(Protocol):
 class SqlOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     sql: str
+    # The model reports that the visible schema cannot answer the question.
+    unanswerable: bool = False
+
+
+class ClarifyChoice(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str = Field(min_length=1, max_length=200)
+    ref: str = Field(min_length=1, max_length=300)
 
 
 class ClarifyOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     clarify: bool
+    question: str = Field(default="", max_length=500)
+    choices: list[ClarifyChoice] = Field(default_factory=list, max_length=8)
+
+
+def verified_choices(output: ClarifyOutput, retrieval: RetrievalBundle) -> list[str]:
+    """Keep only choices whose ref names a visible column or retrieved metric.
+
+    A model-proposed option that cannot be verified against the authorized context is
+    dropped, so clarification never reveals or invents objects outside the visible scope.
+    """
+    columns = {
+        f"{table}.{column}".casefold()
+        for table, table_columns in retrieval.tables.items()
+        for column in table_columns
+    }
+    short = {
+        f"{table.rsplit('.', 1)[-1]}.{column}".casefold()
+        for table, table_columns in retrieval.tables.items()
+        for column in table_columns
+    }
+    metrics = {
+        f"metric:{item.name}".casefold() for item in retrieval.items if item.kind == "metric"
+    }
+    labels: list[str] = []
+    seen: set[str] = set()
+    for choice in output.choices:
+        ref = choice.ref.strip().casefold()
+        if (ref in columns or ref in short or ref in metrics) and ref not in seen:
+            seen.add(ref)
+            labels.append(choice.label.strip())
+    return labels
 
 
 class PipelineDependencies:
@@ -354,8 +393,11 @@ class PipelineDependencies:
         querylog: QueryLogWriter,
         prompts: PromptRegistry | None = None,
         limits: QueryLimits | None = None,
+        model_clarification: bool = False,
     ) -> None:
         self.permissions, self.datasource, self.history = permissions, datasource, history
+        # Model-judged clarification is optional: fixed-output replays leave it off.
+        self.model_clarification = model_clarification
         self.builder, self.llm, self.guard = builder, llm, guard
         self.executor, self.querylog = executor, querylog
         self.prompts = prompts or PromptRegistry()
@@ -487,26 +529,24 @@ class ClarificationStage:
             if isinstance(value, dict)
         ):
             candidates.append(Clarification(question="请选择时间范围", choices=["近7天", "近30天"]))
-        if not candidates:
-            # Clarification is triggered by deterministic backend signals only; without any
-            # candidate the model is not asked, so it cannot invent ambiguity (and costs no call).
-            return ctx
-        decision = ClarifyOutput.model_validate_json(
-            extract_json_object(
-                await self.deps.call(
-                    ctx,
-                    PromptId.CLARIFY,
-                    {
-                        **self.deps.data(ctx),
-                        "candidates": [item.model_dump() for item in candidates],
-                    },
+        if candidates:
+            # Deterministic backend signals always clarify; no model call is needed.
+            ctx.clarification = candidates[0]
+        elif self.deps.model_clarification:
+            decision = ClarifyOutput.model_validate_json(
+                extract_json_object(
+                    await self.deps.call(ctx, PromptId.CLARIFY, self.deps.data(ctx))
                 )
             )
-        )
-        # Candidates come from structured retrieval/time rules; the model's verdict can add
-        # context but never removes a deterministic clarification.
-        _ = decision
-        ctx.clarification = candidates[0]
+            labels = verified_choices(decision, ctx.retrieval) if decision.clarify else []
+            if len(labels) < 2:
+                # Unverifiable or absent options: never block the question on a guess.
+                return ctx
+            ctx.clarification = Clarification(
+                question=decision.question or "请选择要使用的口径", choices=labels[:8]
+            )
+        else:
+            return ctx
         ctx.status = "clarify"
         await ctx.event(EventType.EXPLANATION, {"clarification": ctx.clarification.model_dump()})
         return ctx
@@ -525,6 +565,9 @@ class GenerateSqlStage:
             output = SqlOutput.model_validate_json(
                 extract_json_object(await self.deps.call(ctx, PromptId.SQL, self.deps.data(ctx)))
             )
+            if output.unanswerable or not output.sql.strip():
+                # Nothing was generated or executed; report only the category, never object names.
+                raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
             ctx.generated_sql = output.sql
         return ctx
 

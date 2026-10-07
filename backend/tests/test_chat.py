@@ -70,7 +70,7 @@ class ScriptedTransport(FakeTransport):
         elif content.startswith("Correct"):
             kind = "correction"
             text = json.dumps({"sql": self.corrections.pop(0) if self.corrections else self.sql})
-        elif content.startswith("Determine"):
+        elif content.startswith(("Determine", "Decide")):
             kind, text = "clarification", self.responses["clarification"]
         elif content.startswith("Return only chart"):
             kind, text = "chart", self.responses["chart"]
@@ -277,7 +277,8 @@ async def test_complete_pipeline_versions_timings_and_masked_summary(system, mem
     # clarification prompt is never called and the model cannot invent ambiguity.
     assert record.tokens_in == 30 and record.tokens_out == 9
     assert record.prompt_versions == {
-        name: "v2" for name in ("sql_generation", "chart", "explanation")
+        **dict.fromkeys(("chart", "explanation"), "v2"),
+        "sql_generation": "v3",
     }
     assert "secret" not in " ".join(transport.messages)
     assert {record.action for record in audit.records} == {"chat.create", "chat.ask", "chat.answer"}
@@ -306,7 +307,6 @@ async def test_clarification_resumes_original_question_once_and_is_not_replayabl
     reply = await service.ask(conversation.id, QuestionRequest(question="最近订单"), actor=member)
     assert reply.status == "clarify" and not connector.executed
     assert reply.clarification.choices == ["近7天", "近30天"]
-    transport.responses["clarification"] = '{"clarify":true}'
     request = QuestionRequest(
         question="ignored replacement",
         clarification_message_id=reply.message_id,
@@ -314,7 +314,8 @@ async def test_clarification_resumes_original_question_once_and_is_not_replayabl
     )
     second = await service.ask(conversation.id, request, actor=member)
     assert second.status == "success"
-    assert transport.calls_by_prompt.count("clarification") == 1
+    # Deterministic candidates clarify without asking the model.
+    assert transport.calls_by_prompt.count("clarification") == 0
     assert "近7天" in logs.records[-1].details["time_ranges"]
     assert "ignored replacement" not in logs.records[-1].details["question"]
     assert logs.records[0].query_id == logs.records[1].query_id
@@ -676,3 +677,73 @@ async def test_sse_and_excel_encode_timezone_aware_database_values(system, membe
     workbook = load_workbook(BytesIO(exported.content), read_only=True)
     assert list(workbook.active.values)[1][0] == "2024-02-29T23:00:00+00:00"
     workbook.close()
+
+
+def enable_model_clarification(system):
+    system[0].pipeline.deps.model_clarification = True
+
+
+async def test_model_clarification_with_verified_choices_asks_user(system, member):
+    enable_model_clarification(system)
+    service, transport, connector, *_ = system
+    transport.responses["clarification"] = json.dumps(
+        {
+            "clarify": True,
+            "question": "哪个金额？",
+            "choices": [
+                {"label": "订单金额", "ref": "orders.amount"},
+                {"label": "客户编号", "ref": "customers.id"},
+            ],
+        }
+    )
+    conversation = await create_conversation(system, member)
+    reply = await service.ask(conversation.id, QuestionRequest(question="统计金额"), actor=member)
+    assert reply.status == "clarify" and not connector.executed
+    assert reply.clarification.choices == ["订单金额", "客户编号"]
+
+
+async def test_model_clarification_drops_unverifiable_choices_and_proceeds(system, member):
+    enable_model_clarification(system)
+    service, transport, connector, *_ = system
+    transport.responses["clarification"] = json.dumps(
+        {
+            "clarify": True,
+            "question": "哪个？",
+            "choices": [
+                {"label": "a", "ref": "orders.secret"},
+                {"label": "b", "ref": "salary.base_salary"},
+            ],
+        }
+    )
+    conversation = await create_conversation(system, member)
+    reply = await service.ask(conversation.id, QuestionRequest(question="统计金额"), actor=member)
+    assert reply.status == "success" and connector.executed
+
+
+async def test_model_clarification_false_proceeds(system, member):
+    enable_model_clarification(system)
+    service, transport, connector, *_ = system
+    conversation = await create_conversation(system, member)
+    reply = await service.ask(conversation.id, QuestionRequest(question="列出订单"), actor=member)
+    assert reply.status == "success" and "clarification" in transport.calls_by_prompt
+
+
+async def test_unanswerable_question_is_blocked_out_of_scope_without_execution(system, member):
+    service, transport, connector, logs, *_ = system
+    transport.sql = None  # replaced below
+    original = transport.chat
+
+    async def chat(model, messages):
+        if messages[0].content.startswith("Generate"):
+            from app.core.llm import ChatResponse
+
+            return ChatResponse(text='{"sql":"","unanswerable":true}', model_id="fixed")
+        return await original(model, messages)
+
+    transport.chat = chat
+    conversation = await create_conversation(system, member)
+    reply = await service.ask(
+        conversation.id, QuestionRequest(question="列出员工底薪"), actor=member
+    )
+    assert reply.status == "blocked" and not connector.executed
+    assert logs.records[-1].blocked_code == "SQL_OUT_OF_SCOPE"

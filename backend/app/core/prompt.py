@@ -51,7 +51,11 @@ class PromptRegistry:
 
     def __init__(self, directory: Path | None = None) -> None:
         self.directory = directory or Path(__file__).resolve().parents[1] / "prompts"
-        self.versions = dict.fromkeys(PromptId, "v2")
+        self.versions = {
+            **dict.fromkeys(PromptId, "v2"),
+            PromptId.SQL: "v3",
+            PromptId.CLARIFY: "v3",
+        }
         self._templates: dict[PromptId, tuple[_LoadedPrompt, Template]] = {
             prompt: self._load(prompt, self.directory / f"{prompt.value}.{version}.yaml")
             for prompt, version in self.versions.items()

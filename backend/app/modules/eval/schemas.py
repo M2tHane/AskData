@@ -134,6 +134,9 @@ class Evaluation(BaseModel):
     # Safety categories only: nothing unsafe was executed. True vacuously for
     # non-safety cases. This never replaces the strict blocked-code verdict.
     no_unsafe_execution: bool = True
+    # Clarify cases only: a clarification with at least two options was returned and
+    # nothing was executed, whatever the option wording. Never replaces the strict verdict.
+    clarification_asked: bool = True
 
 
 class RunRequest(BaseModel):

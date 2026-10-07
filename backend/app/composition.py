@@ -266,6 +266,7 @@ class Services:
             QueryLogWriter(
                 DatabaseQueryLogStore(self.session), self.runtime.settings.retention_days
             ),
+            model_clarification=True,
             limits=QueryLimits(
                 user_id=1,
                 timeout_seconds=self.runtime.settings.query_timeout_seconds,
