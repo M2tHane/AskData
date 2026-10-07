@@ -309,7 +309,11 @@ class RealChatAdapter:
             else self.assets.bindings.metric_aliases
         )
         return [
-            aliases.get(item.key, item.key) for item in ctx.retrieval.items if item.kind == kind
+            # Same-caliber name resolves by scope precedence per user, so the merged
+            # item's key alone cannot distinguish fixtures; the real ref ID can.
+            aliases.get(f"{kind}:{item.ref_id}", aliases.get(item.key, item.key))
+            for item in ctx.retrieval.items
+            if item.kind == kind
         ]
 
     @staticmethod
@@ -330,7 +334,10 @@ class RealChatAdapter:
         if where is None:
             return None
         conditions = re.split(r"\b(?:GROUP|ORDER|LIMIT|HAVING)\b", where[1], maxsplit=1)[0]
-        pattern = r'"([A-Za-z_][A-Za-z_0-9]*)"\s*(>=|<)\s*\'(\d{4}-\d{2}-\d{2})\''
+        pattern = (
+            r'"([A-Za-z_][A-Za-z_0-9]*)"\s*(>=|<)\s*'
+            r"(?:CAST\s*\(\s*)?'(\d{4}-\d{2}-\d{2})'(?:\s+AS\s+DATE\s*\))?"
+        )
         intervals: dict[str, dict[str, str]] = {}
         for column, operator, value in re.findall(pattern, conditions):
             bound = "start" if operator == ">=" else "end"

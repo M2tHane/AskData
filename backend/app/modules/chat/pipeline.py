@@ -16,7 +16,7 @@ from app.core.audit import QueryLogWriter
 from app.core.datasource import Datasource
 from app.core.deps import CurrentUser
 from app.core.errors import MESSAGES, AppError, ErrorCode, SqlBlocked
-from app.core.llm import CallContext, ChatMessage, LLMClient, query_call_scope
+from app.core.llm import CallContext, ChatMessage, LLMClient, extract_json_object, query_call_scope
 from app.core.permission import PermissionService, TableScope, VisibleScope
 from app.core.prompt import PromptId, PromptRegistry
 from app.core.scope import ScopedQuery
@@ -365,12 +365,12 @@ class PipelineDependencies:
         return self.limits.model_copy(update={"user_id": user_id})
 
     async def call(self, ctx: QueryContext, prompt_id: PromptId, data: dict[str, Any]) -> str:
+        adapter = DialectAdapter(ctx.datasource.dialect) if ctx.datasource else None
         rendered = self.prompts.render(
             prompt_id,
             jsonable_encoder(data),
-            dialect_hint=DialectAdapter(ctx.datasource.dialect).prompt_hint
-            if ctx.datasource
-            else "",
+            dialect_hint=adapter.prompt_hint if adapter else "",
+            engine=adapter.engine_name if adapter else "",
         )
         ctx.prompt_versions[prompt_id.value] = rendered.version
         response = await self.llm.chat(
@@ -487,29 +487,28 @@ class ClarificationStage:
             if isinstance(value, dict)
         ):
             candidates.append(Clarification(question="请选择时间范围", choices=["近7天", "近30天"]))
+        if not candidates:
+            # Clarification is triggered by deterministic backend signals only; without any
+            # candidate the model is not asked, so it cannot invent ambiguity (and costs no call).
+            return ctx
         decision = ClarifyOutput.model_validate_json(
-            await self.deps.call(
-                ctx,
-                PromptId.CLARIFY,
-                {**self.deps.data(ctx), "candidates": [item.model_dump() for item in candidates]},
+            extract_json_object(
+                await self.deps.call(
+                    ctx,
+                    PromptId.CLARIFY,
+                    {
+                        **self.deps.data(ctx),
+                        "candidates": [item.model_dump() for item in candidates],
+                    },
+                )
             )
         )
-        if candidates or decision.clarify:
-            # Output options derive solely from structured retrieval/time rules.
-            if not candidates:
-                choices = [
-                    f"{table}.{column}"
-                    for table, columns in ctx.retrieval.tables.items()
-                    for column in columns
-                ][:8]
-                if len(choices) < 2:
-                    choices = ["按当前条件查询", "补充查询条件"]
-                candidates = [Clarification(question="请选择要查询的字段", choices=choices)]
-            ctx.clarification = candidates[0]
-            ctx.status = "clarify"
-            await ctx.event(
-                EventType.EXPLANATION, {"clarification": ctx.clarification.model_dump()}
-            )
+        # Candidates come from structured retrieval/time rules; the model's verdict can add
+        # context but never removes a deterministic clarification.
+        _ = decision
+        ctx.clarification = candidates[0]
+        ctx.status = "clarify"
+        await ctx.event(EventType.EXPLANATION, {"clarification": ctx.clarification.model_dump()})
         return ctx
 
 
@@ -524,7 +523,7 @@ class GenerateSqlStage:
             ctx.generated_sql = ctx.manual_sql
         else:
             output = SqlOutput.model_validate_json(
-                await self.deps.call(ctx, PromptId.SQL, self.deps.data(ctx))
+                extract_json_object(await self.deps.call(ctx, PromptId.SQL, self.deps.data(ctx)))
             )
             ctx.generated_sql = output.sql
         return ctx
@@ -579,14 +578,16 @@ class CorrectionStage:
             error = ctx.execution_error
             ctx.retries.append({"attempt": len(ctx.retries) + 1, "code": error.value})
             output = SqlOutput.model_validate_json(
-                await self.deps.call(
-                    ctx,
-                    PromptId.CORRECT,
-                    {
-                        **self.deps.data(ctx),
-                        "sql": ctx.generated_sql,
-                        "error_category": error.value,
-                    },
+                extract_json_object(
+                    await self.deps.call(
+                        ctx,
+                        PromptId.CORRECT,
+                        {
+                            **self.deps.data(ctx),
+                            "sql": ctx.generated_sql,
+                            "error_category": error.value,
+                        },
+                    )
                 )
             )
             ctx.generated_sql = output.sql
@@ -619,7 +620,9 @@ class PresentationStage:
             "sql": ctx.guarded_sql.normalized_sql if ctx.guarded_sql else None,
         }
         try:
-            chart = ChartSpec.model_validate_json(await self.deps.call(ctx, PromptId.CHART, data))
+            chart = ChartSpec.model_validate_json(
+                extract_json_object(await self.deps.call(ctx, PromptId.CHART, data))
+            )
             if (
                 (chart.x and chart.x not in ctx.result.columns)
                 or any(column not in ctx.result.columns for column in chart.y)
@@ -637,7 +640,7 @@ class PresentationStage:
             ctx.warnings.append("chart_fallback")
         try:
             output = Explanation.model_validate_json(
-                await self.deps.call(ctx, PromptId.EXPLAIN, data)
+                extract_json_object(await self.deps.call(ctx, PromptId.EXPLAIN, data))
             )
             ctx.explanation = output.summary
         except (ValidationError, AppError) as error:

@@ -134,12 +134,13 @@ async def test_full_100_case_real_postgres_pipeline_replay(
         scripts = {}
         for case in assets.cases:
             if case.expect_status == "clarify":
-                scripts[case.id] = [json.dumps({"clarify": True})]
+                # No retrieval candidates means the replay pipeline never calls the
+                # clarification prompt; the model answer still cannot become clarify.
+                scripts[case.id] = [json.dumps({"sql": "SELECT 1"})]
             else:
                 sql = case.candidate_sql or case.expected_sql
                 assert sql is not None
                 scripts[case.id] = [
-                    json.dumps({"clarify": False}),
                     json.dumps({"sql": assets.map_sql(case.datasource, sql)}),
                     json.dumps({"type": "table"}),
                     json.dumps({"summary": "固定输出回放"}),

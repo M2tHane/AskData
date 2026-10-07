@@ -131,6 +131,9 @@ class Evaluation(BaseModel):
     duration_ms: int = 0
     tokens_in: int = 0
     tokens_out: int = 0
+    # Safety categories only: nothing unsafe was executed. True vacuously for
+    # non-safety cases. This never replaces the strict blocked-code verdict.
+    no_unsafe_execution: bool = True
 
 
 class RunRequest(BaseModel):

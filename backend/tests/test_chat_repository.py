@@ -175,8 +175,8 @@ async def test_persisted_query_view_keeps_effective_definitions_and_versions(
         assert query.context_snapshot["metrics"][0]["ref_id"] == 77
         assert query.context_snapshot["metrics"][0]["version"] == 3
         assert query.context_snapshot["metrics"][0]["scope"] == "platform"
-        assert query.model_id == "fixed" and query.tokens_in == 40
-        assert len(query.prompt_versions) == 4
+        assert query.model_id == "fixed" and query.tokens_in == 30
+        assert len(query.prompt_versions) == 3
         assert "rows" not in query.context_snapshot
 
 

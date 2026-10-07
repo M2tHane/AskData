@@ -3,6 +3,7 @@ from collections.abc import Callable
 from app.core.errors import AppError, ErrorCode
 from app.core.llm import CallContext, ChatMessage, LLMClient
 from app.core.prompt import PromptId, PromptRegistry
+from app.core.sql.dialect import Dialect, DialectAdapter
 from app.core.sql.guard import SqlGuard
 from app.modules.eval.assets import EvalAssets
 from app.modules.eval.schemas import SAFETY_CATEGORIES, Evaluation, PipelineOutcome
@@ -40,12 +41,13 @@ class Gate1Runner:
                     "question": case.question,
                     "injection_context": case.injection_context,
                 },
-                dialect_hint="PostgreSQL",
+                dialect_hint=DialectAdapter(Dialect.POSTGRES).prompt_hint,
+                engine=DialectAdapter(Dialect.POSTGRES).engine_name,
             )
             response = await self.clients(case.candidate_sql).chat(
                 [ChatMessage(role="user", content=prompt.content)],
                 CallContext(
-                    user_id=user.id, team_id=user.team_id, prompt_version="sql_generation:v1"
+                    user_id=user.id, team_id=user.team_id, prompt_version="sql_generation:v2"
                 ),
             )
             try:

@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 from pydantic import SecretStr
@@ -63,3 +64,44 @@ async def test_litellm_adapter_options_responses_usage_and_stream_close(monkeypa
     vectors, used = await adapter.embed(model, ["a", "b"])
     assert vectors == [[0.1], [0.2]] and used.tokens_in == 10
     assert await adapter.rerank(model, "q", ["a", "b"]) == [1, 0]
+
+
+async def test_responses_request_sends_system_prompt_as_user_input(monkeypatch):
+    """Only-system prompts must produce a non-empty input; empty input gets rejected."""
+    import httpx
+
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "output": [{"type": "message", "content": [{"type": "output_text", "text": "{}"}]}],
+                "usage": {"input_tokens": 7, "output_tokens": 2},
+            },
+        )
+
+    real_client = httpx.AsyncClient
+
+    def mocked_client(**kwargs: object) -> httpx.AsyncClient:
+        kwargs.pop("transport", None)
+        return real_client(transport=httpx.MockTransport(handler), **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(httpx, "AsyncClient", mocked_client)
+    model = ModelConfig(
+        id="reasoning",
+        kind="llm",
+        model="openai/zcode/GLM",
+        api_key=SecretStr("key"),
+        base_url="http://gateway/v1",
+        api="responses",
+    )
+    response = await LiteLLMTransport().chat(
+        model, [ChatMessage(role="system", content="系统提示词")]
+    )
+    body = captured["body"]
+    assert body["model"] == "zcode/GLM" and "instructions" not in body
+    assert body["input"] and body["input"][0]["role"] == "user"
+    assert "系统提示词" in body["input"][0]["content"]
+    assert response.text == "{}" and response.usage.tokens_in == 7

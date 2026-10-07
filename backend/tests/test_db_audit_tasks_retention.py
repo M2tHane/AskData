@@ -36,7 +36,9 @@ async def database(tmp_path, monkeypatch):
     get_settings.cache_clear()
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
-    await asyncio.to_thread(command.upgrade, config, "0001_core")
+    # Retention now composes the chat/feedback business cleaners, so the worker
+    # regression runs against the full migration chain like production.
+    await asyncio.to_thread(command.upgrade, config, "head")
     db = Database(url)
     yield db
     await db.close()

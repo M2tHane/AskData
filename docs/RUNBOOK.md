@@ -94,6 +94,8 @@ API 和 worker 共用 `Composition` 的任务注册表。`dispatch_task` 根据�
 | embedding.rebuild | EmbeddingService.rebuild_task | 索引 API；配置 Embedding 模型后的元数据同步 |
 | retention | RetentionService.run | 每日 03:00 UTC |
 
+retention 定时任务在同一个事务中依次清理：核心 audit_log/query_run/task_run、chat 过期消息（chat.build_retention_store）、feedback 过期快照（feedback.build_retention_store，已转评测样例保留 eval 独立副本，源日志删除后样例不受影响）、upload 过期历史版本与 MinIO 源文件（upload.build_retention_store，保留每表当前版本，每批 100 条）。upload 清理需要对象存储可用且 `SCHEDULER_ADMIN_ID` 能解析为活跃管理员；不满足时跳过 upload 部分，其余清理器照常执行，不阻塞定时任务。
+
 通过环境文件 `SCHEDULER_ADMIN_ID`（本地 `ASKDATA_SCHEDULER_ADMIN_ID`）配置真实管理员 ID。未配置时跳过定时同步/索引；已配置但用户停用、删除或不再是管理员时任务拒绝。评测任务启动时也重新解析运行发起者身份。当前没有 Embedding 模型时，同步仍可完成并支持小于等于 30 表的全量检索；混合检索需要配置 Embedding 模型，Rerank 可选。
 
 每个 API 请求与 worker job 都有独立会话和服务；auth/org/datasource/schema/permission/modelcfg 等共享本次请求事务。chat 会话延续到 SSE 结束；chat/upload/eval 管理自己的提交，不套会回滚失败记录的外层事务。任务状态查询为 `/api/schema/tasks/{task_id}`（只读该类任务）、上传 job 状态、评测 run 状态；对应写接口均经各模块 service 产生审计。
@@ -104,7 +106,7 @@ API 和 worker 共用 `Composition` 的任务注册表。`dispatch_task` 根据�
 
 评测案例维护/加载可先运行。运行实际评测前，在专用评测环境经组织、数据源、授权接口建立测试资产，将 fixtures.yaml 的全部别名映射为真实 ID：环境文件配置 `EVAL_TEAM_IDS`、`EVAL_USER_IDS`、`EVAL_DATASOURCE_IDS` 为 JSON 字典，例如 `EVAL_TEAM_IDS={"sales":12,"finance":13}`。具体别名以 `eval/fixtures.yaml` 为准，不直接把离线整数 ID 当生产 ID。可选 `EVAL_SEMANTIC_ALIASES`、`EVAL_METRIC_ALIASES` 映射检索键到题库别名。直接本地启动时变量加 `ASKDATA_` 前缀。未配置完整映射时，实际评测题失败关闭，不使用离线权限替代真实授权。
 
-上传总装使用 I2 的 `build_upload_registration` 工厂和其他组提供的 datasource/schema/permission 公共上传方法。CSV 预览→确认→arq 导入→MinIO 备份→元数据发布→所属团队默认授权→员工提问已通过真实冒烟；不会伪造管理员或绕过模块边界写表。待发布数据源在 upload 的 PermissionService 中返回空查询范围，只允许合法上传者继续导入生命周期，激活后回到普通授权快照。Docker Desktop 挂载脚本的执行行为通过 `start-import.sh` 复制到容器文件系统再 source 解决；pg-import 健康检查同时验证 TCP 就绪和 import_writer 已创建。反馈转评测与上传历史清理的公开接口已由并行业务组追加，当前 Composition 中的反馈 sink 和业务保留清理器仍需总装者接线；G3 不修改 composition/main/worker。已绑定的核心保留任务清理审计/查询日志/任务记录，关联 FK 依迁移处理；业务接口及后续验收以对应组记录为准，详见 OPEN_QUESTIONS.md。
+上传总装使用 I2 的 `build_upload_registration` 工厂和其他组提供的 datasource/schema/permission 公共上传方法。CSV 预览→确认→arq 导入→MinIO 备份→元数据发布→所属团队默认授权→员工提问已通过真实冒烟；不会伪造管理员或绕过模块边界写表。待发布数据源在 upload 的 PermissionService 中返回空查询范围，只允许合法上传者继续导入生命周期，激活后回到普通授权快照。Docker Desktop 挂载脚本的执行行为通过 `start-import.sh` 复制到容器文件系统再 source 解决；pg-import 健康检查同时验证 TCP 就绪和 import_writer 已创建。反馈转评测的公开接口已由并行业务组追加，当前 Composition 中的反馈 sink 仍需后续接线（feedback.convert 的 eval 分支返回 503）；chat/feedback/upload 三个业务保留清理器已接入 Composition 的 CompositeRetentionStore 并经 scripts/test_composition.py 回归。已绑定的核心保留任务清理审计/查询日志/任务记录，关联 FK 依迁移处理，详见 OPEN_QUESTIONS.md。
 
 ## 容器内完整冒烟（G3 已验证）
 

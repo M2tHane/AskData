@@ -1,0 +1,43 @@
+name: mysql
+version: v1
+template:
+  quot_rule: |
+    Quote every table and column identifier with backticks: `schema`.`table`, `t`.`column`.
+    Never include the dot inside a backtick pair. Quote reserved keywords
+    (for example `order`, `group`, `desc`) and preserve original casing.
+  limit_rule: |
+    Limit rows with LIMIT <count> [OFFSET <start>] on the OUTERMOST query only.
+    Never place LIMIT inside a subquery or CTE.
+  date_rule: |
+    Date/time: use DATE_FORMAT(column, '%Y-%m-%d') for formatting, CURDATE() for today,
+    and DATE_ADD/DATE_SUB with explicit intervals for date arithmetic.
+    Compare dates with plain 'YYYY-MM-DD' string literals; never wrap them in CAST.
+    When grouping by a truncated month, output a plain date:
+    DATE(DATE_FORMAT(column, '%Y-%m-01')).
+  string_rule: |
+    Strings: concatenate with CONCAT(a, b); there is no || operator for strings.
+  cast_rule: |
+    Casting: use CAST(expr AS type) or CONVERT(expr, type).
+  null_rule: |
+    NULL: compare with IS NULL / IS NOT NULL; substitute with IFNULL(expr, value)
+    or COALESCE(...).
+  forbidden_rule: |
+    Forbidden in MySQL: :: casts, ILIKE, DATE_TRUNC, NOW()::text style syntax.
+    Use LIKE, DATE_FORMAT and DATE_ADD/DATE_SUB instead.
+  examples: |
+    <example>
+      <output-bad>
+        SELECT * FROM `orders` WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE)  -- wrong: DATE_TRUNC and * are not MySQL
+        SELECT `id`, `amount` FROM (SELECT `id`, `amount` FROM `orders` LIMIT 10) `t` LIMIT 5  -- wrong: LIMIT inside a subquery
+        SELECT `name`::text FROM `customers`  -- wrong: :: cast does not exist in MySQL
+      </output-bad>
+      <output-good>
+        SELECT `o`.`id` AS `order_id`, `o`.`amount` AS `amount`
+        FROM `sales`.`orders` `o`
+        WHERE `o`.`created_at` >= '2025-03-01'
+          AND `o`.`created_at` < '2025-04-01'
+          AND `o`.`status` IS NOT NULL
+        ORDER BY `o`.`amount` DESC
+        LIMIT 10
+      </output-good>
+    </example>

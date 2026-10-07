@@ -359,3 +359,23 @@ uv run lint-imports --config importlinter.ini
 uv run --frozen --with-requirements app/modules/upload/requirements.txt pytest -q
 uv run --frozen --with-requirements app/modules/upload/requirements.txt pytest -q --external-services
 ```
+
+## 真实 LLM 基线（10 题）与提示词 v2（h2/h3/h4/h5/h6，未使用 subagent）
+
+含前一批 pi 中断后的接续：retention 接线（见上）完成后，本轮完成真实模型基线与提示词重构。全过程与用户多轮纠偏同步：限速/封禁假设被否定后，按 h5/h6 确认根因是推理模型在 chat/completions 下推理文字污染 content、且仅 system 消息时空 input 被网关拒（405 文案误导）；澄清阶段改为仅在存在确定性后端候选时调用。
+
+已完成：
+- core/llm：`ModelConfig.api`（chat/responses）与 `reasoning_effort`；responses 协议 transport（instructions/input 分离、usage 解析、流式回退单 chunk）；`extract_json_object` 从推理散文中提取首个完整 JSON（仅提取，不放宽守卫）；重试指数退避；单次超时经 params 配置（基线用 120s）。modelcfg `ModelParameters` 透传新字段。
+- 修复三个受流水线行为变化影响的测试（无候选不再调用澄清提示词）：tokens/提示词版本断言、retention 夹具升 head；新增 responses 仅 system 消息 input 非空回归测试（httpx MockTransport）。
+- 评测口径：`Evaluation.no_unsafe_execution`（安全类：未执行任何写/越权操作，以执行器计数与实际执行 SQL + 隐藏对象判定）与 `no_unsafe_execution_pass_rate`；门槛 1 strict 判定未动。
+- 回放工件适配：门槛 1 CLI 与 I2 全量回放改为无澄清调用的新响应顺序，门槛 1 恢复 22/22。
+- 提示词 v2（h3.B）：5 个提示词改 YAML（name/version/variables 元数据 + string.Template，core/prompt 统一 safe_load 加载校验，缺变量/未登记即 500）；新增 `app/prompts/dialects/{mysql,postgresql}.v1.yaml`（引号/限行/日期/字符串/转型/NULL/禁用语法 + output-bad/output-good 正反例，LIMIT 仅最外层反例），`DialectAdapter.prompt_hint` 改由方言 YAML 渲染并新增 `engine_name`；SQL 生成/纠错提示词加入逐项检查清单（表名字段逐字核对、限定词显式过滤、限行仅最外层、方言语法、JSON 格式）并注入引擎名；旧 v1 .txt 保留；新增“所有 YAML 可加载、变量齐全”与方言 YAML 测试。PyYAML 6.0.3 / types-PyYAML 入锁文件。
+- 基线脚本 `scripts/eval_baseline.py`：一次性 pgvector PG + Redis 容器、经公共接口建立组织/数据源/授权/语义/指标/模型资产、真实 chat 流水线跑题、JSON 报告；支持 `--ids/--limit/--concurrency/--interval`；修语义别名映射键（列 ID + 条目 ref 双键）。
+- 失败调查与针对性修复：T01 日期字面量 CAST 包装（方言规则 + 适配器正则兼容）、C01 按月聚合 `::date`（方言规则）、M01 资产映射键错误（脚本）、J01 限定词漏过滤（检查项）。
+- 文档：`docs/EVAL_BASELINE.md`（模型/提示词版本/日期/题目/复现命令/v1→v2 对比）、RUNBOOK retention 说明、INTEGRATION.md 响应顺序更新。
+
+结果（10 题 S01,J01,T01,M01,C01,Q01,V01,P01,I01,E01；模型 openai/zcode/GLM-5.3-Flash，responses 协议，reasoning_effort=low）：
+- v1（重构前）：3/10；门槛 1（固定模拟输出）22/22 保持 100%。
+- v2：**6/10**；非安全类 5/6 全部通过（T01/M01/C01/J01 修复）；安全类 strict_blocked 0/3 但 `no_unsafe_execution` 3/3（真实模型自行拒绝/遵守可见 schema）；Q01 为检索资产与可见性规则的固有冲突，归檁为非提示词问题。发布安全判定继续以门槛 1 为准。
+
+验证：ruff/format/mypy（types-PyYAML 后 141 文件）/lint-imports（6 kept）全绿；离线 523 passed，外部服务 530 passed；门槛 1 CLI 22/22 safety_gate_passed=true；v2 十题实际重跑（报告 /tmp/eval-baseline-v2-10.json，摘要写入 EVAL_BASELINE.md）。未声称 100 题真实准确率（限速与时长限制，后续可扩量）。本轮清理了工作区残留的临时调试文件 rap3.py。

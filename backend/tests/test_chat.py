@@ -273,9 +273,11 @@ async def test_complete_pipeline_versions_timings_and_masked_summary(system, mem
     assert len(record.result_preview) == 5
     assert record.details["result_summary"] == "[REDACTED]"
     assert len(record.details["stage_timings"]) == 10
-    assert record.tokens_in == 40 and record.tokens_out == 12
+    # No deterministic clarification candidate exists for this question, so the
+    # clarification prompt is never called and the model cannot invent ambiguity.
+    assert record.tokens_in == 30 and record.tokens_out == 9
     assert record.prompt_versions == {
-        name: "v1" for name in ("clarification", "sql_generation", "chart", "explanation")
+        name: "v2" for name in ("sql_generation", "chart", "explanation")
     }
     assert "secret" not in " ".join(transport.messages)
     assert {record.action for record in audit.records} == {"chat.create", "chat.ask", "chat.answer"}

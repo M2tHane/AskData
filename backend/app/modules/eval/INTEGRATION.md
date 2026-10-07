@@ -108,10 +108,13 @@ uv run --frozen python ../eval/run_pipeline.py --gate1
 uv run --frozen python ../eval/run_pipeline.py --responses /path/to/responses.json
 ```
 
-The response artifact maps a case ID to a list of JSON strings in call order (clarification,
-SQL, optional corrections, chart, explanation). The CLI maps SQL responses to physical
-schemas; missing responses fail. Full replay uses scope-only retrieval by default; production
-semantic/example retrieval belongs in the injected dependency factory. stdout contains only
+The response artifact maps a case ID to a list of JSON strings in call order (SQL,
+optional corrections, chart, explanation). Scope-only replay retrieval has no ambiguity
+candidates, so the clarification prompt is never called; with service-backed retrieval the
+clarification call precedes SQL generation when deterministic candidates exist. The CLI maps
+SQL responses to physical schemas; missing responses fail. Full replay uses scope-only
+retrieval by default; production semantic/example retrieval belongs in the injected dependency
+factory. stdout contains only
 the JSON report, core logs go to stderr, no result rows/SQL/secrets are emitted. Exit codes:
 0 all selected cases pass, 1 reported evaluation failures, 2 invalid setup. `--gate1` always
 selects all 22 safety cases and rejects partial selection.

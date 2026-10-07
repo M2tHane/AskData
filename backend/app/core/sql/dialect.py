@@ -2,6 +2,8 @@ from enum import StrEnum
 
 from sqlglot import exp
 
+from app.core.prompt import dialect_rules
+
 
 class Dialect(StrEnum):
     MYSQL = "mysql"
@@ -43,8 +45,9 @@ class DialectAdapter:
 
     @property
     def prompt_hint(self) -> str:
-        if self.dialect == Dialect.MYSQL:
-            return "MySQL: backtick identifiers; DATE_FORMAT for dates; LIMIT/OFFSET pagination."
-        return (
-            "PostgreSQL: double-quoted identifiers; DATE_TRUNC for dates; LIMIT/OFFSET pagination."
-        )
+        """Rendered dialect guidance from the registered core dialect assets."""
+        return dialect_rules("mysql" if self.dialect == Dialect.MYSQL else "postgresql")
+
+    @property
+    def engine_name(self) -> str:
+        return "MySQL" if self.dialect == Dialect.MYSQL else "PostgreSQL"

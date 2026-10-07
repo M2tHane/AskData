@@ -21,6 +21,10 @@ class ModelConfig(BaseModel):
     timeout_seconds: float = Field(default=30, gt=0)
     retries: int = Field(default=2, ge=0, le=3)
     fallback_id: str | None = None
+    # chat: chat/completions; responses: the OpenAI Responses protocol, where reasoning
+    # text stays separate from the JSON answer content.
+    api: Literal["chat", "responses"] = "chat"
+    reasoning_effort: Literal["low", "medium", "high"] | None = None
 
 
 class ModelProvider(Protocol):
@@ -60,6 +64,36 @@ class ChatResponse(BaseModel):
     text: str = Field(repr=False)
     usage: Usage = Field(default_factory=Usage)
     model_id: str = ""
+
+
+def extract_json_object(text: str) -> str:
+    """Return the first complete JSON object, ignoring prose around it (e.g. reasoning).
+
+    Extraction only: callers still validate against their schema and every generated
+    SQL still passes the guard, so this never weakens any security boundary.
+    """
+    start = text.find("{")
+    while start != -1:
+        depth, in_string, escaped = 0, False, False
+        for index in range(start, len(text)):
+            char = text[index]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+            elif char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start : index + 1]
+        start = text.find("{", start + 1)
+    return text
 
 
 class StreamChunk(BaseModel):
@@ -136,15 +170,20 @@ class ModelTransport(Protocol):
 class LiteLLMTransport:
     @staticmethod
     def _options(model: ModelConfig) -> dict[str, Any]:
-        return {
+        options = {
             "model": model.model,
             "api_key": model.api_key.get_secret_value(),
             "api_base": model.base_url,
             "timeout": model.timeout_seconds,
             "num_retries": 0,
         }
+        if model.reasoning_effort:
+            options["reasoning_effort"] = model.reasoning_effort
+        return options
 
     async def chat(self, model: ModelConfig, messages: list[ChatMessage]) -> ChatResponse:
+        if model.api == "responses":
+            return await self._responses_request(model, messages)
         from litellm import acompletion
 
         result: Any = await acompletion(
@@ -158,9 +197,73 @@ class LiteLLMTransport:
             ),
         )
 
+    async def _responses_request(
+        self, model: ModelConfig, messages: list[ChatMessage]
+    ) -> ChatResponse:
+        """Responses protocol: instructions carry the system role; reasoning stays separate."""
+        import httpx
+
+        instructions = "\n\n".join(
+            message.content for message in messages if message.role == "system"
+        )
+        conversation = [
+            {"role": message.role, "content": message.content}
+            for message in messages
+            if message.role != "system"
+        ]
+        body: dict[str, Any] = {"model": model.model.removeprefix("openai/")}
+        if conversation:
+            body["input"] = conversation
+            if instructions:
+                body["instructions"] = instructions
+        else:
+            # Prompts built from a single system message: some gateways reject an empty
+            # `input` (405), so the prompt itself becomes the user input.
+            body["input"] = [{"role": "user", "content": instructions}]
+        if model.reasoning_effort:
+            body["reasoning"] = {"effort": model.reasoning_effort}
+        try:
+            async with httpx.AsyncClient(timeout=model.timeout_seconds) as client:
+                response = await client.post(
+                    f"{(model.base_url or '').rstrip('/')}/responses",
+                    headers={"Authorization": f"Bearer {model.api_key.get_secret_value()}"},
+                    json=body,
+                )
+        except httpx.HTTPError:
+            # Message stays categorical; never leak endpoint URLs or response bodies.
+            raise RuntimeError("responses transport unavailable") from None
+        if response.status_code != 200:
+            raise RuntimeError(f"responses api status {response.status_code}")
+        data: Any = response.json()
+        text = (
+            "".join(
+                part.get("text") or ""
+                for item in data.get("output") or []
+                if item.get("type") == "message"
+                for part in item.get("content") or []
+                if part.get("type") == "output_text"
+            )
+            or data.get("output_text")
+            or ""
+        )
+        usage = data.get("usage") or {}
+        return ChatResponse(
+            text=text,
+            model_id=model.id,
+            usage=Usage(
+                tokens_in=usage.get("input_tokens") or 0,
+                tokens_out=usage.get("output_tokens") or 0,
+            ),
+        )
+
     async def stream(
         self, model: ModelConfig, messages: list[ChatMessage]
     ) -> AsyncIterator[StreamChunk]:
+        if model.api == "responses":
+            # No SSE parsing: one final chunk keeps the same contract for responses models.
+            response = await self.chat(model, messages)
+            yield StreamChunk(text=response.text, usage=response.usage)
+            return
         from litellm import acompletion
 
         result: Any = await acompletion(
@@ -200,6 +303,10 @@ T = TypeVar("T")
 
 
 class _Client:
+    # Throttled endpoints blackhole or reject bursts; never retry immediately.
+    retry_backoff_seconds = 0.5
+    retry_backoff_cap = 8.0
+
     def __init__(
         self,
         registry: ModelRegistry,
@@ -227,7 +334,11 @@ class _Client:
         if model.fallback_id:
             candidates.append(await self.registry.get(model.fallback_id, kind))
         for candidate in candidates:
-            for _ in range(candidate.retries + 1):
+            for attempt in range(candidate.retries + 1):
+                if attempt:
+                    await asyncio.sleep(
+                        min(self.retry_backoff_seconds * 2**attempt, self.retry_backoff_cap)
+                    )
                 start = time.monotonic()
                 usage, success = Usage(), False
                 try:

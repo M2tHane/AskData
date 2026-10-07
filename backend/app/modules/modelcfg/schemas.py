@@ -9,6 +9,10 @@ class ModelParameters(BaseModel):
     model_config = ConfigDict(extra="forbid")
     timeout_seconds: float = Field(default=30, gt=0, le=300)
     retries: int = Field(default=2, ge=0, le=3)
+    # "responses" selects the OpenAI Responses protocol for reasoning models whose
+    # thinking text would otherwise pollute chat/completions content.
+    api: Literal["chat", "responses"] = "chat"
+    reasoning_effort: Literal["low", "medium", "high"] | None = None
 
 
 class ModelWrite(BaseModel):

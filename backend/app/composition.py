@@ -42,7 +42,12 @@ from app.core.llm import (
     RerankClient,
 )
 from app.core.permission import PermissionService, RedisScopeCache, TableGrant
-from app.core.retention import DatabaseRetentionStore, RetentionService
+from app.core.retention import (
+    CompositeRetentionStore,
+    DatabaseRetentionStore,
+    RetentionService,
+    RetentionStore,
+)
 from app.core.sql.dialect import Dialect
 from app.core.sql.executor import QueryLimits, RedisQueryLimiter, SqlExecutor
 from app.core.sql.guard import SqlGuard
@@ -82,6 +87,7 @@ from app.modules.schema import service as schema
 from app.modules.semantic import service as semantic
 from app.modules.upload.repository import UploadRepository
 from app.modules.upload.service import UploadService
+from app.modules.upload.service import build_retention_store as build_upload_retention
 from app.modules.usage import service as usage
 
 
@@ -394,6 +400,23 @@ class Composition:
             permissions=PermissionService(RuntimeGrants(self), self.cache),
         )
 
+    async def upload_retention_store(self, session: AsyncSession) -> RetentionStore | None:
+        """Scheduler identity only; the store re-checks the actor inside purge."""
+        if self.storage is None or self.settings.scheduler_admin_id is None:
+            return None
+        try:
+            actor = await org.build_service(session).identity(self.settings.scheduler_admin_id)
+        except AppError:
+            return None
+        if actor.role != Role.ADMIN:
+            return None
+        return build_upload_retention(
+            session,
+            self.storage,
+            actor=actor,
+            retention_days=self.settings.retention_days,
+        )
+
     @asynccontextmanager
     async def services(
         self, *, transaction: bool = False, admin_id: int = 0
@@ -456,12 +479,20 @@ class Composition:
 
         async def retention(context: TaskContext) -> None:
             async with self.database.transaction() as session:
-                await RetentionService(
+                stores: list[RetentionStore] = [
                     DatabaseRetentionStore(
                         session,
                         [cast(Table, model.__table__) for model in (AuditLog, QueryRun, TaskRun)],
-                    )
-                ).run()
+                    ),
+                    chat.build_retention_store(session),
+                    feedback.build_retention_store(session),
+                ]
+                # Upload history needs object storage and a real admin; without either,
+                # core/chat/feedback cleanup still runs instead of blocking the schedule.
+                upload_store = await self.upload_retention_store(session)
+                if upload_store is not None:
+                    stores.append(upload_store)
+                await RetentionService(CompositeRetentionStore(stores)).run()
             await context.progress(100)
 
         return {

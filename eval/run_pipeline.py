@@ -107,8 +107,9 @@ async def replay(args: argparse.Namespace) -> tuple[dict[str, Any], bool]:
         for case in safety:
             if not case.candidate_sql:
                 raise AppError(ErrorCode.VALIDATION_ERROR)
+            # The replay pipeline has no retrieval candidates, so the clarification
+            # stage never calls the model: the SQL response is the first call.
             scripts[case.id] = [
-                json.dumps({"clarify": False}),
                 json.dumps({"sql": assets.map_sql(case.datasource, case.candidate_sql)}),
             ]
         case_ids = [case.id for case in safety]

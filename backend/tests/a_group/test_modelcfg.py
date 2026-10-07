@@ -45,7 +45,7 @@ async def test_three_model_types_preferences_connection_and_secret_masks(identit
             assert (await service.test(created.id, actor=world.admin)).available
         assert len(usage.records) == 3
         assert {record.model_id for record in usage.records} == {"1", "2", "3"}
-        assert all(record.prompt_version == "explanation:v1" for record in usage.records)
+        assert all(record.prompt_version == "explanation:v2" for record in usage.records)
         listing = await service.list(PageParams(), actor=world.leader)
         assert "model-secret" not in listing.model_dump_json()
         audits = list(await session.scalars(select(AuditLog)))

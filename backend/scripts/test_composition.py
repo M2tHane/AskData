@@ -2,8 +2,11 @@
 
 import asyncio
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from pathlib import Path
 from typing import cast
+from uuid import uuid4
 
 import pytest
 from alembic import command
@@ -12,17 +15,25 @@ from arq.connections import ArqRedis
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
+from sqlalchemy import select
 
 from app.composition import Composition, PendingUploadGrants, RuntimeSettings
+from app.core.audit import AuditLog, QueryRun
 from app.core.config import Settings, get_settings
 from app.core.db import Database
 from app.core.errors import AppError
 from app.core.importer import ImportReadGateway, PostgresImportGateway
 from app.core.permission import PermissionService, RedisScopeCache
+from app.core.storage import StoredObject, object_key
+from app.core.tasks import TaskContext, TaskRecord, TaskStatus
 from app.main import create_app
 from app.modules.auth.schemas import LoginRequest
+from app.modules.chat.models import Conversation, Message
+from app.modules.datasource.models import DatasourceRecord
+from app.modules.feedback.models import Feedback
 from app.modules.org.schemas import TeamWrite
-from tests.fakes import MemoryScopeCache
+from app.modules.upload.models import UploadJob
+from tests.fakes import MemoryScopeCache, MemoryTaskStore
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -134,3 +145,187 @@ async def test_task_registry_contains_all_business_jobs(runtime: Composition) ->
         "embedding.rebuild",
         "retention",
     }
+
+
+class MemoryRetentionStorage:
+    def __init__(self) -> None:
+        self.values: dict[str, bytes] = {}
+        self.deleted: list[str] = []
+
+    async def put(self, key: str, data: bytes, content_type: str) -> StoredObject:
+        self.values[key] = data
+        return StoredObject(key=key, size=len(data), sha256=sha256(data).hexdigest())
+
+    async def get(self, key: str) -> bytes:
+        return self.values[key]
+
+    async def delete(self, key: str) -> None:
+        self.deleted.append(key)
+        self.values.pop(key, None)
+
+
+async def run_retention(runtime: Composition) -> None:
+    store = MemoryTaskStore()
+    record = TaskRecord(id=str(uuid4()), type="retention")
+    await store.create(record)
+    await store.transition(record.id, TaskStatus.QUEUED, TaskStatus.RUNNING)
+    await runtime.handlers()["retention"](TaskContext(record, store))
+
+
+async def test_retention_task_purges_expired_chat_feedback_and_upload_rows(
+    runtime: Composition, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(runtime, "storage", MemoryRetentionStorage())
+    now = datetime.now(UTC)
+    expired_at = now - timedelta(days=200)
+    live_at = now + timedelta(days=30)
+    async with runtime.services(transaction=True) as services:
+        session = services.session
+        for created_at in (expired_at, live_at):
+            session.add(
+                QueryRun(
+                    payload={},
+                    created_by=1,
+                    created_at=created_at,
+                    expires_at=live_at,
+                )
+            )
+        await session.flush()
+        runs = list(await session.scalars(select(QueryRun).order_by(QueryRun.id)))
+        expired_run, live_run = runs
+        session.add(
+            DatasourceRecord(
+                name="retention",
+                type="postgresql",
+                host="unused",
+                port=5432,
+                database="unused",
+                username="unused",
+                secret_enc="unused",
+                dialect="postgres",
+            )
+        )
+        conversation = Conversation(
+            user_id=1, datasource_id=1, title="retention", created_at=live_at
+        )
+        session.add(conversation)
+        await session.flush()
+        session.add(
+            Feedback(
+                query_run_id=expired_run.id,
+                query_run_created_at=expired_at,
+                user_id=1,
+                rating="down",
+                comment="",
+                snapshot={},
+                created_at=expired_at,
+                updated_at=expired_at,
+                expires_at=expired_at,
+            )
+        )
+        session.add(
+            Feedback(
+                query_run_id=live_run.id,
+                query_run_created_at=live_at,
+                user_id=1,
+                rating="up",
+                comment="",
+                snapshot={},
+                expires_at=live_at,
+            )
+        )
+        session.add(
+            Message(
+                conversation_id=conversation.id,
+                user_id=1,
+                role="user",
+                content="expired",
+                created_at=expired_at,
+                updated_at=expired_at,
+                expires_at=expired_at,
+            )
+        )
+        session.add(
+            Message(
+                conversation_id=conversation.id,
+                user_id=1,
+                role="assistant",
+                content="live",
+                expires_at=live_at,
+            )
+        )
+        keys = {}
+        for version, age in ((1, 200), (2, 10)):
+            keys[version] = object_key(1, 7, version, "sales.csv")
+            session.add(
+                UploadJob(
+                    datasource_id=7,
+                    owner_team_id=1,
+                    version=version,
+                    filename="sales.csv",
+                    file_key=keys[version],
+                    sha256="0" * 64,
+                    size=3,
+                    parse_config={"table_name": "sales"},
+                    mode="overwrite",
+                    status="success",
+                    row_count=1,
+                    created_by=1,
+                    created_at=now - timedelta(days=age),
+                    updated_at=now - timedelta(days=age),
+                )
+            )
+            await runtime.storage.put(keys[version], b"x\n1", "text/csv")
+
+    # Without a scheduler admin the upload cleaner stays off but the rest still runs.
+    await run_retention(runtime)
+    async with runtime.services() as services:
+        feedbacks = list(await services.session.scalars(select(Feedback)))
+        assert [item.rating for item in feedbacks] == ["up"]
+        messages = list(await services.session.scalars(select(Message)))
+        assert [item.content for item in messages] == ["live"]
+        assert len(list(await services.session.scalars(select(UploadJob)))) == 2
+        assert runtime.storage.deleted == []
+
+    runtime.settings = runtime.settings.model_copy(update={"scheduler_admin_id": 1})
+    await run_retention(runtime)
+    async with runtime.services() as services:
+        jobs = list(await services.session.scalars(select(UploadJob)))
+        assert [(item.datasource_id, item.version) for item in jobs] == [(7, 2)]
+        assert runtime.storage.deleted == [keys[1]]
+        audits = [
+            record
+            for record in await services.session.scalars(select(AuditLog))
+            if record.payload["action"] == "upload.retention"
+        ]
+        assert len(audits) == 1 and audits[0].payload["actor_id"] == 1
+
+
+async def test_retention_task_needs_a_live_admin_for_upload_history(
+    runtime: Composition, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(runtime, "storage", MemoryRetentionStorage())
+    runtime.settings = runtime.settings.model_copy(update={"scheduler_admin_id": 999})
+    async with runtime.services(transaction=True) as services:
+        services.session.add(
+            UploadJob(
+                datasource_id=7,
+                owner_team_id=1,
+                version=1,
+                filename="sales.csv",
+                file_key=object_key(1, 7, 1, "sales.csv"),
+                sha256="0" * 64,
+                size=3,
+                parse_config={"table_name": "sales"},
+                mode="overwrite",
+                status="success",
+                row_count=1,
+                created_by=1,
+                created_at=datetime.now(UTC) - timedelta(days=200),
+                updated_at=datetime.now(UTC) - timedelta(days=200),
+            )
+        )
+    await run_retention(runtime)
+    async with runtime.services() as services:
+        assert len(list(await services.session.scalars(select(UploadJob)))) == 1
+        assert runtime.storage.deleted == []

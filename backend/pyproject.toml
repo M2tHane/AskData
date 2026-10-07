@@ -4,15 +4,44 @@ version = "0.1.0"
 description = "AskData shared backend foundation"
 requires-python = ">=3.12,<3.15"
 dependencies = [
-  "fastapi", "uvicorn[standard]", "pydantic>=2,<3", "pydantic-settings",
-  "sqlalchemy[asyncio]>=2,<3", "alembic", "asyncpg", "aiomysql",
-  "redis", "arq", "minio", "sqlglot", "litellm", "cryptography",
-  "PyJWT", "argon2-cffi", "structlog", "opentelemetry-api",
-  "opentelemetry-sdk", "pgvector", "pandas", "openpyxl", "charset-normalizer",
+  "fastapi",
+  "uvicorn[standard]",
+  "pydantic>=2,<3",
+  "pydantic-settings",
+  "sqlalchemy[asyncio]>=2,<3",
+  "alembic",
+  "asyncpg",
+  "aiomysql",
+  "redis",
+  "arq",
+  "minio",
+  "sqlglot",
+  "litellm",
+  "cryptography",
+  "PyJWT",
+  "argon2-cffi",
+  "structlog",
+  "opentelemetry-api",
+  "opentelemetry-sdk",
+  "pgvector",
+  "pandas",
+  "openpyxl",
+  "charset-normalizer",
+  "pyyaml>=6,<7",
 ]
 
 [dependency-groups]
-dev = ["ruff", "mypy", "pytest", "pytest-asyncio", "pytest-cov", "httpx", "import-linter", "aiosqlite"]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "httpx",
+    "import-linter",
+    "aiosqlite",
+    "types-pyyaml>=6.0.12.20260906",
+]
 
 [build-system]
 requires = ["hatchling"]
