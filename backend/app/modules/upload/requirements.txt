@@ -1,0 +1,2 @@
+# pandas uses xlrd for legacy .xls; installed in the shared image only.
+xlrd==2.0.2
