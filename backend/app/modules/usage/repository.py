@@ -12,7 +12,7 @@ from app.core.deps import CurrentUser, Role
 from app.core.errors import AppError, ErrorCode
 from app.core.llm import CallContext, CallRecord
 from app.core.response import PageParams
-from app.modules.usage.models import TeamQuota, UsageDaily, UsageReservation
+from app.modules.usage.models import TeamQuota, UsageDaily, UsageQuery, UsageReservation
 from app.modules.usage.schemas import QuotaInput
 
 
@@ -55,13 +55,43 @@ class UsageRepository:
         row = await self.quota(team_id, True)
         return await BaseRepository(self.session, TeamQuota).update(row, data.model_dump())
 
+    async def admit_query(self, context: CallContext, quota: TeamQuota | None = None) -> None:
+        if context.team_id is None or context.query_id is None:
+            return
+        quota = quota or await self.quota(context.team_id, True)
+        receipt = await self.session.scalar(
+            select(UsageQuery).where(
+                UsageQuery.team_id == context.team_id, UsageQuery.query_id == context.query_id
+            )
+        )
+        if receipt is not None:
+            if receipt.user_id != context.user_id:
+                raise AppError(ErrorCode.CONFLICT)
+            return
+        today = datetime.now(UTC).date()
+        if quota.daily_date != today:
+            quota.daily_date, quota.daily_calls = today, 0
+        if quota.daily_query_limit is not None and quota.daily_calls >= quota.daily_query_limit:
+            raise AppError(ErrorCode.QUOTA_EXCEEDED, http_status=429)
+        quota.daily_calls += 1
+        self.session.add(
+            UsageQuery(
+                query_id=context.query_id,
+                team_id=context.team_id,
+                user_id=context.user_id,
+                date=today,
+                created_by=context.user_id,
+            )
+        )
+        await self.session.flush()
+
     async def reserve(self, context: CallContext, reservation_id: str) -> None:
         if context.team_id is None:
             return
         quota = await self.quota(context.team_id, True)
-        today, now = date.today(), datetime.now(UTC)
-        if quota.daily_date != today:
-            quota.daily_date, quota.daily_calls = today, 0
+        await self.admit_query(context, quota)
+        now = datetime.now(UTC)
+        today = now.date()
         tokens = (
             await self.session.scalar(
                 select(
@@ -83,13 +113,8 @@ class UsageRepository:
             )
             or 0
         )
-        if (
-            quota.daily_query_limit is not None and quota.daily_calls >= quota.daily_query_limit
-        ) or (
-            quota.monthly_token_limit is not None and tokens + pending >= quota.monthly_token_limit
-        ):
+        if quota.monthly_token_limit is not None and tokens + pending >= quota.monthly_token_limit:
             raise AppError(ErrorCode.QUOTA_EXCEEDED, http_status=429)
-        quota.daily_calls += 1
         self.session.add(
             UsageReservation(
                 reservation_id=reservation_id,
@@ -112,7 +137,7 @@ class UsageRepository:
             pg_insert if self.session.get_bind().dialect.name == "postgresql" else sqlite_insert
         )
         statement = insert(UsageDaily).values(
-            date=date.today(),
+            date=datetime.now(UTC).date(),
             team_id=record.team_id,
             user_id=record.user_id,
             model_id=record.model_id,

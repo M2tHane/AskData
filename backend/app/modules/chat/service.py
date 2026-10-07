@@ -107,10 +107,14 @@ class ChatService:
     ) -> QueryContext:
         conversation = await self.repository.get(identifier, actor.id)
         question = request.question
+        query_id = None
         used = False
         if request.clarification_message_id is not None:
             if not request.clarification_choice:
                 raise AppError(ErrorCode.VALIDATION_ERROR)
+            query_id = await self.repository.clarification_query_id(
+                identifier, request.clarification_message_id
+            )
             question = await self.repository.consume_clarification(
                 identifier, request.clarification_message_id, request.clarification_choice
             )
@@ -134,6 +138,7 @@ class ChatService:
             clarification_used=used,
             clarification_choice=request.clarification_choice,
             message_id=message.id,
+            query_id=query_id or f"chat:{identifier}:{message.id}",
         )
 
     async def finish(self, ctx: QueryContext) -> QueryReply:
@@ -357,6 +362,9 @@ class ChatRetentionStore:
     def __init__(self, repository: ChatRepository) -> None:
         self.repository = repository
 
+    async def purge(self, before: datetime) -> dict[str, int]:
+        return {"message": await self.purge_before(before)}
+
     async def purge_before(self, now: datetime) -> int:
         return await self.repository.purge_before(now)
 
@@ -367,6 +375,9 @@ def build_retention_store(session: AsyncSession) -> ChatRetentionStore:
 
 class _MissingUsageRecorder:
     """Fail closed until the quota/usage service is wired through its public protocol."""
+
+    async def authorize_query(self, context: CallContext) -> None:
+        raise AppError(ErrorCode.LLM_UNAVAILABLE, http_status=503)
 
     async def authorize(self, context: CallContext) -> None:
         raise AppError(ErrorCode.LLM_UNAVAILABLE, http_status=503)

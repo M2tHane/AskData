@@ -11,6 +11,7 @@ class QueryMetadata(BaseModel):
     question: str = Field(default="", max_length=10000)
     conversation_id: int | None = None
     message_id: int | None = None
+    query_id: str | None = Field(default=None, min_length=1, max_length=128)
     model_id: str = ""
     generated_sql: str | None = None
     stage_timings: dict[str, int] = Field(default_factory=dict)

@@ -177,6 +177,12 @@ class MemoryChatRepository:
             self.sql_by_message[message.id] = sql
         return message
 
+    async def clarification_query_id(self, identifier, message_id):
+        pending = self.pending.get(message_id)
+        if pending is None:
+            raise AppError(ErrorCode.CONFLICT)
+        return f"chat:{identifier}:{pending[1]}"
+
     async def consume_clarification(self, identifier, message_id, choice):
         pending = self.pending.get(message_id)
         if pending is None:
@@ -309,6 +315,8 @@ async def test_clarification_resumes_original_question_once_and_is_not_replayabl
     assert transport.calls_by_prompt.count("clarification") == 1
     assert "近7天" in logs.records[-1].details["time_ranges"]
     assert "ignored replacement" not in logs.records[-1].details["question"]
+    assert logs.records[0].query_id == logs.records[1].query_id
+    assert len({record.query_id for record in service.pipeline.deps.llm.recorder.records}) == 1
     with pytest.raises(AppError):
         await service.ask(conversation.id, request, actor=member)
 

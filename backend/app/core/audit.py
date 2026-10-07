@@ -44,6 +44,7 @@ class QueryLogRecord(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
     conversation_id: int | None = None
     message_id: int | None = None
+    query_id: str | None = Field(default=None, min_length=1, max_length=128)
     question: str = ""
     generated_sql: str | None = None
     error: str | None = None
@@ -189,6 +190,7 @@ class QueryLogWriter:
                 details=redact(details or {}),
                 conversation_id=(details or {}).get("conversation_id"),
                 message_id=(details or {}).get("message_id"),
+                query_id=(details or {}).get("query_id"),
                 question=(details or {}).get("question", ""),
                 generated_sql=(details or {}).get("generated_sql"),
                 error=(details or {}).get("error"),

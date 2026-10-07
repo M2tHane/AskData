@@ -10,15 +10,27 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import select, text
 
-from app.core.audit import DatabaseQueryLogStore, QueryLogRecord, QueryRun
+from app.core.audit import (
+    AuditService,
+    DatabaseAuditStore,
+    DatabaseQueryLogStore,
+    QueryLogRecord,
+    QueryRun,
+)
 from app.core.config import get_settings
 from app.core.db import Database
+from app.core.errors import AppError, ErrorCode
+from app.core.llm import CallContext, CallRecord, Usage
 from app.modules.chat.models import Conversation, Message
 from app.modules.datasource.models import DatasourceRecord
 from app.modules.embedding.models import EmbeddingItem
 from app.modules.embedding.repository import EmbeddingRepository
 from app.modules.org.models import Team, User
 from app.modules.schema.models import MetaColumn, MetaTable
+from app.modules.usage.models import TeamQuota, UsageDaily, UsageQuery
+from app.modules.usage.repository import UsageRepository
+from app.modules.usage.schemas import QuotaInput
+from app.modules.usage.service import UsageService
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -97,7 +109,7 @@ async def test_postgres_monthly_partition_indexes_payload_and_downgrade(monkeypa
                     expires_at=datetime.now(UTC) + timedelta(days=90),
                 )
             )
-        await asyncio.to_thread(command.upgrade, config, "0004")
+        await asyncio.to_thread(command.upgrade, config, "0006_g1")
         await database.engine.dispose()
         async with database.transaction() as session:
             partitions = await session.scalar(
@@ -211,9 +223,49 @@ async def test_postgres_monthly_partition_indexes_payload_and_downgrade(monkeypa
             assert await session.scalar(text("SELECT count(*) FROM feedback")) == 0
             await session.refresh(message)
             assert message.query_run_id is None and message.query_run_created_at is None
+        async with database.transaction() as session:
+            await UsageRepository(session, database.sessions).set_quota(
+                1, QuotaInput(daily_query_limit=1)
+            )
+        shared = CallContext(user_id=1, team_id=1, query_id="pg-shared", prompt_version="sql:v1")
+
+        async def admit(context):
+            async with database.session() as session:
+                service = UsageService(
+                    UsageRepository(session, database.sessions),
+                    AuditService(DatabaseAuditStore(session)),
+                )
+                try:
+                    await service.authorize_query(context)
+                    await service.authorize(context)
+                    await service.record(
+                        CallRecord(
+                            **context.model_dump(),
+                            model_id="fake",
+                            usage=Usage(tokens_in=3, tokens_out=1),
+                            duration_ms=1,
+                            success=True,
+                        )
+                    )
+                    return "allowed"
+                except AppError as error:
+                    return error.code
+
+        assert await asyncio.gather(*(admit(shared) for _ in range(4))) == ["allowed"] * 4
+        distinct = [shared.model_copy(update={"query_id": f"pg-new-{i}"}) for i in range(3)]
+        assert (
+            await asyncio.gather(*(admit(context) for context in distinct))
+            == [ErrorCode.QUOTA_EXCEEDED] * 3
+        )
+        async with database.session() as session:
+            assert (await session.scalar(select(TeamQuota))).daily_calls == 1
+            assert len(list(await session.scalars(select(UsageQuery)))) == 1
+            daily = await session.scalar(select(UsageDaily))
+            assert daily.calls == 4 and daily.tokens_in + daily.tokens_out == 16
         await asyncio.to_thread(command.downgrade, config, "0002")
         await database.engine.dispose()
         async with database.session() as session:
+            assert await session.scalar(text("SELECT to_regclass('usage_query')")) is None
             assert len(list(await session.scalars(select(QueryRun)))) == 2
             assert (
                 await session.scalar(

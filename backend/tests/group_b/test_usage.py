@@ -1,4 +1,5 @@
 import asyncio
+from uuid import uuid4
 
 import pytest
 
@@ -19,7 +20,10 @@ def usage_service(database, session):
 
 def context(member):
     return CallContext(
-        user_id=member.id, team_id=member.team_id, prompt_version="sql_generation:v1"
+        user_id=member.id,
+        team_id=member.team_id,
+        prompt_version="sql_generation:v1",
+        query_id=str(uuid4()),
     )
 
 

@@ -81,7 +81,7 @@ async def b_database(tmp_path, monkeypatch):
     get_settings.cache_clear()
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
-    await asyncio.to_thread(command.upgrade, config, "0003")
+    await asyncio.to_thread(command.upgrade, config, "head")
     database = Database(url)
     async with database.transaction() as session:
         session.add_all([Team(id=1, name="one"), Team(id=2, name="two")])

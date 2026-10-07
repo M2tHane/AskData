@@ -1,7 +1,9 @@
 import asyncio
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any, Literal, Protocol, TypeVar
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any, Literal, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel, Field, SecretStr
 
@@ -65,10 +67,31 @@ class StreamChunk(BaseModel):
     usage: Usage | None = None
 
 
+_query_id: ContextVar[str | None] = ContextVar("llm_query_id", default=None)
+
+
+@contextmanager
+def query_call_scope(query_id: str) -> Iterator[None]:
+    """Propagate a server-owned question ID to nested retrieval/model calls, task locally."""
+    token = _query_id.set(query_id)
+    try:
+        yield
+    finally:
+        _query_id.reset(token)
+
+
 class CallContext(BaseModel):
     user_id: int
     team_id: int | None = None
     prompt_version: str
+    query_id: str | None = Field(
+        default_factory=lambda: _query_id.get(), min_length=1, max_length=128
+    )
+
+
+def normalize_call_context(context: CallContext) -> CallContext:
+    """Keep explicit IDs; fill contexts created before entering a question's scope."""
+    return context.model_copy(update={"query_id": context.query_id or _query_id.get()})
 
 
 class CallRecord(BaseModel):
@@ -79,6 +102,16 @@ class CallRecord(BaseModel):
     usage: Usage
     duration_ms: int
     success: bool
+    query_id: str | None = Field(
+        default_factory=lambda: _query_id.get(), min_length=1, max_length=128
+    )
+
+
+@runtime_checkable
+class QueryQuotaRecorder(Protocol):
+    async def authorize_query(self, context: CallContext) -> None:
+        """Admit one question, including questions that need no model call, idempotently."""
+        ...
 
 
 class UsageRecorder(Protocol):
@@ -176,12 +209,18 @@ class _Client:
         self.registry, self.recorder = registry, recorder
         self.transport = transport or LiteLLMTransport()
 
+    async def authorize_query(self, context: CallContext) -> None:
+        # Optional extension preserves existing recorders and fixed-model evaluation clients.
+        if isinstance(self.recorder, QueryQuotaRecorder):
+            await self.recorder.authorize_query(context)
+
     async def _invoke(
         self,
         kind: str,
         context: CallContext,
         operation: Callable[[ModelConfig], Awaitable[tuple[T, Usage]]],
     ) -> T:
+        context = normalize_call_context(context)
         await self.recorder.authorize(context)
         model = await self.registry.select(context.team_id, kind)
         candidates = [model]
@@ -238,6 +277,7 @@ class LLMClient(_Client):
     async def stream(
         self, messages: list[ChatMessage], context: CallContext
     ) -> AsyncIterator[StreamChunk]:
+        context = normalize_call_context(context)
         await self.recorder.authorize(context)
         model = await self.registry.select(context.team_id, "llm")
         candidates = [model]

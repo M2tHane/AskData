@@ -5,10 +5,11 @@ from sqlalchemy import select
 from app.core.audit import QueryRun
 from app.core.errors import AppError, ErrorCode
 from app.core.response import PageParams
-from app.core.retention import DatabaseRetentionStore
+from app.core.retention import CompositeRetentionStore, DatabaseRetentionStore
 from app.core.sql.executor import QueryResult
 from app.modules.feedback.models import Feedback
 from app.modules.feedback.schemas import ConversionInput, ExampleInput, ExampleReview, FeedbackInput
+from app.modules.feedback.service import build_retention_store
 from app.modules.querylog.schemas import QueryMetadata
 
 
@@ -105,8 +106,11 @@ async def test_eval_copy_survives_snapshot_retention(b_services, member, leader)
     assert converted.converted_ref == "eval:1"
     from datetime import UTC, datetime, timedelta
 
-    await DatabaseRetentionStore(
-        b_services.session, [Feedback.__table__, QueryRun.__table__]
+    await CompositeRetentionStore(
+        [
+            build_retention_store(b_services.session),
+            DatabaseRetentionStore(b_services.session, [QueryRun.__table__]),
+        ]
     ).purge(datetime.now(UTC) + timedelta(days=91))
     assert not list(await b_services.session.scalars(select(Feedback)))
     assert b_services.evaluations.cases[0][0]["question"] == "orders"

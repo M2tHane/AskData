@@ -17,6 +17,11 @@ class UsageService:
         self.repository, self.audit = repository, audit
         self.reservation: ContextVar[str | None] = ContextVar("usage_reservation", default=None)
 
+    async def authorize_query(self, context: CallContext) -> None:
+        """Reserve a daily question slot durably; model calls reserve only token capacity."""
+        async with self.repository.accounting() as repository:
+            await repository.admit_query(context)
+
     async def authorize(self, context: CallContext) -> None:
         identifier = str(uuid4())
         async with self.repository.accounting() as repository:

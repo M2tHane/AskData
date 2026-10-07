@@ -42,7 +42,7 @@ from app.modules.chat.service import (  # type: ignore[attr-defined]
 from app.modules.eval.assets import EvalAssets
 from app.modules.eval.schemas import EvalCaseInput, Evaluation, PipelineOutcome, RunRequest
 from app.modules.eval.scoring import evaluate, summarize
-from app.modules.eval.service import EvalQuestion, GuardedReferenceRunner
+from app.modules.eval.service import EvalQuestion, GuardedReferenceRunner, case_clock
 
 
 class FixtureBindings(BaseModel):
@@ -384,7 +384,7 @@ async def run_suite(
                     as_user=case.as_user,
                     question=case.question,
                     history=case.history,
-                    clock=assets.fixtures["clock"],
+                    clock=case_clock(case, assets.fixtures["clock"]),
                     injection_context=case.injection_context,
                 ),
                 config,

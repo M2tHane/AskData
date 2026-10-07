@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal, Protocol
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi.encoders import jsonable_encoder
@@ -15,7 +16,7 @@ from app.core.audit import QueryLogWriter
 from app.core.datasource import Datasource
 from app.core.deps import CurrentUser
 from app.core.errors import MESSAGES, AppError, ErrorCode, SqlBlocked
-from app.core.llm import CallContext, ChatMessage, LLMClient
+from app.core.llm import CallContext, ChatMessage, LLMClient, query_call_scope
 from app.core.permission import PermissionService, TableScope, VisibleScope
 from app.core.prompt import PromptId, PromptRegistry
 from app.core.scope import ScopedQuery
@@ -213,6 +214,7 @@ class QueryContext:
     clarification_choice: str | None = None
     message_id: int | None = None
     query_run_id: int | None = None
+    query_id: str = field(default_factory=lambda: f"query:{uuid4()}")
     datasource: Datasource | None = field(default=None, repr=False)
     scope: VisibleScope | None = field(default=None, repr=False)
     history: list[MessageView] = field(default_factory=list, repr=False)
@@ -250,6 +252,7 @@ class QueryContext:
         return {
             "conversation_id": self.conversation_id,
             "message_id": self.message_id,
+            "query_id": self.query_id,
             "question": self.question,
             "user_id": self.user.id,
             "team_id": self.user.team_id,
@@ -723,8 +726,20 @@ class QueryPipeline:
         ]
 
     async def run(self, ctx: QueryContext) -> QueryContext:
+        with query_call_scope(ctx.query_id):
+            return await self._run(ctx)
+
+    async def _run(self, ctx: QueryContext) -> QueryContext:
         cancelled = False
         try:
+            await self.deps.llm.authorize_query(
+                CallContext(
+                    user_id=ctx.user.id,
+                    team_id=ctx.user.team_id,
+                    query_id=ctx.query_id,
+                    prompt_version="",
+                )
+            )
             for stage in self.stages[:-1]:
                 started = time.monotonic()
                 await ctx.event(EventType.STAGE, {"name": stage.name})

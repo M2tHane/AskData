@@ -1,5 +1,5 @@
 name: askdata
-# Backend-only deployment: nginx is the sole public ingress; no frontend assets.
+# Backend-only phase: web/nginx remains commented until frontend delivery.
 # Infrastructure ports are published only by the explicit development override.
 x-runtime: &runtime
   image: askdata-backend:0.1.0
@@ -30,14 +30,14 @@ x-runtime: &runtime
     ASKDATA_EVAL_SEMANTIC_ALIASES: '${EVAL_SEMANTIC_ALIASES:-{}}'
     ASKDATA_EVAL_METRIC_ALIASES: '${EVAL_METRIC_ALIASES:-{}}'
 services:
-  web:
-    image: nginx:1.28-alpine
-    restart: unless-stopped
-    networks: [internal]
-    ports: ['${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:80']
-    volumes: ['./nginx.conf:/etc/nginx/conf.d/default.conf:ro']
-    depends_on:
-      api: {condition: service_healthy}
+  # web:
+  #   image: nginx:1.28-alpine
+  #   restart: unless-stopped
+  #   networks: [internal]
+  #   ports: ['${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:80']
+  #   volumes: ['./nginx.conf:/etc/nginx/conf.d/default.conf:ro']
+  #   depends_on:
+  #     api: {condition: service_healthy}
   migrate:
     <<: *runtime
     restart: 'no'
@@ -47,7 +47,7 @@ services:
   api:
     <<: *runtime
     # Never receives ASKDATA_IMPORT_WRITER_URL or the write password.
-    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, '8000']
+    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, '8000', --no-access-log]
     expose: ['8000']
     depends_on:
       migrate: {condition: service_completed_successfully}
@@ -62,6 +62,12 @@ services:
   worker:
     <<: *runtime
     command: [arq, app.worker.WorkerSettings]
+    healthcheck:
+      test: [CMD, arq, --check, app.worker.WorkerSettings]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
     environment:
       <<: *environment
       ASKDATA_IMPORT_WRITER_URL: postgresql://import_writer:${IMPORT_WRITER_PASSWORD:?required}@pg-import:5432/askdata_import

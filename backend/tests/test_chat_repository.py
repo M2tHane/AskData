@@ -206,3 +206,105 @@ async def test_chat_retention_removes_expired_messages_without_deleting_live_chi
         child_row = await session.get(Message, child.id)
         await session.refresh(child_row)
         assert child_row.content == "live answer" and child_row.parent_message_id is None
+
+
+def quota_chat_service(database, session, pipeline):
+    from app.modules.usage.repository import UsageRepository
+    from app.modules.usage.service import UsageService
+
+    repository = ChatRepository(session)
+    audit = AuditService(DatabaseAuditStore(session))
+    pipeline.deps.history = repository.history
+    pipeline.deps.querylog = QueryLogWriter(DatabaseQueryLogStore(session))
+    pipeline.deps.llm.recorder = UsageService(UsageRepository(session, database.sessions), audit)
+    return ChatService(repository, pipeline, audit)
+
+
+async def test_daily_question_quota_survives_reconnect_and_one_round_clarification(
+    chat_database, system, member
+):
+    from app.modules.usage.models import TeamQuota, UsageDaily, UsageQuery
+
+    async with chat_database.transaction() as session:
+        session.add(TeamQuota(team_id=1, daily_query_limit=1))
+    pipeline = system[0].pipeline
+    async with chat_database.session() as session:
+        service = quota_chat_service(chat_database, session, pipeline)
+        conversation = await service.create(ConversationCreate(datasource_id=1), actor=member)
+        first = await service.ask(
+            conversation.id, QuestionRequest(question="最近订单"), actor=member
+        )
+        assert first.status == "clarify"
+    # Rebuild every service after reconnect; no request-local flag can bypass/double bill quota.
+    async with chat_database.session() as session:
+        service = quota_chat_service(chat_database, session, pipeline)
+        continued = await service.ask(
+            conversation.id,
+            QuestionRequest(
+                question="ignored",
+                clarification_message_id=first.message_id,
+                clarification_choice="近7天",
+            ),
+            actor=member,
+        )
+        assert continued.status == "success"
+        queries = list(await session.scalars(select(QueryRun).order_by(QueryRun.id)))
+        assert queries[0].payload["query_id"] == queries[1].payload["query_id"]
+        assert (await session.scalar(select(TeamQuota))).daily_calls == 1
+        assert len(list(await session.scalars(select(UsageQuery)))) == 1
+        assert sum(row.calls for row in await session.scalars(select(UsageDaily))) > 1
+        calls, executions = len(system[1].calls_by_prompt), len(system[2].executed)
+        denied = await service.ask(
+            conversation.id, QuestionRequest(question="同样的订单问题"), actor=member
+        )
+        assert denied.code == ErrorCode.QUOTA_EXCEEDED and denied.status == "failed"
+        assert denied.explanation and not denied.rows
+        assert len(system[1].calls_by_prompt) == calls and len(system[2].executed) == executions
+        latest = await session.scalar(select(QueryRun).order_by(QueryRun.id.desc()).limit(1))
+        assert latest.payload["error"] == ErrorCode.QUOTA_EXCEEDED.value
+        assert latest.payload["query_id"] != queries[0].payload["query_id"]
+
+
+async def test_zero_question_quota_denies_manual_sql_and_sse_before_any_model_or_execution(
+    chat_database, system, member
+):
+    from app.core.stream import EventType
+    from app.modules.usage.models import TeamQuota, UsageDaily, UsageQuery
+
+    async with chat_database.transaction() as session:
+        session.add(TeamQuota(team_id=1, daily_query_limit=0))
+    async with chat_database.session() as session:
+        service = quota_chat_service(chat_database, session, system[0].pipeline)
+        conversation = await service.create(ConversationCreate(datasource_id=1), actor=member)
+        rerun = await service.rerun(
+            conversation.id, RerunRequest(sql="SELECT id FROM orders"), actor=member
+        )
+        assert rerun.code == ErrorCode.QUOTA_EXCEEDED
+        ctx = await service.prepare(conversation.id, QuestionRequest(question="订单"), actor=member)
+        events = [event async for event in service.stream(ctx)]
+        assert [event.event for event in events[-2:]] == [EventType.ERROR, EventType.DONE]
+        assert events[-2].data["code"] == "QUOTA_EXCEEDED" and events[-2].data["message"]
+        assert not system[1].calls_by_prompt and not system[2].executed
+        assert not list(await session.scalars(select(UsageDaily)))
+        assert not list(await session.scalars(select(UsageQuery)))
+
+
+async def test_blocked_question_admission_survives_and_next_question_is_denied(
+    chat_database, system, member
+):
+    from app.modules.usage.models import TeamQuota, UsageQuery
+
+    async with chat_database.transaction() as session:
+        session.add(TeamQuota(team_id=1, daily_query_limit=1))
+    async with chat_database.session() as session:
+        service = quota_chat_service(chat_database, session, system[0].pipeline)
+        conversation = await service.create(ConversationCreate(datasource_id=1), actor=member)
+        blocked = await service.rerun(
+            conversation.id, RerunRequest(sql="DELETE FROM orders"), actor=member
+        )
+        assert blocked.status == "blocked"
+    async with chat_database.session() as session:
+        service = quota_chat_service(chat_database, session, system[0].pipeline)
+        denied = await service.ask(conversation.id, QuestionRequest(question="订单"), actor=member)
+        assert denied.code == ErrorCode.QUOTA_EXCEEDED and not system[2].executed
+        assert len(list(await session.scalars(select(UsageQuery)))) == 1

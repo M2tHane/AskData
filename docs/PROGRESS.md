@@ -327,3 +327,35 @@ uv run --frozen --with-requirements app/modules/upload/requirements.txt \
   pytest -q tests scripts/test_composition.py --external-services
 ```
 真实 Compose 冒烟的建环境/启动/执行/清理命令完整列在 docs/RUNBOOK.md；必须使用全新专用元数据库。剩余外范围：eval 尚缺允许负责人反馈转评测草稿的公开 service；upload 尚缺过期历史/对象公开清理接口。对应功能保持拒绝/明确限制，不直接跨模块写表。
+
+## G1+G2 补缺：精确每日提问额度与业务保留清理器（直接实施，未使用 subagent）
+
+前一批实施因额度中断，本节在共享工作区上完成两份缺口任务的剩余部分并修复遗留问题。写入范围：modules/usage、modules/feedback、modules/chat、modules/querylog、modules/upload、modules/eval、core/llm 兼容追加、迁移 0006、对应测试与本节/开放问题；未写前端，未改 main.py、worker.py、composition.py。
+
+已实现：
+- G1 精确每日提问额度：core/llm 新增向后兼容的 `CallContext.query_id`（contextvar 归一，chat 流水线经 `query_call_scope` 绑定）、`normalize_call_context` 与 `QueryQuotaRecorder.authorize_query`；usage 新增 `usage_query` 表（迁移 0006，(team_id, query_id) 唯一、按日索引）作幂等登记回执，重试与澄清共用同一 query_id 只计一次；token 预留仍逐调用，超额拒绝。原来按模型调用数计的 P1 缺口由此闭合。
+- G1 feedback：公开 `EvaluationSink` Protocol（由 eval 实现）与 `build_retention_store(session)` 保留清理器；快照继承 query_run.expires_at，复合外键级联删除，已转评测样例保留 eval 独立副本，转样例流程用假 sink 可测。
+- G2 upload：公开 `build_retention_store` 保留清理器，超期导入历史版本与 MinIO 源文件清理走 core/storage，保留当前版本。
+- G2 eval：`FeedbackCaseSink.create_case_from_feedback` / `EvalService.create_case_from_feedback`（source=feedback，负责人/管理员限本队，期望结果由人补充，参考 SQL 按原员工身份重新过守卫，审计 `eval.case.from_feedback`，与 feedback 转换同事务回滚），并保持 G1 Protocol 方法名 `create_from_feedback` 兼容。
+
+本节修复：
+- tests/test_g2_eval_feedback.py、tests/test_g2_upload_retention.py 改用仓库既有 `pytest_plugins = [...]` 夹具共享惯例，消除 18 处 F811/F401。
+- 失败测试 test_real_feedback_sink_persists_expectations_and_survives_snapshot_retention：querylog 的 context_snapshot 白名单保留的键是 `time_range`（chat 流水线实际写入的键），测试误写 `time_ranges` 被白名单剥掉导致时区回退到夹具默认值；已改为真实路径使用的键，eval sink 两者均兼容，白名单未放宽。
+- app/core/llm.py 两处 E501 行长。
+
+验证（backend/，全部实际运行）：
+- `uv run ruff check .`：All checks passed；`uv run ruff format --check .`：205 files already formatted。
+- `uv run mypy`：140 source files，零错误。
+- `uv run lint-imports --config importlinter.ini`：198 files、953 依赖，6 kept / 0 broken。
+- `uv run --frozen --with-requirements app/modules/upload/requirements.txt pytest -q`：520 passed, 7 skipped。
+- 同上加 `--external-services`（真实 PostgreSQL/MySQL/Redis/MinIO，临时容器）：527 passed, 0 failed, 0 skipped；2 个既有第三方非失败 warning（Starlette httpx 弃用、MySQL EXPLAIN）。
+- G1/G2 专项含 tests/group_b/test_query_quota_g1.py、tests/group_b/test_feedback_g1.py、tests/test_g2_eval_feedback.py（36 例）、tests/test_g2_upload_retention.py，均在上述全量内通过。
+
+复现（backend/）：
+```bash
+uv run ruff check . && uv run ruff format --check .
+uv run mypy
+uv run lint-imports --config importlinter.ini
+uv run --frozen --with-requirements app/modules/upload/requirements.txt pytest -q
+uv run --frozen --with-requirements app/modules/upload/requirements.txt pytest -q --external-services
+```

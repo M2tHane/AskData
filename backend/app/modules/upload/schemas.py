@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -36,6 +37,25 @@ class Preview(BaseModel):
 class ConfirmRequest(BaseModel):
     config: ParseConfig
     mode: Literal["overwrite", "append"] = "overwrite"
+
+
+class UploadRetentionPolicy(BaseModel):
+    retention_days: int = Field(default=90, ge=1, le=36500)
+    batch_size: int = Field(default=100, ge=1, le=10000)
+
+
+class UploadHistoryRecord(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    datasource_id: int
+    owner_team_id: int
+    version: int
+    filename: str
+    file_key: str
+    parse_config: dict[str, Any]
+    status: str
+    mode: str
+    updated_at: datetime
 
 
 class JobView(BaseModel):

@@ -75,7 +75,7 @@ Compose 暂不提供 web/宿主端口，在注释中说明无前端；nginx.conf
 - schema 同步及人工描述变更、semantic/metric 保存、示例审核均写入同事务的 embedding outbox；worker 须排队/定期消费更新任务。没有已绑定的 Embedding 服务时，超过阈值的混合检索保守返回不可用，不放大可见范围。模型配置的向量维度须匹配 0003 的固定 1024 列；首个模型也不再允许任意维度。变更维度仍需单独评审迁移。
 - `chat.service.build_retention_store(session)` 是可交给 `core.retention.CompositeRetentionStore` 的公开清理器，仅清理 chat 自有过期消息。消息引用 query_run 的 (id,created_at) 复合键，日志清理会 SET NULL；父消息清理也会 SET NULL，避免尚未过期的回答挡住清理。PostgreSQL 的 feedback 同期清理依赖 0003 的级联外键，转换出的评测样例由 eval 保留自己的副本。worker 必须装配 chat 清理器；I1 不改 worker。
 - PRD 的“切换图表类型”在无前端范围内以公开 `ChartSpec` 允许集合实现，客户端可根据同一已脱敏结果切换渲染；当前没有持久化个人图表偏好的后端需求。P0 Excel/CSV 完整导入、100 题全量回归、真实模型准确率、入口装配与部署验证分别归 upload/eval/其他总装者，I1 的测试不能替代这些验收。
-- P1 daily_query_limit 当前 UsageRecorder 按模型调用预留，查询流水线可能有多次调用；架构未定义 query 额度与调用额度的归一接口。保守策略维持逐调用限制，不能将它报告为精确的“每日提问数”；须由后续公共 CallContext/额度接口设计统一查询 ID。token 统计与已用 token 超额拒绝已有回归测试。
+- P1 daily_query_limit 原按模型调用预留，查询流水线可能有多次调用。已由 G1 解决：core/llm 新增 `CallContext.query_id`（contextvar 归一）与 `QueryQuotaRecorder.authorize_query`，usage 新增 `usage_query`（迁移 0006，(team_id, query_id) 唯一）作幂等登记回执，重试与澄清共用同一 query_id 只计一次，token 额度保持逐调用。回归见 tests/group_b/test_query_quota_g1.py。
 - 0002/0004 按本次未发布开发链修正。已有数据库若已经应用旧版同名 revision，不应直接重新运行旧 revision；后续发布者需为存量环境另建迁移，不在 I1 的 0002–0004 边界内编造线上升级记录。
 
 ## I1 对照清单（PRD P0 与架构 3.2/3.3/3.4/3.7/3.10/3.11/3.12）
@@ -169,6 +169,6 @@ ignore，未修改 chat 或绕过架构检查。复杂日期 SQL 无可靠结构
 - Docker Desktop bind mount 上的初始化脚本虽然为 0644，postgres entrypoint 仍尝试 exec，报 bad interpreter: Permission denied；重启后数据库可健康但 import_writer 不存在。deploy/start-import.sh 复制脚本到容器文件系统并 chmod 0644 后运行官方入口，pg-import 健康检查同时确认 TCP 就绪与写入 role 已创建。全新卷重复验证成功。
 - scripts/login.py 的 Path.open(opener=...) 不受 pathlib 支持，已改为线程中使用内置 open 与 0600 权限。
 
-剩余外范围接口：反馈转评测缺 eval 公共 create_from_feedback（需允许负责人创建独立草稿且审计，不伪造 admin、不直接写 eval 表）；过期上传历史/MinIO 对象缺公开清理 service。I3 对反馈转换保持既有 fail-closed，清理注册仅执行核心日志/任务及已有 FK 联动，不能宣称完整业务保留策略已实现。整仓并行写入期间的 Ruff 格式错误由各所属组处理，I3 没有越界格式化业务文件。
+剩余外范围接口已于 G1+G2 补缺完成：eval 公开 `create_case_from_feedback`（FeedbackCaseSink/EvalService，负责人限本队、审计、同事务回滚）；upload 与 feedback 各自公开 `build_retention_store` 保留清理器，可组合进 core 保留服务。整仓 ruff/format/mypy/import-linter/pytest（含外部服务 527 passed）全绿，证据与命令见 PROGRESS.md 的 G1+G2 补缺小节。I3 原有保留：整仓并行写入期间的 Ruff 格式错误由各所属组处理；本次已全部清零。
 
 最终整仓 ruff check 已通过；ruff format --check 仍报告 app/core/datasource.py:389 的末尾空行，属于 core 所有者范围，I3 范围格式检查通过。Nginx 1.28-alpine 的容器配置验证因镜像拉取超过 60 秒中止，未声明 nginx 容器或完整应用镜像 build 已验证；Compose config 与 shell 语法、基础设施和实际 API/worker HTTP 链路已验证。

@@ -30,6 +30,20 @@ class TeamQuota(AuditFields, Base):
     daily_calls: Mapped[int] = mapped_column(default=0)
 
 
+class UsageQuery(AuditFields, Base):
+    """Durable admission receipt; retries and a clarification share the same query_id."""
+
+    __tablename__ = "usage_query"
+    __table_args__ = (
+        UniqueConstraint("team_id", "query_id", name="uq_usage_query_team_query"),
+        Index("ix_usage_query_team_date", "team_id", "date"),
+    )
+    query_id: Mapped[str] = mapped_column(String(128))
+    team_id: Mapped[int] = mapped_column(ForeignKey("team.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    date: Mapped[date] = mapped_column(Date)
+
+
 class UsageReservation(AuditFields, Base):
     __tablename__ = "usage_reservation"
     reservation_id: Mapped[str] = mapped_column(String(36), unique=True)

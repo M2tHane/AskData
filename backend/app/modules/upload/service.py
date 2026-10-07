@@ -2,11 +2,15 @@ import asyncio
 import base64
 import binascii
 import hashlib
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import uuid4
 
-from app.core.audit import AuditService
+from pydantic import ValidationError
+
+from app.core.audit import AuditService, DatabaseAuditStore
 from app.core.datasource import ColumnMetadata, Datasource, TableMetadata
+from app.core.db import AsyncSession
 from app.core.deps import CurrentUser, Role
 from app.core.errors import AppError, ErrorCode, PermissionDenied
 from app.core.importer import ImportGateway, ImportPlan
@@ -26,6 +30,8 @@ from app.modules.upload.schemas import (
     JobView,
     Preview,
     PreviewRequest,
+    UploadHistoryRecord,
+    UploadRetentionPolicy,
 )
 
 
@@ -48,6 +54,114 @@ class UploadRegistration(Protocol):
         owner_team_id: int,
         actor: CurrentUser,
     ) -> None: ...
+
+
+class UploadRetentionStore:
+    """Purge expired, provably superseded source backups through core storage.
+
+    Keep each table's latest successful overwrite and every subsequent append, all
+    unfinished/failed jobs, and the highest allocated version. Deletion is retried
+    using retained metadata if object storage fails or the DB transaction rolls back.
+    """
+
+    def __init__(
+        self,
+        repository: UploadRepository,
+        storage: ObjectStore,
+        audit: AuditService,
+        actor: CurrentUser,
+        policy: UploadRetentionPolicy,
+    ) -> None:
+        self.repository, self.storage, self.audit = repository, storage, audit
+        self.actor, self.policy = actor, policy
+
+    @staticmethod
+    def _obsolete(rows: list[UploadHistoryRecord]) -> list[UploadHistoryRecord]:
+        if not rows:
+            return []
+        by_table: dict[str, list[UploadHistoryRecord]] = {}
+        for row in rows:
+            table = row.parse_config.get("table_name")
+            if not isinstance(table, str) or not table:
+                # Unknown legacy metadata cannot prove which backup is current.
+                return []
+            if row.status == "success":
+                if row.mode not in {"overwrite", "append"}:
+                    return []
+                by_table.setdefault(table, []).append(row)
+        protected = {max(rows, key=lambda row: row.version).id}
+        for versions in by_table.values():
+            for row in sorted(versions, key=lambda item: item.version, reverse=True):
+                protected.add(row.id)
+                if row.mode == "overwrite":
+                    break
+        return [row for row in rows if row.status == "success" and row.id not in protected]
+
+    async def purge(self, before: datetime) -> dict[str, int]:
+        if not self.actor.active or self.actor.role != Role.ADMIN:
+            raise PermissionDenied()
+        if before.tzinfo is None:
+            raise AppError(ErrorCode.VALIDATION_ERROR)
+        expired_at = before.astimezone(UTC) - timedelta(days=self.policy.retention_days)
+        removed = {"upload_job": 0, "upload_objects": 0}
+        async with self.repository.retention_transaction():
+            for datasource_id in await self.repository.retention_sources(expired_at):
+                rows = await self.repository.locked_history(datasource_id)
+                for row in self._obsolete(rows):
+                    updated = row.updated_at
+                    if updated.tzinfo is None:  # SQLite's timezone storage in local tests.
+                        updated = updated.replace(tzinfo=UTC)
+                    if updated > expired_at:
+                        continue
+                    # Never allow an inconsistent row to delete another team's object,
+                    # another version, or a currently reusable temporary upload.
+                    if row.file_key != object_key(
+                        row.owner_team_id, row.datasource_id, row.version, row.filename
+                    ):
+                        continue
+                    shared = await self.repository.other_file_references(row.file_key, row.id)
+                    await self.audit.record(
+                        self.actor,
+                        "upload.retention",
+                        ("upload_job", str(row.id)),
+                        {"datasource_id": row.datasource_id, "version": row.version},
+                    )
+                    if not shared:
+                        try:
+                            await self.storage.delete(row.file_key)
+                        except AppError:
+                            raise
+                        except Exception:
+                            raise AppError(ErrorCode.STORAGE_UNAVAILABLE, http_status=503) from None
+                        removed["upload_objects"] += 1
+                    await self.repository.delete_history(row.id)
+                    removed["upload_job"] += 1
+                    if removed["upload_job"] >= self.policy.batch_size:
+                        return removed
+        return removed
+
+
+def build_retention_store(
+    session: AsyncSession,
+    storage: ObjectStore,
+    *,
+    actor: CurrentUser,
+    retention_days: int = 90,
+    batch_size: int = 100,
+    audit: AuditService | None = None,
+) -> UploadRetentionStore:
+    """Public factory for core CompositeRetentionStore; scheduler resolves a real admin."""
+    try:
+        policy = UploadRetentionPolicy(retention_days=retention_days, batch_size=batch_size)
+    except ValidationError:
+        raise AppError(ErrorCode.VALIDATION_ERROR) from None
+    return UploadRetentionStore(
+        UploadRepository(session),
+        storage,
+        audit or AuditService(DatabaseAuditStore(session)),
+        actor,
+        policy,
+    )
 
 
 class UploadService:

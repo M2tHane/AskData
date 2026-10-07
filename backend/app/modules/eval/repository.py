@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -19,6 +20,15 @@ class EvalRepository:
     @asynccontextmanager
     async def transaction(self) -> Any:
         async with self.session.begin():
+            yield
+
+    @asynccontextmanager
+    async def feedback_transaction(self) -> AsyncIterator[None]:
+        # Feedback conversion owns the outer transaction. A savepoint isolates
+        # validation/audit failures without committing its feedback update early.
+        async with (
+            self.session.begin_nested() if self.session.in_transaction() else self.session.begin()
+        ):
             yield
 
     async def save_case(self, case: EvalCaseInput, actor_id: int) -> EvalCase:

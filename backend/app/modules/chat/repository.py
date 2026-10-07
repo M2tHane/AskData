@@ -135,6 +135,21 @@ class ChatRepository:
         await self.session.flush()
         return MessageView.model_validate(row)
 
+    async def clarification_query_id(self, identifier: int, message_id: int) -> str:
+        row = await self.session.scalar(
+            select(Message).where(
+                Message.id == message_id,
+                Message.conversation_id == identifier,
+                Message.role == "assistant",
+                Message.expires_at > datetime.now(UTC),
+            )
+        )
+        if row is None:
+            raise AppError(ErrorCode.NOT_FOUND, http_status=404)
+        if row.parent_message_id is None:
+            raise AppError(ErrorCode.CONFLICT)
+        return f"chat:{identifier}:{row.parent_message_id}"
+
     async def consume_clarification(self, identifier: int, message_id: int, choice: str) -> str:
         row = await self.session.scalar(
             select(Message).where(

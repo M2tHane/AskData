@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 from builtins import list as List
+from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from app.core.audit import AuditService, DatabaseAuditStore
-from app.core.db import AsyncSession
+from app.core.db import AsyncSession, Base
 from app.core.deps import CurrentUser, Role
 from app.core.errors import AppError, ErrorCode, PermissionDenied
 from app.core.permission import PermissionService
 from app.core.response import Page, PageParams
+from app.core.retention import DatabaseRetentionStore
 from app.core.scope import ScopedQuery, ScopeLevel
 from app.core.sql.guard import SqlGuard
 from app.modules.embedding.service import build_outbox
+from app.modules.feedback.models import Feedback
 from app.modules.feedback.repository import FeedbackRepository
 from app.modules.feedback.schemas import (
     ConversionInput,
@@ -28,7 +31,13 @@ from app.modules.semantic.service import IndexPublisher
 
 
 class EvaluationSink(Protocol):
-    """The eval service authorizes and persists a draft, separate from the expiring snapshot."""
+    """Public eval service port, implemented by I2 without importing eval repositories here.
+
+    Authorize the real actor (admin or the feedback team's leader), persist an independent
+    draft with source=feedback, audit it, and return its positive ID. Use the caller's session
+    without committing: draft, converted_ref and both audits must succeed or roll back together.
+    Copy the masked snapshot/expected data; the draft must survive deletion of the source log.
+    """
 
     async def create_from_feedback(
         self, snapshot: dict[str, Any], expected: dict[str, Any], *, actor: CurrentUser
@@ -130,8 +139,10 @@ class FeedbackService:
                 if not data.expected:
                     raise AppError(ErrorCode.VALIDATION_ERROR)
                 ref = await self.evaluations.create_from_feedback(
-                    row.snapshot, data.expected, actor=actor
+                    deepcopy(row.snapshot), deepcopy(data.expected), actor=actor
                 )
+                if type(ref) is not int or ref < 1:
+                    raise AppError(ErrorCode.TASK_FAILED)
             else:
                 snapshot = row.snapshot
                 sql = data.corrected_sql or snapshot.get("normalized_sql")
@@ -262,6 +273,16 @@ class FeedbackService:
                 raise
             result.append(item)
         return result
+
+
+def build_retention_store(session: AsyncSession) -> DatabaseRetentionStore:
+    """Compose with core log retention in one transaction.
+
+    Snapshots inherit query_run.expires_at; its composite FK also cascades source deletions.
+    Eval conversion preserves an independent draft through EvaluationSink, not the expired
+    feedback row. This cleaner owns only feedback and never deletes eval cases/examples.
+    """
+    return DatabaseRetentionStore(session, [Base.metadata.tables[Feedback.__tablename__]])
 
 
 def build_service(
