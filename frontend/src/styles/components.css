@@ -1,7 +1,14 @@
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap');
-
 /* ChatBI components. Every value comes from tokens.css; nothing here re-declares a token. */
-html, body { margin: 0; background: var(--canvas); color: var(--ink); font-family: var(--font-sans); font-size: 14px; line-height: 22px; -webkit-font-smoothing: antialiased; }
+html, body { margin: 0; background: var(--bg-app); color: var(--text-1); font-family: var(--font-sans); font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+* { box-sizing: border-box; }
+/* Type roles (DESIGN.md · 字体) */
+.display { font: 600 24px/32px var(--font-sans); }
+.title { font: 600 16px/24px var(--font-sans); }
+.heading { font: 600 15px/22px var(--font-sans); }
+.body { font: 400 13px/20px var(--font-sans); }
+.body-strong { font: 500 14px/20px var(--font-sans); }
+.small, .caption { font: 400 12px/18px var(--font-sans); }
+.code, .code-sm { font: 400 12px/18px var(--font-mono); }
 .cb-root { font-family: var(--font-sans); color: var(--ink); }
 .cb-pad { padding: var(--space-5); }
 .cb-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { Sidebar } from '../components/basic'
 import { Icon } from '../components/Icon'
 import { QueryErrors } from '../components/QueryErrors'
+import { ThemeToggle } from '../components/ThemeToggle'
 import { navFor, ROLE_LABEL, type Route } from '../lib/nav'
 import type { CurrentUser } from '../api/types'
 import { useAuth } from '../state/auth'
@@ -46,6 +47,7 @@ function UserMenu(props: { user: CurrentUser; onLogout: () => void }) {
         </span>
         <Icon name="chevronDown" size="sm" />
       </button>
+      <ThemeToggle />
     </div>
   )
 }
