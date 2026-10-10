@@ -353,3 +353,27 @@ describe('available fields', () => {
     expect(t?.fields[0]).toMatchObject({ aliases: ['订单号'], level: null })
   })
 })
+
+describe('eval overview helpers', () => {
+  const mk = (id: number, day: number, passed: number, done = 10, status = 'success') => ({ id, created_at: new Date(Date.UTC(2026, 0, day)).toISOString(), passed, done, case_count: 10, status, duration_ms: done * 1000, model_id: '1', note: '' })
+  const now = Date.UTC(2026, 0, 31)
+  it('computes latest pass rate, delta and 30-day count from finished runs', async () => {
+    const { overviewStats } = await import('./lib/evalText')
+    const s = overviewStats([mk(3, 30, 9), mk(2, 20, 8), mk(1, -20, 5), mk(4, 31, 0, 3, 'canceled')], now)
+    expect(s.passRate).toBe(0.9)
+    expect(s.deltaPt).toBe(10)
+    expect(s.count30).toBe(3)
+    expect(s.avgMs).toBe(10000)
+    expect(overviewStats([], now)).toMatchObject({ latest: null, passRate: null, deltaPt: null, avgMs: null })
+  })
+  it('selects trend runs by count or days, oldest first', async () => {
+    const { trendRuns, formatPt, changeRatio } = await import('./lib/evalText')
+    const runs = [mk(3, 30, 9), mk(2, 20, 8), mk(1, -20, 5)]
+    expect(trendRuns(runs, { last: 2 }, now).map((r) => r.id)).toEqual([2, 3])
+    expect(trendRuns(runs, { days: 30 }, now).map((r) => r.id)).toEqual([2, 3])
+    expect(formatPt(3.1)).toBe('+3.1 pt')
+    expect(formatPt(-2)).toBe('-2 pt')
+    expect(changeRatio(100, 150)).toBe(50)
+    expect(changeRatio(0, 5)).toBeNull()
+  })
+})
