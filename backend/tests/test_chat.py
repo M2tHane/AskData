@@ -62,7 +62,16 @@ class ScriptedTransport(FakeTransport):
         self.responses = {
             "answer": "查询完成",
             "suggestion": json.dumps(
-                {"questions": ["上个月订单数是多少", "各客户的订单金额", "最近订单有哪些"]},
+                {
+                    "questions": [
+                        {"question": "上个月订单数是多少", "kind": "table", "name": "orders"},
+                        {"question": "各客户的订单金额", "kind": "table", "name": "customers"},
+                        {"question": "最近订单有哪些", "kind": "table", "name": "orders"},
+                        {"question": "本月销售额是多少", "kind": "metric", "name": "不存在的指标"},
+                        {"question": "工资最高的人", "kind": "table", "name": "salaries"},
+                        "订单按月走势",
+                    ]
+                },
                 ensure_ascii=False,
             ),
         }
@@ -1092,13 +1101,22 @@ async def test_suggestions_use_model_cache_it_and_fall_back_to_rules(system, mem
     service, transport, *_ = system
     service.suggestions.cache = MemoryTextCache()
     first = await service.suggested_questions(1, actor=member)
-    assert first.source == "model" and len(first.questions) == 3
+    assert first.source == "model" and len(first.questions) == 6
+    assert [(i.kind, i.name) for i in first.items[:3]] == [
+        ("table", "orders"),
+        ("table", "customers"),
+        ("table", "orders"),
+    ]
+    # Sources the caller cannot see (an unknown metric, an invisible table) are dropped.
+    assert [(i.kind, i.name) for i in first.items[3:]] == [(None, None)] * 3
+    assert first.questions == [i.question for i in first.items]
     second = await service.suggested_questions(1, actor=member)
     assert second == first and transport.calls_by_prompt.count("suggestion") == 1
     service.suggestions.cache = MemoryTextCache()
     transport.responses["suggestion"] = '{"questions":["only one"]}'
     fallback = await service.suggested_questions(1, actor=member)
-    assert fallback.source == "rules" and 1 <= len(fallback.questions) <= 3
+    assert fallback.source == "rules" and 1 <= len(fallback.questions) <= 6
+    assert all(i.kind in ("metric", "table") and i.name for i in fallback.items)
     assert all("secret" not in question for question in fallback.questions)
 
 

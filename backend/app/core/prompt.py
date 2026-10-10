@@ -98,7 +98,7 @@ class PromptRegistry:
             PromptId.SQL: "v8",
             PromptId.CORRECT: "v3",
             PromptId.ANSWER: "v3",
-            PromptId.SUGGEST: "v1",
+            PromptId.SUGGEST: "v2",
         }
         self._templates: dict[PromptId, tuple[_LoadedPrompt, Template]] = {
             prompt: self._load(prompt, self.directory / f"{prompt.value}.{version}.yaml")

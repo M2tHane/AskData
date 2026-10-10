@@ -1,4 +1,4 @@
-import type { AnswerMeta, ChartSpec, Clarification, ErrorCode, QueryReply, StreamEvent } from '../api/types'
+import type { AnswerMeta, ChartSpec, Clarification, ErrorCode, QueryReply, StreamEvent, SuggestedQuestion, SuggestedQuestions } from '../api/types'
 
 export type TurnStatus = 'streaming' | QueryReply['status']
 
@@ -167,4 +167,10 @@ function shiftDay(iso: string, days: number): string {
 export function conclusion(rowCount: number, truncated: boolean): string {
   if (rowCount === 0) return '没有查到符合条件的数据。'
   return truncated ? `共返回 ${rowCount.toLocaleString('zh-CN')} 行，结果已截断。` : `共 ${rowCount.toLocaleString('zh-CN')} 行结果。`
+}
+
+/** 示例问题：优先用带来源的条目；后端只给了纯文本时，按文本显示、不标来源。 */
+export function starters(data: SuggestedQuestions | undefined): SuggestedQuestion[] {
+  if (!data) return []
+  return data.items?.length ? data.items : data.questions.map((question) => ({ question }))
 }

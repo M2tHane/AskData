@@ -8,7 +8,7 @@ import { activeMention, chartData, chartModel, pieEligible, filterMetrics, menti
 import { navFor } from './lib/nav'
 import { formatSpan, formatTime } from './lib/format'
 import { describeError } from './lib/errors'
-import { applyEvent, newTurn, turnFromReply } from './pages/turns'
+import { applyEvent, newTurn, starters, turnFromReply } from './pages/turns'
 
 describe('sse parser', () => {
   it('splits frames and keeps the partial tail', () => {
@@ -375,5 +375,14 @@ describe('eval overview helpers', () => {
     expect(formatPt(-2)).toBe('-2 pt')
     expect(changeRatio(100, 150)).toBe(50)
     expect(changeRatio(0, 5)).toBeNull()
+  })
+})
+
+describe('starter questions', () => {
+  it('uses sourced items and falls back to plain questions', () => {
+    const items = [{ question: '上个月 GMV 是多少', kind: 'metric' as const, name: 'GMV' }]
+    expect(starters({ questions: ['上个月 GMV 是多少'], items, source: 'model' })).toEqual(items)
+    expect(starters({ questions: ['订单有哪些'], items: [], source: 'rules' })).toEqual([{ question: '订单有哪些' }])
+    expect(starters(undefined)).toEqual([])
   })
 })

@@ -248,6 +248,15 @@ class ContextPreview(BaseModel):
     ambiguities: list[Clarification]
 
 
+class SuggestedQuestion(BaseModel):
+    """One starter question and the visible metric or table it is about, when known."""
+
+    question: str
+    kind: Literal["metric", "table"] | None = None
+    name: str | None = None
+
+
 class SuggestedQuestions(BaseModel):
     questions: list[str]
+    items: list[SuggestedQuestion] = []
     source: Literal["model", "rules"]

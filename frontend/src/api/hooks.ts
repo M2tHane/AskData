@@ -12,6 +12,7 @@ import type {
   EvalCaseView,
   Evaluation,
   RunListItem,
+  SuggestedQuestions,
   FeedbackInput,
   MyFeedback,
   FeedbackView,
@@ -496,10 +497,6 @@ export const useEvalCompare = (before: number | null, after: number | null) =>
   })
 
 /* ---- suggestions / context preview ---- */
-export interface SuggestedQuestions {
-  questions: string[]
-  source: 'model' | 'rules'
-}
 
 export const useSuggestedQuestions = (datasourceId: number | null) =>
   useQuery({

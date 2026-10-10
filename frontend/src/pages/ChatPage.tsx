@@ -20,7 +20,7 @@ import { ApiError, codeFromMessage, describeError } from '../lib/errors'
 import { FEATURES } from '../lib/features'
 import { formatMs, formatTime } from '../lib/format'
 import { useDashboard } from '../state/dashboard'
-import { applyEvent, conclusion, explainOf, legacyAnswer, newTurn, STAGE_LABEL, turnFromReply, type Turn } from './turns'
+import { applyEvent, conclusion, explainOf, legacyAnswer, newTurn, STAGE_LABEL, starters, turnFromReply, type Turn } from './turns'
 import { download } from '../api/client'
 import { Select } from '../components/Select'
 
@@ -316,7 +316,7 @@ export function ChatPage(props: { conversationId: number | null; onSelect: (id: 
         {current ? (
           <>
             {isEmpty ? (
-              <ChatEmpty questions={suggestions.data?.questions ?? []} source={sourceName(current.datasource_id)} onPick={(q) => setFill({ text: q, nonce: Date.now() })} />
+              <ChatEmpty questions={starters(suggestions.data)} loading={suggestions.isPending} source={sourceName(current.datasource_id)} onPick={(q) => setFill({ text: q, nonce: Date.now() })} />
             ) : (
               <div className="cb-convo" ref={convoRef} onScroll={onScroll}>
                 <div className="cb-thread" ref={threadRef}>
@@ -371,6 +371,7 @@ export function ChatPage(props: { conversationId: number | null; onSelect: (id: 
                 onStop={() => abort.current?.abort()}
                 draftKey={String(current.id)}
                 fill={fill}
+                placeholder={isEmpty && starters(suggestions.data).length ? '输入问题，或点上面的示例；输入 @ 选择指标' : undefined}
               />
             </div>
           </>
@@ -635,6 +636,8 @@ function EmptyState(props: { hasDatasource: boolean; recent: ConversationView[];
 
 function NewConversation(props: { choices: { id: number; name: string; type: string }[]; initial?: number; busy: boolean; error: boolean; onClose: () => void; onCreate: (id: number) => void }) {
   const [id, setId] = useState<number | null>(props.choices.find((c) => c.id === props.initial)?.id ?? props.choices[0]?.id ?? null)
+  // 选中数据源就开始生成示例问题，进入新会话时多半已经好了（同一个查询，结果共用）。
+  useSuggestedQuestions(id)
   return (
     <Dialog title="新建会话" onClose={props.onClose}>
       <div className="cb-field">

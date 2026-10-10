@@ -6874,8 +6874,56 @@
     "title": "SemanticView",
     "type": "object"
    },
+   "SuggestedQuestion": {
+    "description": "One starter question and the visible metric or table it is about, when known.",
+    "properties": {
+     "kind": {
+      "anyOf": [
+       {
+        "enum": [
+         "metric",
+         "table"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Kind"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "question": {
+      "title": "Question",
+      "type": "string"
+     }
+    },
+    "required": [
+     "question"
+    ],
+    "title": "SuggestedQuestion",
+    "type": "object"
+   },
    "SuggestedQuestions": {
     "properties": {
+     "items": {
+      "default": [],
+      "items": {
+       "$ref": "#/components/schemas/SuggestedQuestion"
+      },
+      "title": "Items",
+      "type": "array"
+     },
      "questions": {
       "items": {
        "type": "string"

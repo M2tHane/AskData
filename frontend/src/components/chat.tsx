@@ -53,6 +53,8 @@ export function Composer(props: {
   draftKey?: string
   /** 把一段文字放进输入框（「编辑后提问」「示例问题」）；nonce 变化才生效。append 时接在已有内容后面。 */
   fill?: { text: string; nonce: number; append?: boolean }
+  /** 空会话有示例问题时提示可以点示例。 */
+  placeholder?: string
 }) {
   const storageKey = props.draftKey ? `askdata.draft.${props.draftKey}` : null
   const [text, setTextState] = useState(() => (storageKey ? localStorage.getItem(storageKey) ?? '' : ''))
@@ -111,7 +113,7 @@ export function Composer(props: {
         rows={2}
         maxLength={MAX_QUESTION}
         value={text}
-        placeholder="用一句话提问，输入 @ 选择指标"
+        placeholder={props.placeholder ?? "用一句话提问，输入 @ 选择指标"}
         aria-label="提问"
         onChange={(e) => {
           setText(e.target.value)
@@ -742,22 +744,40 @@ export function ErrorNotice({ code, tone }: { code: string | undefined; tone: 'd
 }
 
 /* ---------- ChatEmpty ---------- */
-/** 新会话：标题 + 一句说明 + 示例问题（两列卡片）。点卡片填进输入框，不直接发送。 */
-export function ChatEmpty({ questions, onPick, source }: { questions: string[]; onPick: (q: string) => void; source?: string }) {
+export interface StarterQuestion {
+  question: string
+  kind?: 'metric' | 'table' | null
+  name?: string | null
+}
+
+const STARTER_KIND = { metric: '指标', table: '表' } as const
+
+/**
+ * 新会话：图标 + 标题 + 一句说明，下面是模型按数据源生成的 6 个示例问题（两列卡片）。
+ * 问题到达时卡片区从 0 高展开，标题随之平滑上移；输入框位置不变。点卡片填进输入框，不直接发送。
+ */
+export function ChatEmpty({ questions, loading, onPick, source }: { questions: StarterQuestion[]; loading?: boolean; onPick: (q: string) => void; source?: string }) {
+  const where = source ? `「${source}」` : '这个数据源'
+  const ready = questions.length > 0
   return (
     <div className="cb-chat-empty">
+      <span className="cb-chat-empty-icon" aria-hidden="true">
+        <Icon name="sparkle" />
+      </span>
       <h2>想看点什么数据？</h2>
-      <p>{source ? `基于「${source}」里你能看到的表和指标提问。` : '基于你能看到的表和指标提问。'}点下面的例子会填进输入框，可以先改再发。</p>
-      {questions.length ? (
+      <p aria-live="polite">
+        {loading ? `正在根据${where}的指标和表生成示例问题…` : ready ? `基于${where}已有的指标和语义，可以从这些问题开始。` : `基于${where}里你能看到的表和指标提问。`}
+      </p>
+      <div className="cb-asks-wrap" data-ready={ready || undefined}>
         <div className="cb-asks" role="group" aria-label="示例问题">
           {questions.slice(0, 6).map((q) => (
-            <button key={q} type="button" className="cb-ask" onClick={() => onPick(q)}>
-              {q}
-              <small>示例问题</small>
+            <button key={q.question} type="button" className="cb-ask" onClick={() => onPick(q.question)}>
+              <span>{q.question}</span>
+              <small>{q.kind && q.name ? `${STARTER_KIND[q.kind]} · ${q.name}` : '示例问题'}</small>
             </button>
           ))}
         </div>
-      ) : null}
+      </div>
     </div>
   )
 }

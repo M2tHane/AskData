@@ -4428,8 +4428,25 @@ export interface components {
             /** Version */
             version: number;
         };
+        /**
+         * SuggestedQuestion
+         * @description One starter question and the visible metric or table it is about, when known.
+         */
+        SuggestedQuestion: {
+            /** Kind */
+            kind?: ("metric" | "table") | null;
+            /** Name */
+            name?: string | null;
+            /** Question */
+            question: string;
+        };
         /** SuggestedQuestions */
         SuggestedQuestions: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["SuggestedQuestion"][];
             /** Questions */
             questions: string[];
             /**

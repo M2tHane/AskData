@@ -40,13 +40,20 @@
 .cb-hero-recent .cb-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* New conversation */
-.cb-chat-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); padding: var(--space-6); text-align: center; }
+.cb-chat-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); padding: var(--space-6); text-align: center; overflow-y: auto; }
+.cb-chat-empty-icon { display: grid; place-items: center; width: var(--control-lg); height: var(--control-lg); border-radius: var(--radius-pill); background: var(--bg-subtle); color: var(--text-2); }
 .cb-chat-empty h2 { margin: 0; font: 600 20px/28px var(--font-sans); }
 .cb-chat-empty p { margin: 0; max-width: 520px; color: var(--text-2); }
-.cb-asks { width: 100%; max-width: 720px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); margin-top: var(--space-2); }
-.cb-ask { display: flex; flex-direction: column; gap: 2px; padding: 10px var(--space-3-5); border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--bg-card); color: var(--text-1); font: 400 13px/20px var(--font-sans); text-align: left; cursor: pointer; }
+/* 卡片区从 0 高展开，居中的标题随之平滑上移；输入框不动。 */
+.cb-asks-wrap { display: grid; grid-template-rows: 0fr; width: 100%; max-width: 720px; opacity: 0; transition: grid-template-rows 280ms ease, opacity 200ms ease 80ms; }
+.cb-asks-wrap[data-ready] { grid-template-rows: 1fr; opacity: 1; }
+.cb-asks-wrap > .cb-asks { min-height: 0; overflow: hidden; }
+.cb-asks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); padding-top: var(--space-2); }
+.cb-ask { display: flex; flex-direction: column; gap: 2px; padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--bg-card); color: var(--text-1); font: 400 14px/22px var(--font-sans); text-align: left; cursor: pointer; }
+.cb-ask > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cb-ask:hover { border-color: var(--border-strong); background: var(--bg-subtle); }
-.cb-ask small { color: var(--text-3); font-size: 12px; }
+.cb-ask small { color: var(--text-3); font-size: 12px; line-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .cb-asks-wrap { transition: none; } }
 
 /* Field panel: pinned toggle in the chat's top-right corner */
 .cb-dict-toggle { position: absolute; top: 8px; right: 12px; z-index: 5; }
