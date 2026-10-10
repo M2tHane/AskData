@@ -6,12 +6,13 @@ describe('compactNumber', () => {
   it('keeps small numbers and abbreviates large ones', () => {
     expect(compactNumber(0)).toBe('0')
     expect(compactNumber(999)).toBe('999')
-    expect(compactNumber(3200)).toBe('3.2K')
-    expect(compactNumber(12_400_000)).toBe('12.4M')
-    expect(compactNumber(2_000_000_000)).toBe('2B')
+    expect(compactNumber(8320)).toBe('8,320')
+    expect(compactNumber(53_000)).toBe('5.3万')
+    expect(compactNumber(12_400_000)).toBe('1240万')
+    expect(compactNumber(2_000_000_000)).toBe('20亿')
   })
-  it('rolls over to the next unit instead of printing 1000.0K', () => {
-    expect(compactNumber(999_950)).toBe('1M')
+  it('rolls over to the next unit instead of printing 10000万', () => {
+    expect(compactNumber(99_999_999)).toBe('1亿')
   })
 })
 

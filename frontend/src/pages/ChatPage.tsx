@@ -700,7 +700,7 @@ function HistoryMessage(props: {
   if (hasResult) {
     const reply = replay.data
     const turn: Turn | null = reply
-      ? { ...turnFromReply('', reply), messageId: m.id, queryRunId: m.query_run_id ?? null, sql: m.normalized_sql ?? undefined, chart: reply.chart ?? m.chart ?? undefined, meta: m.meta ?? reply.meta ?? undefined, reasoning: m.meta?.reasoning ?? '', answer }
+      ? { ...turnFromReply(props.question ?? reply.chart?.title ?? '', reply), messageId: m.id, queryRunId: m.query_run_id ?? null, sql: m.normalized_sql ?? undefined, chart: reply.chart ?? m.chart ?? undefined, meta: m.meta ?? reply.meta ?? undefined, reasoning: m.meta?.reasoning ?? '', answer }
       : null
     return (
       <ChatMessage>

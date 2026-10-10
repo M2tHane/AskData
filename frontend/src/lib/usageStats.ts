@@ -1,22 +1,14 @@
 import type { TrendPoint } from '../api/types'
 
-/** 大数缩写：1,234 → 1.2K，12,400,000 → 12.4M；千以内原样。完整值请放在悬停提示里。 */
+/** 大数缩写，和图表坐标轴一致用「万」「亿」：8,320 原样，53,000 → 5.3万，2 亿 → 2亿。完整值请放在悬停提示里。 */
 export function compactNumber(n: number): string {
-  const units = ['', 'K', 'M', 'B']
   const sign = n < 0 ? '-' : ''
-  let v = Math.abs(n)
-  if (v < 1000) return `${sign}${Math.round(v).toLocaleString('zh-CN')}`
-  let i = 0
-  while (v >= 1000 && i < units.length - 1) {
-    v /= 1000
-    i += 1
-  }
-  // 四舍五入后恰好到 1000 时进一档，避免出现 1000.0K。
-  if (Number(v.toFixed(1)) >= 1000 && i < units.length - 1) {
-    v /= 1000
-    i += 1
-  }
-  return `${sign}${v.toFixed(1).replace(/\.0$/, '')}${units[i]}`
+  const v = Math.abs(n)
+  if (v < 1e4) return `${sign}${Math.round(v).toLocaleString('zh-CN')}`
+  const short = (x: number) => x.toFixed(1).replace(/\.0$/, '')
+  // 四舍五入后恰好到 1 万万时进一档，避免出现 10000万。
+  if (v >= 1e8 || Number((v / 1e4).toFixed(1)) >= 1e4) return `${sign}${short(v / 1e8)}亿`
+  return `${sign}${short(v / 1e4)}万`
 }
 
 export interface PeriodTotals {

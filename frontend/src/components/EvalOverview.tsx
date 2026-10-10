@@ -41,7 +41,7 @@ export function EvalOverview({ runs }: { runs: RunListItem[] }) {
           value={
             <>
               {stats.passRate == null ? '—' : pct(stats.passRate)}
-              {stats.deltaPt != null ? <span className={stats.deltaPt < 0 ? 'cb-eval-delta cb-eval-delta-down' : 'cb-eval-delta'}>比上次 {formatPt(stats.deltaPt)}</span> : null}
+              {stats.deltaPt != null ? <span className={stats.deltaPt < 0 ? 'cb-eval-delta cb-eval-delta-down' : stats.deltaPt > 0 ? 'cb-eval-delta cb-eval-delta-up' : 'cb-eval-delta'}>比上次 {formatPt(stats.deltaPt)}</span> : null}
             </>
           }
         />
