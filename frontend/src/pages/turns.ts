@@ -132,14 +132,28 @@ export function legacyAnswer(content: string): string {
   return content.includes('\n生效语义/指标：') || content.includes('\n过滤条件与时间范围以已校验 SQL 为准') ? '' : content
 }
 
-/** 后端算好的时间范围，例如「上个月：2026-09-01 至 2026-09-30」。 */
-export function formatTimeRanges(ranges: AnswerMeta['time_ranges']): string | undefined {
-  const parts = Object.entries(ranges ?? {}).map(([label, value]) => {
+/** 后端算好的时间范围，每项如「上个月：2026-09-01 至 2026-09-30」。 */
+export function listTimeRanges(ranges: AnswerMeta['time_ranges']): string[] {
+  return Object.entries(ranges ?? {}).map(([label, value]) => {
     const start = value.start ?? ''
     const end = value.end_exclusive ? shiftDay(value.end_exclusive, -1) : ''
     return start && end ? `${label}：${start} 至 ${end}` : label
   })
+}
+
+export function formatTimeRanges(ranges: AnswerMeta['time_ranges']): string | undefined {
+  const parts = listTimeRanges(ranges)
   return parts.length ? parts.join(' · ') : undefined
+}
+
+/** 回答底部「口径」面板的内容。 */
+export function explainOf(meta: AnswerMeta | undefined | null) {
+  return {
+    definitions: meta?.definitions ?? [],
+    filters: meta?.filters ?? [],
+    timeRanges: listTimeRanges(meta?.time_ranges),
+    notes: meta?.notes ?? [],
+  }
 }
 
 function shiftDay(iso: string, days: number): string {

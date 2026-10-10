@@ -9,6 +9,7 @@ import './styles/tokens.css'
 import './styles/legacy-aliases.css'
 import './styles/components.css'
 import './styles/app.css'
+import './styles/chat.css'
 
 initTheme()
 

@@ -1,6 +1,7 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import type {
+  PublicScope,
   ChatLimits,
   ConversationView,
   CurrentUser,
@@ -161,6 +162,10 @@ export function useSetDatasourceStatus() {
 
 export const useTables = (datasourceId: number | null) =>
   useQuery({ queryKey: ['tables', datasourceId], queryFn: () => api<TableRead[]>('GET', `/api/schema/${datasourceId}/tables`), enabled: datasourceId != null })
+
+/** 当前用户在这个数据源上看得到的表和字段。 */
+export const useScope = (datasourceId: number | null) =>
+  useQuery({ queryKey: ['scope', datasourceId], queryFn: () => api<PublicScope>('GET', `/api/permissions/${datasourceId}/scope`), enabled: datasourceId != null, staleTime: 60 * 1000 })
 
 /* ---- semantic / metric ---- */
 export const useSemantics = (datasourceId: number | null) =>

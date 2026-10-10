@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Badge, Button, Callout, ScopeTag, type Scope } from './basic'
+import { Badge, Button, Callout } from './basic'
 import { friendlyError } from '../lib/errors'
 import { columnFormat, formatValue, isNumericColumn, toNumber, type NumberFormat } from '../lib/format'
 import { Icon } from './Icon'
@@ -53,8 +53,8 @@ export function Composer(props: {
   onStop?: () => void
   /** 每个会话各自保存未发送的草稿（localStorage），切换会话回来还在。 */
   draftKey?: string
-  /** 把一段文字放进输入框（「编辑后提问」）；nonce 变化才生效。 */
-  fill?: { text: string; nonce: number }
+  /** 把一段文字放进输入框（「编辑后提问」「示例问题」）；nonce 变化才生效。append 时接在已有内容后面。 */
+  fill?: { text: string; nonce: number; append?: boolean }
 }) {
   const storageKey = props.draftKey ? `askdata.draft.${props.draftKey}` : null
   const [text, setTextState] = useState(() => (storageKey ? localStorage.getItem(storageKey) ?? '' : ''))
@@ -69,7 +69,7 @@ export function Composer(props: {
   const [filled, setFilled] = useState(props.fill?.nonce)
   if (props.fill && props.fill.nonce !== filled) {
     setFilled(props.fill.nonce)
-    setText(props.fill.text)
+    setText(props.fill.append && text.trim() ? `${text.replace(/\s+$/, '')} ${props.fill.text}` : props.fill.text)
   }
   useEffect(() => {
     if (props.fill) area.current?.focus()
@@ -94,7 +94,7 @@ export function Composer(props: {
     setActive(0)
   }
   return (
-    <div className="cb-composer" style={{ position: 'relative' }}>
+    <div className="cb-composer">
       {options.length ? (
         <ul className="cb-mention" role="listbox" aria-label="选择指标">
           {options.map((m, i) => (
@@ -113,7 +113,7 @@ export function Composer(props: {
         rows={2}
         maxLength={MAX_QUESTION}
         value={text}
-        placeholder="用自然语言提问，输入 @ 可以指定指标"
+        placeholder="用一句话提问，输入 @ 选择指标"
         aria-label="提问"
         onChange={(e) => {
           setText(e.target.value)
@@ -136,10 +136,9 @@ export function Composer(props: {
         }}
       />
       <div className="cb-composer-bar">
-        <span className="cb-source" title="会话创建时绑定，不可切换">
+        <span className="cb-source" title="数据源在会话创建时绑定，不可切换">
           <Icon name="database" size="sm" />
           {props.source}
-          <Icon name="lock" size="sm" />
         </span>
         {props.hint ? <span className="cb-muted">{props.hint}</span> : null}
         {text.length > MAX_QUESTION * 0.9 ? <span className="cb-muted">{text.length}/{MAX_QUESTION}</span> : null}
@@ -155,13 +154,11 @@ export function Composer(props: {
         ) : null}
         <span className="cb-spacer" />
         {props.streaming ? (
-          <Button size="sm" icon="x" onClick={props.onStop}>
+          <Button icon="x" onClick={props.onStop}>
             停止
           </Button>
         ) : (
-          <Button variant="primary" size="sm" icon="send" disabled={!text.trim() || props.disabled} onClick={submit}>
-            发送
-          </Button>
+          <Button variant="primary" icon="send" className="cb-send" aria-label="发送" title="发送（Enter）" disabled={!text.trim() || props.disabled} onClick={submit} />
         )}
       </div>
     </div>
@@ -169,23 +166,14 @@ export function Composer(props: {
 }
 
 /* ---------- ChatMessage ---------- */
+/** 左右交替：提问是右侧的黑色气泡，回答靠左、不加头像，右侧始终留白。 */
 export function ChatMessage(props: { role?: 'user' | 'assistant'; meta?: ReactNode; streaming?: boolean; children?: ReactNode }) {
-  if (props.role === 'user')
-    return (
-      <div className="cb-msg cb-msg-user">
-        <div className="cb-bubble">{props.children}</div>
-      </div>
-    )
+  if (props.role === 'user') return <div className="cb-q">{props.children}</div>
   return (
-    <div className="cb-msg">
-      <div className="cb-avatar" aria-hidden="true">
-        BI
-      </div>
-      <div className="cb-msg-body">
-        {props.meta ? <div className="cb-msg-meta">{props.meta}</div> : null}
-        {props.children}
-        {props.streaming ? <span className="cb-caret" aria-label="生成中" /> : null}
-      </div>
+    <div className="cb-a">
+      {props.meta ? <div className="cb-msg-meta">{props.meta}</div> : null}
+      {props.children}
+      {props.streaming ? <span className="cb-caret" aria-label="生成中" /> : null}
     </div>
   )
 }
@@ -223,61 +211,100 @@ export function ClarifyPrompt(props: { question: ReactNode; options: string[]; p
   )
 }
 
-/* ---------- ExplainCard ---------- */
+/* ---------- 口径 ---------- */
 export interface ExplainDefinition {
   kind: string
   name: string
   scope: string
-  version?: number
   description?: string
 }
 
-/** 这样理解你的问题：口径、过滤条件、用到的语义/指标（带级别）和后端算好的时间范围。 */
-export function ExplainCard(props: { summary?: ReactNode; filters?: string[]; definitions?: ExplainDefinition[]; timeRange?: string }) {
-  const rows: [string, ReactNode][] = []
-  if (props.definitions?.length)
-    rows.push([
-      '口径',
-      <ul className="cb-explain-defs">
-        {props.definitions.map((d) => (
-          <li key={`${d.kind}:${d.name}:${d.scope}`}>
-            <span>{d.name}</span>
-            <ScopeTag level={(['platform', 'team', 'personal'].includes(d.scope) ? d.scope : 'platform') as Scope} />
-            {d.description ? <span className="cb-muted">{d.description}</span> : null}
-          </li>
-        ))}
-      </ul>,
-    ])
-  if (props.filters?.length)
-    rows.push([
-      '过滤',
-      <>
-        {props.filters.map((f) => (
-          <span key={f} className="cb-explain-chip">
-            {f}
-          </span>
-        ))}
-      </>,
-    ])
-  if (props.timeRange) rows.push(['时间', <span>{props.timeRange}</span>])
-  if (!props.summary && !rows.length) return null
+const KIND_NAME: Record<string, string> = { metric: '指标', semantic: '语义', enum: '枚举' }
+const LEVEL_NAME: Record<string, string> = { platform: '平台级', team: '团队级', personal: '个人级' }
+
+export interface Explain {
+  definitions?: ExplainDefinition[]
+  filters?: string[]
+  timeRanges?: string[]
+  notes?: string[]
+}
+
+export const explainCount = (e: Explain) => (e.definitions?.length ?? 0) + (e.filters?.length ?? 0) + (e.timeRanges?.length ?? 0)
+
+/** 这一轮用到的指标、语义别名和筛选，逐条列出并带来源标签。 */
+export function DefinitionsPanel(props: Explain) {
   return (
-    <div className="cb-explain">
-      <div>
-        <span className="cb-explain-title">这样理解你的问题</span>
-        {props.summary}
-      </div>
-      {rows.length ? (
-        <dl>
-          {rows.map(([k, v]) => (
-            <div key={k} style={{ display: 'contents' }}>
-              <dt>{k}</dt>
-              <dd>{v}</dd>
-            </div>
+    <div className="cb-detail-panel">
+      <dl className="cb-defs">
+        {props.definitions?.map((d) => (
+          <div key={`${d.kind}:${d.name}:${d.scope}`}>
+            <dt>
+              <span className="cb-tag">
+                {KIND_NAME[d.kind] ?? '语义'} · {LEVEL_NAME[d.scope] ?? '平台级'}
+              </span>
+              {d.name}
+            </dt>
+            <dd>{d.description || '—'}</dd>
+          </div>
+        ))}
+        {props.filters?.map((f) => (
+          <div key={`f:${f}`}>
+            <dt>
+              <span className="cb-tag">筛选</span>
+            </dt>
+            <dd className="cb-mono">{f}</dd>
+          </div>
+        ))}
+        {props.timeRanges?.map((t) => (
+          <div key={`t:${t}`}>
+            <dt>
+              <span className="cb-tag">时间</span>
+            </dt>
+            <dd>{t}</dd>
+          </div>
+        ))}
+      </dl>
+      {props.notes?.length ? (
+        <ul className="cb-defs-notes">
+          {props.notes.map((n) => (
+            <li key={n}>{n}</li>
           ))}
-        </dl>
+        </ul>
       ) : null}
     </div>
+  )
+}
+
+/**
+ * 回答底部一行：左边「口径 N 条」「SQL 只读 · 已校验」两个折叠开关（同一时间只展开一个），
+ * 右边是固定到看板、有用、没用、复制。
+ */
+export function TurnFoot(props: { explain: Explain; sql?: string; rejected?: boolean; onRun?: (sql: string) => void; running?: boolean; actions?: ReactNode }) {
+  const [open, setOpen] = useState<'defs' | 'sql' | null>(null)
+  const count = explainCount(props.explain)
+  const hasDefs = count > 0 || (props.explain.notes?.length ?? 0) > 0
+  const toggle = (k: 'defs' | 'sql') => setOpen((cur) => (cur === k ? null : k))
+  return (
+    <>
+      <div className="cb-turn-foot">
+        {hasDefs ? (
+          <button type="button" className="cb-disc" aria-expanded={open === 'defs'} onClick={() => toggle('defs')}>
+            <Icon name="chevronDown" className="cb-chev" />
+            口径 <em>{count || props.explain.notes?.length} 条</em>
+          </button>
+        ) : null}
+        {props.sql ? (
+          <button type="button" className="cb-disc" aria-expanded={open === 'sql'} onClick={() => toggle('sql')}>
+            <Icon name="chevronDown" className="cb-chev" />
+            SQL <em>{props.rejected ? '被拦截 · 未执行' : '只读 · 已校验'}</em>
+          </button>
+        ) : null}
+        <span className="cb-spacer" />
+        {props.actions}
+      </div>
+      {open === 'defs' ? <DefinitionsPanel {...props.explain} /> : null}
+      {open === 'sql' && props.sql ? <SqlBlock bare sql={props.sql} onRun={props.onRun} running={props.running} rejected={props.rejected} /> : null}
+    </>
   )
 }
 
@@ -355,14 +382,16 @@ export function highlightSql(sql: string): ReactNode[] {
   return out
 }
 
-export function SqlBlock(props: { sql: string; onRun?: (sql: string) => void; running?: boolean; defaultOpen?: boolean; rejected?: boolean }) {
+/** bare：放在回答底部的折叠面板里，已经展开、不再自带折叠开关。 */
+export function SqlBlock(props: { sql: string; onRun?: (sql: string) => void; running?: boolean; defaultOpen?: boolean; rejected?: boolean; bare?: boolean }) {
   // 编辑和复制都用排好版的 SQL；重新执行时后端仍会重新校验。
   const original = formatSql(props.sql)
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState(original)
   const [copied, setCopied] = useState(false)
   // 业务用户多数不看 SQL：默认收成一行，点开看全文。
-  const [open, setOpen] = useState(props.defaultOpen ?? false)
+  const [folded, setOpen] = useState(props.defaultOpen ?? false)
+  const open = props.bare || folded
   const area = useRef<HTMLTextAreaElement>(null)
   const changed = text !== original
 
@@ -382,24 +411,20 @@ export function SqlBlock(props: { sql: string; onRun?: (sql: string) => void; ru
   return (
     <div className="cb-sql" data-open={open}>
       <div className="cb-sql-head">
-        <button type="button" className="cb-sql-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
-          <Icon name="chevronDown" size="sm" className="cb-sql-chevron" />
-          <span className="cb-eyebrow">SQL</span>
-        </button>
-        {props.rejected ? (
-          <Badge tone="danger" icon="shield">
-            被拦截 · 未执行
-          </Badge>
+        {props.bare ? (
+          <span className="cb-sql-title">SQL</span>
         ) : (
-          <Badge tone="success" icon="shield">
-            只读 · 已校验
-          </Badge>
+          <button type="button" className="cb-sql-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+            <Icon name="chevronDown" size="sm" className="cb-sql-chevron" />
+            <span className="cb-sql-title">SQL</span>
+          </button>
         )}
-        {editing && changed ? (
-          <Badge tone="warning" icon="edit">
-            已手动修改
-          </Badge>
-        ) : null}
+        {props.rejected ? (
+          <Badge tone="danger">被拦截 · 未执行</Badge>
+        ) : (
+          <Badge tone="success">只读 · 已校验</Badge>
+        )}
+        {editing && changed ? <Badge tone="warning">已手动修改</Badge> : null}
         <span className="cb-spacer" />
         {open && !editing ? (
           <Button
@@ -539,10 +564,12 @@ export type { ChartModel } from './charts'
 
 /* ---------- FeedbackBar ---------- */
 const REASONS: { label: string; code: NonNullable<FeedbackInput['reason_code']> }[] = [
-  { label: '口径不对（指标或别名理解错）', code: 'metric_wrong' },
-  { label: '选错了表或字段', code: 'table_wrong' },
-  { label: '结果数据不对', code: 'result_wrong' },
-  { label: 'SQL 报错或超时', code: 'other' },
+  { label: '口径不对', code: 'metric_wrong' },
+  { label: '选错表', code: 'table_wrong' },
+  { label: '选错字段', code: 'column_wrong' },
+  { label: '结果为空', code: 'empty_result' },
+  { label: '结果不对', code: 'result_wrong' },
+  { label: '图表不对', code: 'chart_wrong' },
   { label: '其他', code: 'other' },
 ]
 
@@ -595,14 +622,22 @@ export function FeedbackBar(props: {
   }
   const reason = REASONS[pick]
   return (
-    <div>
+    <div
+      className="cb-feedback-wrap"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && open) {
+          e.stopPropagation()
+          setOpen(false)
+        }
+      }}
+    >
       <div className="cb-feedback">
         {rateable ? (
           <>
             <Button variant="ghost" size="sm" icon="thumbsUp" className="cb-fb-up" aria-pressed={value === 'up'} disabled={busy} onClick={() => (value === 'up' ? undefined : void submit('up'))}>
               有用
             </Button>
-            <Button variant="ghost" size="sm" icon="thumbsDown" aria-pressed={value === 'down'} disabled={busy} onClick={() => setOpen((o) => !o)}>
+            <Button variant="ghost" size="sm" icon="thumbsDown" aria-pressed={value === 'down'} aria-expanded={open} disabled={busy} onClick={() => setOpen((o) => !o)}>
               没用
             </Button>
           </>
@@ -636,7 +671,7 @@ export function FeedbackBar(props: {
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />
-          <div className="cb-muted">会附带本轮的问题、SQL 和结果摘要（行数与前 5 行）。</div>
+          <div className="cb-field-hint">会附带本轮的问题、SQL 和结果摘要（行数与前 5 行）。</div>
           <div className="cb-row" style={{ justifyContent: 'flex-end' }}>
             <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
               取消
@@ -749,16 +784,23 @@ export function ErrorNotice({ code, tone }: { code: string | undefined; tone: 'd
   )
 }
 
-/* ---------- SuggestedQuestions ---------- */
-export function SuggestedQuestions({ questions, onPick, disabled }: { questions: string[]; onPick: (q: string) => void; disabled?: boolean }) {
-  if (!questions.length) return null
+/* ---------- ChatEmpty ---------- */
+/** 新会话：标题 + 一句说明 + 示例问题（两列卡片）。点卡片填进输入框，不直接发送。 */
+export function ChatEmpty({ questions, onPick, source }: { questions: string[]; onPick: (q: string) => void; source?: string }) {
   return (
-    <div className="cb-row" role="group" aria-label="猜你想问">
-      {questions.map((q) => (
-        <button key={q} type="button" className="cb-chip" disabled={disabled} onClick={() => onPick(q)}>
-          {q}
-        </button>
-      ))}
+    <div className="cb-chat-empty">
+      <h2>想看点什么数据？</h2>
+      <p>{source ? `基于「${source}」里你能看到的表和指标提问。` : '基于你能看到的表和指标提问。'}点下面的例子会填进输入框，可以先改再发。</p>
+      {questions.length ? (
+        <div className="cb-asks" role="group" aria-label="示例问题">
+          {questions.slice(0, 6).map((q) => (
+            <button key={q} type="button" className="cb-ask" onClick={() => onPick(q)}>
+              {q}
+              <small>示例问题</small>
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }

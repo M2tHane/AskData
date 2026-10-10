@@ -1,0 +1,77 @@
+/* Chat page: session list / thread / field panel, three columns to the top, no page header. */
+.cb-chat { position: relative; display: flex; flex: 1; min-height: 0; }
+
+/* Session list */
+.cb-sessions { flex: none; display: flex; flex-direction: column; gap: var(--space-2); min-height: 0; padding: var(--space-3) var(--space-2); border-right: 1px solid var(--border); background: var(--bg-app); }
+.cb-sessions-head { display: flex; align-items: center; gap: var(--space-1); flex: none; height: 32px; padding: 0 var(--space-1) 0 var(--space-2); }
+.cb-sessions-head b { flex: 1; font: 600 14px/20px var(--font-sans); }
+.cb-sessions > .cb-field { flex: none; padding: 0 var(--space-1); }
+.cb-sess-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: var(--space-2); }
+.cb-sess-group .cb-nav-label { margin-top: var(--space-1); }
+.cb-sess-note { padding: var(--space-2); }
+.cb-sessions-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.cb-sessions-list li { position: relative; display: flex; align-items: center; gap: var(--space-1); min-height: 32px; padding-right: var(--space-1); border-radius: var(--radius-control); }
+.cb-sessions-list li:hover { background: var(--bg-subtle); }
+.cb-sessions-list li[aria-current="true"] { background: var(--bg-selected); }
+.cb-sess-open { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; padding: 6px var(--space-2); border: 0; background: none; color: var(--text-1); text-align: left; cursor: pointer; border-radius: var(--radius-control); }
+.cb-sess-open b { max-width: 100%; font: 500 13px/20px var(--font-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-sess-open span { max-width: 100%; font: 400 11px/16px var(--font-sans); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cb-sessions-list .cb-more { width: 24px; height: 24px; opacity: 0; }
+.cb-sessions-list li:hover .cb-more, .cb-sessions-list li[aria-current="true"] .cb-more, .cb-sessions-list .cb-more:focus-visible, .cb-sessions-list .cb-more[aria-expanded="true"] { opacity: 1; }
+.cb-resizer { flex: none; width: 6px; margin-left: -3px; margin-right: -3px; z-index: 1; display: flex; justify-content: center; cursor: col-resize; touch-action: none; }
+.cb-resizer > span { width: 2px; height: 100%; border-radius: var(--radius-pill); background: transparent; transition: background-color .12s; }
+.cb-resizer:hover > span, .cb-resizer:focus-visible > span { background: var(--line-control); }
+
+/* Thread column */
+.cb-chat-col { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cb-chat-top { display: flex; align-items: center; gap: var(--space-2); flex: none; height: 48px; padding: 0 160px 0 var(--space-4); border-bottom: 1px solid var(--border); }
+.cb-chat-top b { min-width: 0; font: 600 14px/20px var(--font-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-convo { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; overflow-anchor: none; padding: var(--space-6) var(--space-6) var(--space-4); }
+.cb-thread { width: 100%; max-width: var(--chat-max-width); margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); }
+.cb-earlier { display: flex; justify-content: center; }
+.cb-chat-compose { flex: none; width: 100%; max-width: calc(var(--chat-max-width) + 40px); margin: 0 auto; padding: 0 var(--space-6) var(--space-4); }
+.cb-jump { position: absolute; left: 50%; bottom: 128px; transform: translateX(-50%); z-index: 2; display: inline-flex; align-items: center; gap: var(--space-1); height: var(--row-sm); padding: 0 var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--bg-card); box-shadow: var(--shadow-md); color: var(--text-1); font: 500 12px/16px var(--font-sans); cursor: pointer; }
+.cb-jump:hover { background: var(--bg-subtle); }
+.cb-hero { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-4); padding: var(--space-8); text-align: center; }
+.cb-hero h2 { margin: 0; font: 600 24px/32px var(--font-sans); }
+.cb-hero p { margin: 0; max-width: 440px; color: var(--text-2); }
+.cb-hero-recent { justify-content: center; }
+.cb-hero-recent .cb-chip { max-width: 280px; }
+.cb-hero-recent .cb-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* New conversation */
+.cb-chat-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); padding: var(--space-6); text-align: center; }
+.cb-chat-empty h2 { margin: 0; font: 600 20px/28px var(--font-sans); }
+.cb-chat-empty p { margin: 0; max-width: 520px; color: var(--text-2); }
+.cb-asks { width: 100%; max-width: 720px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); margin-top: var(--space-2); }
+.cb-ask { display: flex; flex-direction: column; gap: 2px; padding: 10px var(--space-3-5); border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--bg-card); color: var(--text-1); font: 400 13px/20px var(--font-sans); text-align: left; cursor: pointer; }
+.cb-ask:hover { border-color: var(--border-strong); background: var(--bg-subtle); }
+.cb-ask small { color: var(--text-3); font-size: 12px; }
+
+/* Field panel: pinned toggle in the chat's top-right corner */
+.cb-dict-toggle { position: absolute; top: 8px; right: 12px; z-index: 5; }
+.cb-dict-toggle[aria-pressed="true"] { background: var(--bg-selected); color: var(--text-1); }
+.cb-dict { flex: none; width: var(--dict-width); display: flex; flex-direction: column; min-height: 0; padding-top: 48px; border-left: 1px solid var(--border); background: var(--bg-app); }
+.cb-dict-pick { display: flex; flex-direction: column; gap: 6px; flex: none; padding: var(--space-3) var(--space-4) var(--space-2); border-top: 1px solid var(--border); }
+.cb-dict-trigger { width: 100%; font-family: var(--font-mono); font-size: 12px; font-weight: 400; }
+.cb-dict-pop { max-height: 340px; }
+.cb-dict-option { display: grid !important; grid-template-columns: auto minmax(0, 1fr) 76px; align-items: baseline; gap: 10px !important; }
+.cb-dict-option > .cb-mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.cb-dict-option small { text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cb-dict-option em { font-style: normal; text-align: right; color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cb-dict-list { flex: 1; min-height: 0; overflow: auto; padding: 0 var(--space-2); }
+.cb-dict-table { table-layout: fixed; }
+.cb-dict-table th { padding: var(--space-2); font-size: 12px; background: var(--bg-app); }
+.cb-dict-table th:nth-child(1) { width: 41%; } .cb-dict-table th:nth-child(2) { width: 25%; }
+.cb-dict-table td { height: 34px; padding: var(--space-1) var(--space-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.cb-dict-table tr[aria-selected="true"] td { background: var(--bg-selected); }
+.cb-dict-table tr[aria-selected="true"] td:first-child { box-shadow: inset 2px 0 0 var(--action); }
+.cb-dict > .cb-pager { flex: none; padding: var(--space-2) var(--space-4); border-top: 1px solid var(--border); }
+.cb-fd { flex: none; min-height: 150px; display: flex; flex-direction: column; gap: 6px; padding: var(--space-3) var(--space-4) var(--space-4); border-top: 1px solid var(--border); background: var(--bg-sidebar); }
+.cb-fd b { font-size: 13px; overflow-wrap: anywhere; }
+.cb-fd p { margin: 0; color: var(--text-2); }
+.cb-fd-enum { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); font-size: 12px; color: var(--text-2); }
+.cb-fd-insert { align-self: flex-start; margin-left: calc(-1 * var(--space-2)); }
+.cb-dict .cb-state { flex: 1; }
+/* Under 1440px the session list steps aside while the field panel is open, so answers keep ~740px. */
+@media (max-width: 1439px) { .cb-chat[data-dict] > .cb-sessions, .cb-chat[data-dict] > .cb-resizer { display: none; } }

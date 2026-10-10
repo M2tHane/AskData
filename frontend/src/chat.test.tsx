@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { ClarifyPrompt, Composer, ResultTable, SqlBlock } from './components/chat'
+import { ClarifyPrompt, Composer, ResultTable, SqlBlock, TurnFoot } from './components/chat'
 
 describe('Composer', () => {
   it('submits on Enter and clears, ignores empty input', async () => {
@@ -131,5 +131,16 @@ describe('Composer model choice', () => {
   it('hides the selector when no model is configured', () => {
     render(<Composer source="pg · sales" models={[]} onSubmit={() => undefined} />)
     expect(screen.queryByRole('combobox', { name: '模型' })).toBeNull()
+  })
+})
+
+describe('TurnFoot', () => {
+  it('opens 口径 and SQL one at a time', async () => {
+    render(<TurnFoot explain={{ definitions: [{ kind: 'metric', name: 'GMV', scope: 'team', description: '实付金额' }], filters: ['region = 华东'] }} sql="SELECT 1" />)
+    await userEvent.click(screen.getByRole('button', { name: /口径/ }))
+    expect(screen.getByText('指标 · 团队级')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /SQL/ }))
+    expect(screen.queryByText('指标 · 团队级')).toBeNull()
+    expect(screen.getByText('SELECT')).toBeInTheDocument()
   })
 })

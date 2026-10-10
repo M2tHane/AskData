@@ -1,9 +1,8 @@
 import { useRef, useState } from 'react'
 import type { ChartSpec } from '../api/types'
 import { columnFormat, formatDateLabels, formatValue, isNumericColumn } from '../lib/format'
-import { Badge, Button } from './basic'
+import { Badge, Button, Segmented } from './basic'
 import { ChartKindPicker, ChartPlot, availableKinds, chartModel, initialKind, usePngExport, useWidth, type ChartKind } from './charts'
-import { Icon } from './Icon'
 
 export const TABLE_ROWS = 30
 
@@ -34,7 +33,7 @@ export function ResultCard(props: ResultCardProps) {
   const exportPng = usePngExport(plotRef, title)
   const view = model ? (mode ?? 'chart') : 'table'
   const kinds = model ? availableKinds(model) : []
-  const kind = model && spec ? (picked && kinds.includes(picked) ? picked : initialKind(spec, model, width)) : 'bar'
+  const kind = model && spec ? (picked && kinds.includes(picked) ? picked : initialKind(spec, model, width ?? undefined)) : 'bar'
   const shown = rows.slice(0, limit)
   const labels = spec?.labels ?? {}
   const numeric = new Set(columns.filter((c) => isNumericColumn(rows, c)))
@@ -47,18 +46,19 @@ export function ResultCard(props: ResultCardProps) {
     <section className="cb-result-card" aria-label="查询结果">
       <div className="cb-result-head">
         {model && !kpi ? (
-          <div className="cb-seg cb-seg-text" role="group" aria-label="展示方式">
-            <button type="button" aria-pressed={view === 'chart'} onClick={() => setMode('chart')}>
-              <Icon name="chart" size="sm" />
-              图表
-            </button>
-            <button type="button" aria-pressed={view === 'table'} onClick={() => setMode('table')}>
-              <Icon name="table" size="sm" />
-              表格
-            </button>
-          </div>
+          <Segmented
+            label="展示方式"
+            value={view}
+            onChange={setMode}
+            items={[
+              { id: 'chart', label: '图表', icon: 'chart' },
+              { id: 'table', label: '表格', icon: 'table' },
+            ]}
+          />
         ) : null}
-        <span className="cb-h">{title}</span>
+        <span className="cb-result-title" title={title}>
+          {title}
+        </span>
         <span className="cb-spacer" />
         {view === 'chart' && model && !kpi ? (
           <>
@@ -83,15 +83,15 @@ export function ResultCard(props: ResultCardProps) {
           <div className="cb-kpis">
             {columns.map((c) => (
               <div key={c} className="cb-kpi">
-                <div className="cb-kpi-label">{labels[c] ?? c}</div>
-                <div className="cb-kpi-value cb-num">{cell(rows[0]?.[c], columnFormat(c, rows, formats))}</div>
+                <small>{labels[c] ?? c}</small>
+                <b>{cell(rows[0]?.[c], columnFormat(c, rows, formats))}</b>
               </div>
             ))}
           </div>
         ) : view === 'chart' && model ? (
-          <ChartPlot model={model} kind={kind} width={width} title={title} />
+          width ? <ChartPlot model={model} kind={kind} width={width} title={title} /> : <div className="cb-chart-wait" />
         ) : (
-          <div className="cb-table-wrap">
+          <div className="cb-table-wrap cb-result-table">
             <table className="cb-table">
               <thead>
                 <tr>
@@ -137,7 +137,7 @@ export function ResultCard(props: ResultCardProps) {
 }
 
 function cell(value: unknown, format?: ReturnType<typeof columnFormat>) {
-  if (value == null) return <span className="cb-muted">—</span>
+  if (value == null) return <span className="cb-faint">—</span>
   if (format) return formatValue(value, format)
   if (typeof value === 'object') return JSON.stringify(value)
   return String(value)

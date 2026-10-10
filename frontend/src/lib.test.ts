@@ -1,3 +1,4 @@
+import { buildFields } from './lib/fields'
 import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -333,5 +334,22 @@ describe('eval comparison summary', () => {
     expect(compareSummary({ ...base, expected_row_count: 3, actual_row_count: 3, matched_rows: 3, order_only: true })?.text).toBe('3 行内容一致，但行顺序不同（这道题要求按顺序）。')
     expect(compareSummary({ ...base, expected_row_count: 1, actual_row_count: 1, columns_match: false })?.text).toBe('列数不同：期望 2 列，实际 1 列。')
     expect(compareSummary({ ...base, expected_row_count: 1, actual_row_count: 1, truncated: true })?.tone).toBe('warning')
+  })
+})
+
+describe('available fields', () => {
+  it('lists only visible columns and prefers personal over team over platform semantics', () => {
+    const scope = { datasource_id: 1, tables: { 'shop.orders': { columns: ['amount', 'id'] } } }
+    const tables = [{ id: 7, datasource_id: 1, schema_name: 'shop', name: 'orders', comment: '订单', description: '', status: 'active', columns: [
+      { id: 1, table_id: 7, name: 'id', data_type: 'bigint', comment: '订单号', description: '', is_pk: true, ordinal: 1, status: 'active' },
+      { id: 2, table_id: 7, name: 'amount', data_type: 'numeric', comment: '金额', description: '', is_pk: false, ordinal: 2, status: 'active' },
+      { id: 3, table_id: 7, name: 'secret', data_type: 'text', comment: '', description: '', is_pk: false, ordinal: 3, status: 'active' },
+    ] }]
+    const sem = (scope: 'platform' | 'team' | 'personal', alias: string) => ({ id: alias.length, datasource_id: 1, scope, target_type: 'column' as const, target_id: 2, aliases: [alias], description: alias, enum_mapping: {}, owner_team_id: null, owner_user_id: null, status: 'active' as const, version: 1, created_at: '', updated_at: '' })
+    const [t] = buildFields(scope, tables as never, [sem('platform', '实付'), sem('personal', '我的金额'), sem('team', '团队金额')] as never)
+    expect(t?.label).toBe('订单')
+    expect(t?.fields.map((f) => f.name)).toEqual(['id', 'amount'])
+    expect(t?.fields[1]).toMatchObject({ aliases: ['我的金额'], level: 'personal', type: 'numeric' })
+    expect(t?.fields[0]).toMatchObject({ aliases: ['订单号'], level: null })
   })
 })

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode, RefObject } from 'react'
 import type { ChartSpec } from '../api/types'
 import { chartToPng, saveBlob } from '../lib/png'
@@ -135,11 +135,11 @@ export function availableKinds(model: ChartModel): ChartKind[] {
   return kinds
 }
 
-/** 约 11px 字号下的文字宽度：中文 11px，其他 6.5px。 */
-export function textWidth(text: string): number {
+/** 12px 字号（字重 500）下的文字宽度估算：中文 12px，其他 7px。size 换算其他字号。 */
+export function textWidth(text: string, size = 12): number {
   let w = 0
-  for (const ch of text) w += /[⺀-鿿＀-￯]/.test(ch) ? 11 : 6.5
-  return w
+  for (const ch of text) w += /[⺀-鿿＀-￯]/.test(ch) ? 12 : 7
+  return (w * size) / 12
 }
 
 function clip(text: string, width: number): string {
@@ -218,21 +218,21 @@ export function ChartPlot(props: { model: ChartModel; kind: ChartKind; width: nu
     let row = 0
     series.forEach((_, j) => {
       const text = `${seriesLabel(model, j)}${right.includes(j) ? '（右轴）' : ''}`
-      const w = 16 + textWidth(text) + 16
+      const w = 16 + textWidth(text, 13) + 16
       if (cx > 4 && cx + w > width) {
         cx = 4
         row += 1
       }
       marks.push(
-        <rect key={`lg${j}`} className={`cb-s${j + 1}`} x={cx} y={6 + row * 18} width={10} height={10} rx={2} style={{ stroke: 'none' }} />,
-        <text key={`lt${j}`} className="cb-axis" x={cx + 15} y={15 + row * 18}>
+        <rect key={`lg${j}`} className={`cb-s${j + 1}`} x={cx} y={6 + row * 20} width={10} height={10} rx={2} style={{ stroke: 'none' }} />,
+        <text key={`lt${j}`} className="cb-legend-t" x={cx + 15} y={15 + row * 20}>
           {text}
         </text>,
       )
       cx += w
     })
-    T += (row + 1) * 18 + 4
-    H += (row + 1) * 18
+    T += (row + 1) * 20 + 4
+    H += (row + 1) * 20
   }
 
   if (kind === 'pie') {
@@ -248,13 +248,13 @@ export function ChartPlot(props: { model: ChartModel; kind: ChartKind; width: nu
       const path = share >= 0.9999 ? `M${cx},${cy - r} A${r},${r} 0 1 1 ${cx - 0.01},${cy - r} Z` : `M${cx},${cy} L${at(angle)} A${r},${r} 0 ${share > 0.5 ? 1 : 0} 1 ${at(next)} Z`
       const text = `${d.label}：${formatValue(d.values[0] ?? 0, fmtOf(0))}（${(share * 100).toFixed(1)}%）`
       marks.push(
-        <path key={`p${i}`} className={`cb-s${i + 1}`} d={path} style={{ stroke: 'var(--surface)', strokeWidth: 1.5 }}>
+        <path key={`p${i}`} className={`cb-s${i + 1}`} d={path} style={{ stroke: 'var(--bg-card)', strokeWidth: 1.5 }}>
           <title>{text}</title>
         </path>,
         <rect key={`pk${i}`} className={`cb-s${i + 1}`} x={cx + r + 28} y={cy - 56 + i * 24} width={10} height={10} rx={2} style={{ stroke: 'none' }} />,
-        <text key={`pt${i}`} className="cb-axis" x={cx + r + 44} y={cy - 47 + i * 24}>
+        <text key={`pt${i}`} className="cb-legend-t" x={cx + r + 44} y={cy - 47 + i * 24}>
           <title>{text}</title>
-          {clip(`${d.label} ${(share * 100).toFixed(1)}%`, width - (cx + r + 48))}
+          {clip(`${d.label} ${(share * 100).toFixed(1)}%`, ((width - (cx + r + 48)) * 12) / 13)}
         </text>,
       )
       angle = next
@@ -346,7 +346,7 @@ export function ChartPlot(props: { model: ChartModel; kind: ChartKind; width: nu
       series.forEach((_, j) =>
         data.forEach((d, i) =>
           marks.push(
-            <circle key={`s${j}-${i}`} className={`cb-s${j + 1}`} cx={px(d.x ?? 0)} cy={yl(d.values[j] ?? 0)} r={4} style={{ fillOpacity: 0.75, stroke: 'var(--surface)', strokeWidth: 1 }}>
+            <circle key={`s${j}-${i}`} className={`cb-s${j + 1}`} cx={px(d.x ?? 0)} cy={yl(d.values[j] ?? 0)} r={4.5} style={{ fillOpacity: 0.75, stroke: 'var(--bg-card)', strokeWidth: 1 }}>
               <title>{`${seriesLabel(model, j)}：(${d.label}, ${formatValue(d.values[j] ?? 0, fmtOf(j))})`}</title>
             </circle>,
           ),
@@ -399,7 +399,7 @@ export function ChartPlot(props: { model: ChartModel; kind: ChartKind; width: nu
             const from = acc
             acc += v
             marks.push(
-              <rect key={`k${i}-${j}`} className={`cb-s${j + 1}`} x={L + bw * i + (bw - inner) / 2} y={yl(acc)} width={inner} height={Math.max(0, yl(from) - yl(acc))} style={{ stroke: 'var(--surface)', strokeWidth: 1 }}>
+              <rect key={`k${i}-${j}`} className={`cb-s${j + 1}`} x={L + bw * i + (bw - inner) / 2} y={yl(acc)} width={inner} height={Math.max(0, yl(from) - yl(acc))} style={{ stroke: 'var(--bg-card)', strokeWidth: 1 }}>
                 <title>{`${d.label} ${seriesLabel(model, j)}：${formatValue(v, fmtOf(j))}`}</title>
               </rect>,
             )
@@ -414,7 +414,7 @@ export function ChartPlot(props: { model: ChartModel; kind: ChartKind; width: nu
         marks.push(<polyline key={`l${j}`} className={`cb-s${j + 1}`} points={pts.map((q) => q.join(',')).join(' ')} style={{ fill: 'none', strokeWidth: 2, strokeLinejoin: 'round' }} />)
         pts.forEach((q, i) =>
           marks.push(
-            <circle key={`c${j}-${i}`} className={`cb-s${j + 1}`} cx={q[0]} cy={q[1]} r={3} style={{ stroke: 'var(--surface)', strokeWidth: 1.5 }}>
+            <circle key={`c${j}-${i}`} className={`cb-s${j + 1}`} cx={q[0]} cy={q[1]} r={3} style={{ stroke: 'var(--bg-card)', strokeWidth: 1.5 }}>
               <title>{`${data[i]?.label ?? ''} ${seriesLabel(model, j)}：${formatValue(data[i]?.values[j] ?? 0, fmtOf(j))}`}</title>
             </circle>,
           ),
@@ -430,21 +430,32 @@ export function ChartPlot(props: { model: ChartModel; kind: ChartKind; width: nu
   )
 }
 
-/** 观察容器宽度，图形按实际宽度排版。 */
-export function useWidth(ref: RefObject<HTMLElement | null>, initial = 640): number {
-  const [width, setWidth] = useState(initial)
+/** 容器内容区的宽度（去掉内边距）。 */
+function contentWidth(el: HTMLElement): number {
+  const style = getComputedStyle(el)
+  return Math.round(el.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0))
+}
+
+/**
+ * 图形按容器实际宽度绘制：ResizeObserver 在首帧绘制前报告宽度，之后跟随变化。
+ * 还没量到（隐藏或布局未完成，宽度为 0）时返回 null，调用方先不画，
+ * 避免按固定宽度画好再被 viewBox 放大、文字变得特别大。
+ * 没有 ResizeObserver 的环境（测试）按 640 画。
+ */
+export function useWidth(ref: RefObject<HTMLElement | null>): number | null {
+  const [width, setWidth] = useState<number | null>(() => (typeof ResizeObserver === 'undefined' ? 640 : null))
   // 图形区可能晚于首次渲染才出现（数据还没到时组件先返回空）：每次渲染后检查一次，换了元素就重新观察。
   const [el, setEl] = useState<HTMLElement | null>(null)
   // Runs after every render on purpose; the guard makes it settle after one update.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (ref.current !== el) setEl(ref.current)
   })
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!el || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver((entries) => {
-      // Content box: padding around the plot is not drawing space.
-      const w = Math.round(entries[0]?.contentRect.width ?? 0)
+    // ResizeObserver reports the first size before the next paint, so nothing is drawn at a guessed width.
+    const ro = new ResizeObserver(() => {
+      const w = contentWidth(el)
       if (w > 0) setWidth(w)
     })
     ro.observe(el)
@@ -455,7 +466,7 @@ export function useWidth(ref: RefObject<HTMLElement | null>, initial = 640): num
 
 export function ChartKindPicker(props: { kinds: ChartKind[]; value: ChartKind; onChange: (kind: ChartKind) => void }) {
   return (
-    <div className="cb-seg" role="group" aria-label="图表类型">
+    <div className="cb-chart-kinds" role="group" aria-label="图表类型">
       {props.kinds.map((k) => (
         <button key={k} type="button" aria-pressed={props.value === k} aria-label={KIND_LABEL[k].label} title={KIND_LABEL[k].label} onClick={() => props.onChange(k)}>
           <Icon name={KIND_LABEL[k].icon} size="sm" />
@@ -489,7 +500,7 @@ export function ChartCard(props: { spec: ChartSpec; rows: Record<string, unknown
   if (!built) return null
   const model = props.singleAxis ? { ...built, singleAxis: true } : built
   const kinds = availableKinds(model)
-  const kind = picked && kinds.includes(picked) ? picked : initialKind(props.spec, model, width)
+  const kind = picked && kinds.includes(picked) ? picked : initialKind(props.spec, model, width ?? undefined)
   return (
     <figure className="cb-chart" style={{ margin: 0 }}>
       <div className="cb-chart-head">
@@ -501,7 +512,7 @@ export function ChartCard(props: { spec: ChartSpec; rows: Record<string, unknown
         </Button>
       </div>
       <div className="cb-chart-plot" ref={ref}>
-        <ChartPlot model={model} kind={kind} width={width} title={title} />
+        {width ? <ChartPlot model={model} kind={kind} width={width} title={title} /> : <div className="cb-chart-wait" />}
       </div>
     </figure>
   )
