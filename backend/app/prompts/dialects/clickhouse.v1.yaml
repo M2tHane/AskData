@@ -1,0 +1,51 @@
+name: clickhouse
+version: v1
+template:
+  quot_rule: |
+    Quote every table and column identifier with backticks: `schema`.`table`, `t`.`column`.
+    Never include the dot inside a backtick pair. Quote reserved keywords
+    (for example `order`, `group`, `desc`) and preserve original casing.
+  limit_rule: |
+    Limit rows with LIMIT <count> [OFFSET <start>] on the OUTERMOST query only.
+    Never place LIMIT inside a subquery or CTE.
+  date_rule: |
+    Date/time: use toStartOfMonth(column) or toDate(column) for truncation, today() for today.
+    Use dateDiff('day', date1, date2) or addDays(column, 1) for date arithmetic.
+    Compare dates with plain 'YYYY-MM-DD' string literals; never wrap them in CAST.
+  string_rule: |
+    Strings: concatenate with concat(a, b); there is no || operator for strings.
+    Never format percentages as strings with CONCAT('%%').
+  null_rule: |
+    NULL: compare with IS NULL / IS NOT NULL; substitute with ifNull(expr, value)
+    or coalesce(expr, value).
+  conditional_rule: |
+    Conditional logic: use if(condition, true_value, false_value) or multiIf(...).
+    Never use CASE expressions in aggregate functions without care: use countIf() or sumIf() instead.
+  join_rule: |
+    FULL OUTER JOIN is not supported with correlated subqueries in SELECT.
+    Use LEFT JOIN UNION ALL RIGHT JOIN (excluding the overlapping rows) or restructure the query.
+  product_rule: |
+    ClickHouse is OLAP-focused with columnar storage. Decimal and Nullable types require careful handling.
+    Use Date or DateTime for temporal data; Date32 for historical dates.
+    Aggregate functions: use sum(), count(), min(), max(), avg(), sumIf(), countIf().
+    No UPDATE or DELETE statements; ClickHouse is read-only.
+  forbidden_rule: |
+    Forbidden in ClickHouse: CASE in aggregate function arguments (use countIf/sumIf instead),
+    FULL OUTER JOIN with correlated subqueries, correlated subqueries in SELECT,
+    INSERT/UPDATE/DELETE (read-only), table functions that reach outside the DB (url, file, s3, etc).
+  examples: |
+    <example>
+      <output-bad>
+        SELECT * FROM `orders` WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE)  -- wrong: DATE_TRUNC and * are not ClickHouse
+        SELECT `id`, `amount` FROM (SELECT `id`, `amount` FROM `orders` LIMIT 10) `t` LIMIT 5  -- wrong: LIMIT inside a subquery
+        SELECT `id`, SUM(CASE WHEN `amount` > 100 THEN `amount` ELSE 0 END) FROM `orders`  -- wrong: CASE in aggregate
+      </output-bad>
+      <output-good>
+        SELECT `o`.`id` AS `order_id`, `o`.`amount` AS `amount`
+        FROM `default`.`orders` `o`
+        WHERE `o`.`created_at` >= toStartOfMonth(today())
+          AND `o`.`status` IS NOT NULL
+        ORDER BY `o`.`amount` DESC
+        LIMIT 10
+      </output-good>
+    </example>

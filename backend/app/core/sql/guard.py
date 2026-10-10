@@ -2,6 +2,7 @@
 
 import hashlib
 import hmac
+import re
 import secrets
 from typing import Any, cast
 
@@ -15,12 +16,20 @@ from sqlglot.optimizer.qualify import qualify
 from sqlglot.optimizer.scope import Scope, traverse_scope
 from sqlglot.schema import MappingSchema
 
-from app.core.errors import ErrorCode, SqlBlocked
+from app.core.errors import ErrorCode, SqlBlocked, UnresolvedReference
 from app.core.masking import MaskKind, MaskRule
 from app.core.permission import RowFilter, RowOperator, VisibleScope
 from app.core.sql.dialect import Dialect
 
-_SYSTEM_SCHEMAS = {"information_schema", "pg_catalog", "mysql", "performance_schema", "sys"}
+_SYSTEM_SCHEMAS = {
+    "information_schema",
+    "pg_catalog",
+    "mysql",
+    "performance_schema",
+    "sys",
+    "system",
+    "sys_catalog",  # Kingbase
+}
 _DANGEROUS = {
     "pg_sleep",
     "pg_sleep_for",
@@ -41,6 +50,24 @@ _DANGEROUS = {
     "release_lock",
     "sys_exec",
     "sys_eval",
+    # ClickHouse table functions that reach outside the DB
+    "url",
+    "file",
+    "s3",
+    "hdfs",
+    "remote",
+    "remotesecure",
+    "mysql",
+    "postgresql",
+    "jdbc",
+    "odbc",
+    "input",
+    "cluster",
+    "clusterallreplicas",
+    "executable",
+    "azureblobstorage",
+    "gcs",
+    "dictionary",
 }
 # Unknown UDFs are rejected: a SELECT can call a function with side effects.
 _SAFE_FUNCTIONS = set(
@@ -60,6 +87,18 @@ trim trunc truncate upper variance var_pop var_samp week year unix_timestamp
 str_to_time time_to_unix unix_to_time ts_or_ds_to_date ts_or_ds_add safe_divide
 """.split()
 )
+# Pure ClickHouse functions (names as sqlglot reports them), accepted only for ClickHouse.
+_CLICKHOUSE_SAFE_FUNCTIONS = set(
+    """
+approx_distinct count_if multiif today yesterday todate todatetime toyear tomonth toquarter
+todayofmonth todayofweek tohour tostartofday tostartofweek tostartofmonth tostartofquarter
+tostartofyear toyyyymm toyyyymmdd tostring tofloat64 toint64 touint64 todecimal64 todecimal128
+uniq uniqexact argmax argmin any anylast median quantile quantileexact arg_max arg_min
+array_join
+""".split()
+)
+# Aggregate combinators (sumIf, avgIf, uniqIf...) are pure when their base aggregate is.
+_CLICKHOUSE_COMBINABLE = {"sum", "avg", "min", "max", "count", "uniq", "uniqexact", "any"}
 _SEAL_KEY = secrets.token_bytes(32)
 
 
@@ -111,7 +150,9 @@ class SqlGuard:
     def _check(self, sql: str, dialect: str | Dialect, scope: VisibleScope) -> GuardedSql:
         try:
             target = Dialect.from_name(dialect)
-            statements = sqlglot.parse(sql, read=target, error_level=sqlglot.ErrorLevel.RAISE)
+            statements = sqlglot.parse(
+                sql, read=target.sqlglot, error_level=sqlglot.ErrorLevel.RAISE
+            )
         except (ParseError, ValueError, RecursionError):
             raise SqlBlocked(ErrorCode.SQL_PARSE_FAILED) from None
         statements = [
@@ -127,6 +168,11 @@ class SqlGuard:
         if not isinstance(tree, (exp.Select, exp.SetOperation)):
             raise SqlBlocked(ErrorCode.SQL_NOT_SELECT)
         for node in tree.walk():
+            # ClickHouse SETTINGS/FORMAT clauses could lift server limits or change output.
+            if isinstance(node, exp.Select) and (
+                node.args.get("settings") or node.args.get("format")
+            ):
+                raise SqlBlocked(ErrorCode.SQL_FORBIDDEN_FUNC)
             if isinstance(node, (exp.DML, exp.DDL, exp.Command, exp.Into, exp.Lock)):
                 raise SqlBlocked(ErrorCode.SQL_NOT_SELECT)
             if isinstance(node, (exp.Placeholder, exp.Parameter, exp.SessionParameter)):
@@ -140,14 +186,19 @@ class SqlGuard:
                 name = name.lower()
                 if name in _DANGEROUS or name.startswith(("lo_", "dblink", "pg_")):
                     raise SqlBlocked(ErrorCode.SQL_FORBIDDEN_FUNC)
-                if name not in _SAFE_FUNCTIONS:
+                if target == Dialect.CLICKHOUSE and isinstance(node, exp.CombinedAggFunc):
+                    base = str(node.name).lower().removesuffix("if")
+                    name = base if base in _CLICKHOUSE_COMBINABLE else name
+                if name not in _SAFE_FUNCTIONS and not (
+                    target == Dialect.CLICKHOUSE and name in _CLICKHOUSE_SAFE_FUNCTIONS
+                ):
                     raise SqlBlocked(ErrorCode.SQL_FORBIDDEN_FUNC)
                 if isinstance(node.parent, exp.Dot):
                     raise SqlBlocked(ErrorCode.SQL_FORBIDDEN_FUNC)
-        normalize_identifiers(tree, dialect=target)
-        schema = MappingSchema(dialect=target, normalize=False)
+        normalize_identifiers(tree, dialect=target.sqlglot)
+        schema = MappingSchema(dialect=target.sqlglot, normalize=False)
         for name, table_scope in scope.tables.items():
-            schema.add_table(name, table_scope.all_columns, dialect=target)
+            schema.add_table(name, table_scope.all_columns, dialect=target.sqlglot)
         for query_scope in traverse_scope(tree):
             for source in query_scope.sources.values():
                 if not isinstance(source, exp.Table):
@@ -165,14 +216,14 @@ class SqlGuard:
         try:
             tree = qualify(
                 tree,
-                dialect=target,
+                dialect=target.sqlglot,
                 schema=schema,
                 infer_schema=False,
                 validate_qualify_columns=True,
                 allow_partial_qualification=False,
             )
-        except (OptimizeError, SchemaError, ValueError, TypeError):
-            raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE) from None
+        except (OptimizeError, SchemaError, ValueError, TypeError) as error:
+            raise UnresolvedReference(_unresolved(str(error))) from None
         used: dict[str, set[str]] = {}
         tables: dict[int, tuple[exp.Table, str]] = {}
         for query_scope in traverse_scope(tree):
@@ -191,16 +242,23 @@ class SqlGuard:
                 while resolved is None and owner.parent is not None:
                     owner = owner.parent
                     resolved = owner.sources.get(column.table)
+                reference = f"{column.table}.{column.name}" if column.table else column.name
                 if isinstance(resolved, exp.Table):
                     name = _table_name(resolved)
-                    if column.name not in scope.tables[name].columns:
+                    if (
+                        column.name
+                        in scope.tables[name].all_columns.keys() - scope.tables[name].columns
+                    ):
+                        # Withheld from this user: refuse outright, never offer a correction.
                         raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+                    if column.name not in scope.tables[name].columns:
+                        raise UnresolvedReference(reference)
                     used.setdefault(name, set()).add(column.name)
                 elif isinstance(resolved, Scope):
                     if column.name not in cast(exp.Query, resolved.expression).named_selects:
-                        raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+                        raise UnresolvedReference(reference)
                 else:
-                    raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+                    raise UnresolvedReference(reference)
         # Unresolved stars in projections (e.g. unknown-schema derived tables) never pass.
         for select in tree.find_all(exp.Select):
             if any(projection.is_star for projection in select.selects):
@@ -222,7 +280,7 @@ class SqlGuard:
             inner = inner.from_(inner_table).where(exp.and_(*conditions))
             table.replace(inner.subquery(alias=exp.to_identifier(alias, quoted=True)))
         normalized = tree.sql(
-            dialect=target, comments=False, unsupported_level=sqlglot.ErrorLevel.RAISE
+            dialect=target.sqlglot, comments=False, unsupported_level=sqlglot.ErrorLevel.RAISE
         )
         payload: dict[str, Any] = {
             "normalized_sql": normalized,
@@ -264,7 +322,12 @@ class SqlGuard:
             raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
         for name in names:
             try:
-                graph = lineage(exp.column(name, quoted=True), tree, schema=schema, dialect=dialect)
+                graph = lineage(
+                    exp.column(name, quoted=True),
+                    tree,
+                    schema=schema,
+                    dialect=dialect.sqlglot,
+                )
             except (SqlglotError, ValueError):
                 raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE) from None
             matched: list[MaskRule] = []
@@ -272,7 +335,7 @@ class SqlGuard:
                 if isinstance(node.expression, exp.Table):
                     table_name = _table_name(node.expression)
                     # Leaf names are SQL identifiers, including quotes and alias qualification.
-                    column = sqlglot.parse_one(node.name, read=dialect)
+                    column = sqlglot.parse_one(node.name, read=dialect.sqlglot)
                     if isinstance(column, exp.Column) and table_name in scope.tables:
                         rule = scope.tables[table_name].masks.get(column.name)
                         if rule is not None:
@@ -290,3 +353,9 @@ class SqlGuard:
                     matched[0] if direct and len(matched) == 1 else MaskRule(kind=MaskKind.FULL)
                 )
         return masks
+
+
+def _unresolved(message: str) -> str:
+    """The identifier sqlglot could not resolve, without the rest of its message."""
+    match = re.search(r"Column '([^']+)' could not be resolved|Unknown column: (\S+)", message)
+    return (match[1] or match[2]).replace('"', "").replace("`", "") if match else ""

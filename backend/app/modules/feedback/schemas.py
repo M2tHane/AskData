@@ -44,6 +44,16 @@ class FeedbackView(FeedbackInput):
     created_at: datetime
 
 
+class MyFeedback(BaseModel):
+    """The caller's own rating of an answer, so the chat can show it after a reload."""
+
+    model_config = ConfigDict(from_attributes=True)
+    query_run_id: int
+    rating: Literal["up", "down"]
+    reason_code: str | None = None
+    comment: str = ""
+
+
 class ConversionInput(BaseModel):
     kind: Literal["eval", "example"]
     expected: dict[str, Any] = Field(default_factory=dict)

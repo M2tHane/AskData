@@ -32,6 +32,7 @@ class QueryFilter(PageParams):
     until: datetime | None = None
     user_id: int | None = Field(default=None, ge=1)
     datasource_id: int | None = Field(default=None, ge=1)
-    status: Literal["success", "blocked", "failed", "clarify"] | None = None
+    # "cancelled" is a view over failed runs the user stopped; "failed" excludes them.
+    status: Literal["success", "blocked", "failed", "clarify", "cancelled"] | None = None
     blocked_code: str | None = None
     has_feedback: bool | None = None

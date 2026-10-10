@@ -28,6 +28,7 @@ dependencies = [
   "openpyxl",
   "charset-normalizer",
   "pyyaml>=6,<7",
+  "clickhouse-connect",
 ]
 
 [dependency-groups]
@@ -64,7 +65,7 @@ strict = true
 files = ["app"]
 
 [[tool.mypy.overrides]]
-module = ["arq.*", "aiomysql.*", "minio.*", "sqlglot.*", "litellm.*", "asyncpg.*"]
+module = ["arq.*", "aiomysql.*", "minio.*", "sqlglot.*", "litellm.*", "asyncpg.*", "clickhouse_connect.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

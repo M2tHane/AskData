@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../../components/bundle.css"><script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script><script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script><script src="../../components/bundle.js"></script><meta charset="utf-8"><title>CheckList</title></head>
+<body>
+<div id="root" class="cb-root cb-pad"></div>
+<script>
+var C = window.ChatBI, h = React.createElement;
+
+function App() { return h(C.CheckList, { items: [
+  { status: 'pass', label: '只读账号执行', detail: 'bi_reader · 无写权限' },
+  { status: 'pass', label: '单条 SELECT 语句' },
+  { status: 'pass', label: '只访问你可见的表和字段', detail: 'payment, sales · 5 个字段' },
+  { status: 'fail', label: '使用了禁用函数 SLEEP()', detail: '已拦截，未执行。原因代码 forbidden_function' },
+  { status: 'warn', label: '结果可能超过 1,000 行上限', detail: '将只返回前 1,000 行' },
+  { status: 'pass', label: '超时 30 s' } ] }); }
+ReactDOM.createRoot(document.getElementById('root')).render(App());
+</script>
+</body>
+</html>

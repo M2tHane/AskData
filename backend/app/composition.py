@@ -18,9 +18,11 @@ from app.core.audit import (
     AuditService,
     DatabaseAuditStore,
     DatabaseQueryLogStore,
+    DetachedQueryLogStore,
     QueryLogWriter,
     QueryRun,
 )
+from app.core.cache import RedisTextCache
 from app.core.config import Settings
 from app.core.crypto import SecretBox
 from app.core.datasource import ConnectorRegistry, Datasource, DatasourceInspector
@@ -82,6 +84,7 @@ from app.modules.modelcfg import service as modelcfg
 from app.modules.org import service as org
 from app.modules.permission import service as permission
 from app.modules.promotion import service as promotion
+from app.modules.promptcfg import service as promptcfg
 from app.modules.querylog import service as querylog
 from app.modules.schema import service as schema
 from app.modules.semantic import service as semantic
@@ -220,6 +223,7 @@ class Services:
         self.grants = permission.build_service(session, box, runtime.cache)
         self.permissions = self.grants.permissions
         self.usage = usage.build_service(session, runtime.database)
+        self.promptcfg = promptcfg.build_service(session)
         self.models = modelcfg.build_service(session, box, runtime.transport, self.usage)
         self.llm = LLMClient(self.models.registry, self.usage, runtime.transport)
         self.embeddings = EmbeddingClient(self.models.registry, self.usage, runtime.transport)
@@ -267,6 +271,11 @@ class Services:
                 DatabaseQueryLogStore(self.session), self.runtime.settings.retention_days
             ),
             model_clarification=True,
+            prompt_source=self.promptcfg,
+            cancelled_querylog=QueryLogWriter(
+                DetachedQueryLogStore(self.runtime.database.sessions),
+                self.runtime.settings.retention_days,
+            ),
             limits=QueryLimits(
                 user_id=1,
                 timeout_seconds=self.runtime.settings.query_timeout_seconds,
@@ -274,7 +283,14 @@ class Services:
                 max_cost=self.runtime.settings.max_query_cost,
             ),
         )
-        return chat.ChatService(repository, QueryPipeline(dependencies), self.audit)
+        return chat.ChatService(
+            repository,
+            QueryPipeline(dependencies),
+            self.audit,
+            RedisTextCache(self.runtime.redis),
+            export_max_rows=self.runtime.settings.export_max_rows,
+            export_max_bytes=self.runtime.settings.export_max_mb * 1024 * 1024,
+        )
 
     def upload(self) -> UploadService:
         runtime = self.runtime
@@ -538,7 +554,16 @@ def configure_dependencies(application: FastAPI) -> None:
         application.dependency_overrides[module.get_service] = dependency(attribute)
     application.dependency_overrides[identity_resolver] = dependency("auth")
     application.dependency_overrides[schema.get_permissions] = dependency("permissions")
-    for name in ("semantic", "metric", "promotion", "feedback", "querylog", "usage", "embedding"):
+    for name in (
+        "semantic",
+        "metric",
+        "promotion",
+        "feedback",
+        "querylog",
+        "usage",
+        "embedding",
+        "promptcfg",
+    ):
         module = import_module(f"app.modules.{name}.api")
         application.dependency_overrides[module.get_service] = dependency(name)
 

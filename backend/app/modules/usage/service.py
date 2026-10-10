@@ -1,5 +1,6 @@
+import builtins
 from contextvars import ContextVar
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
 from app.core.audit import AuditService, DatabaseAuditStore
@@ -9,7 +10,7 @@ from app.core.errors import AppError, ErrorCode, PermissionDenied
 from app.core.llm import CallContext, CallRecord
 from app.core.response import Page, PageParams
 from app.modules.usage.repository import UsageRepository
-from app.modules.usage.schemas import QuotaInput, QuotaView, UsageView
+from app.modules.usage.schemas import QuotaInput, QuotaUsage, QuotaView, TrendPoint, UsageView
 
 
 class UsageService:
@@ -78,6 +79,57 @@ class UsageService:
             page=page.page,
             page_size=page.page_size,
         )
+
+    async def trend(
+        self, actor: CurrentUser, by: str, since: date | None, until: date | None
+    ) -> builtins.list[TrendPoint]:
+        if not actor.active:
+            raise PermissionDenied()
+        if by not in {"team", "model"}:
+            raise AppError(ErrorCode.VALIDATION_ERROR)
+        end = until or datetime.now(UTC).date()
+        start = since or end - timedelta(days=29)
+        if start > end or (end - start).days > 365:
+            raise AppError(ErrorCode.VALIDATION_ERROR)
+        return [
+            TrendPoint(date=day, key=key, calls=calls, tokens_in=tin, tokens_out=tout)
+            for day, key, calls, tin, tout in await self.repository.trend(actor, by, start, end)
+        ]
+
+    async def quota_usage(self, actor: CurrentUser) -> builtins.list[QuotaUsage]:
+        """Limits against consumption; 80% warns, 100% means new questions are being refused."""
+        if not actor.active or actor.role == Role.MEMBER:
+            raise PermissionDenied()
+        today = datetime.now(UTC).date()
+        tokens = await self.repository.month_tokens(today.replace(day=1))
+        out: builtins.list[QuotaUsage] = []
+        for quota in await self.repository.limited_quotas():
+            if actor.role == Role.LEADER and quota.team_id != actor.team_id:
+                continue
+            checks = (
+                ("monthly_tokens", quota.monthly_token_limit, tokens.get(quota.team_id, 0)),
+                (
+                    "daily_queries",
+                    quota.daily_query_limit,
+                    quota.daily_calls if quota.daily_date == today else 0,
+                ),
+            )
+            for kind, limit, used in checks:
+                if limit is None:
+                    continue
+                ratio = used / limit if limit else 1.0
+                level = "exceeded" if ratio >= 1 else "warning" if ratio >= 0.8 else "ok"
+                out.append(
+                    QuotaUsage(
+                        team_id=quota.team_id,
+                        kind=kind,  # type: ignore[arg-type]
+                        used=used,
+                        limit=limit,
+                        ratio=round(ratio, 4),
+                        level=level,  # type: ignore[arg-type]
+                    )
+                )
+        return sorted(out, key=lambda item: -item.ratio)
 
 
 def build_service(session: "AsyncSession", database: "Database") -> UsageService:

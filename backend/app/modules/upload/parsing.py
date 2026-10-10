@@ -171,13 +171,28 @@ def infer_columns(
     return columns, warnings
 
 
+def needs_alias(header: str) -> bool:
+    """True when nothing of the header survives as an identifier (for example a Chinese name)."""
+    return not re.sub(r"[^a-z0-9_]+", "", unicodedata.normalize("NFKC", header).lower()).strip("_")
+
+
+def require_aliases(headers: list[str], columns: list[ImportColumn]) -> None:
+    for header, column in zip(headers, columns, strict=True):
+        if needs_alias(header) and re.fullmatch(r"column_\d+", column.name):
+            raise AppError(ErrorCode.VALIDATION_ERROR, "Column needs an English name")
+
+
 def configured_columns(
     config: ParseConfig,
     headers: list[str],
     rows: list[list[Any]],
+    enforce: bool = False,
 ) -> tuple[list[ImportColumn], list[str]]:
+    """Previews tolerate unnamed columns; confirming an import (enforce) does not."""
     inferred, warnings = infer_columns(headers, rows)
     if not config.columns:
+        if enforce:
+            require_aliases(headers, inferred)
         return inferred, warnings
     if len(config.columns) != len(headers):
         raise AppError(ErrorCode.VALIDATION_ERROR, "Column count differs")
@@ -190,6 +205,8 @@ def configured_columns(
         )
         for i, c in enumerate(config.columns)
     ]
+    if enforce:
+        require_aliases(headers, result)
     if len({c.name for c in result}) != len(result):
         raise AppError(ErrorCode.VALIDATION_ERROR, "Duplicate column names")
     return result, warnings

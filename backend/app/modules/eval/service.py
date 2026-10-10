@@ -17,16 +17,20 @@ from app.core.sql.executor import QueryLimits, QueryResult, SqlExecutor
 from app.core.sql.guard import SqlGuard
 from app.core.tasks import TaskContext, TaskManager
 from app.modules.eval.assets import EvalAssets
+from app.modules.eval.models import EvalRun
 from app.modules.eval.repository import EvalRepository
 from app.modules.eval.schemas import (
     SAFETY_CATEGORIES,
     EvalCaseInput,
+    EvalCaseView,
+    EvalResultView,
     Evaluation,
     FeedbackCaseExpectation,
     FeedbackOrigin,
     FeedbackSnapshotInput,
     PipelineOutcome,
     RunComparison,
+    RunListItem,
     RunRequest,
     RunView,
 )
@@ -415,6 +419,7 @@ class EvalService:
             row = await self.repository.runs.create(
                 {
                     "model_id": request.model_id,
+                    "note": request.note.strip(),
                     "prompt_versions": request.prompt_versions,
                     "config": request.config,
                     "status": "queued",
@@ -427,6 +432,10 @@ class EvalService:
             )
             identifier = row.id
             await self.audit.record(actor, "eval.run.start", ("eval_run", str(identifier)))
+        return await self._enqueue(identifier, actor)
+
+    async def _enqueue(self, identifier: int, actor: CurrentUser) -> RunView:
+        """Queue a worker for a queued run. The worker claims the run by its task id."""
         try:
             task = await self.tasks.enqueue(
                 "eval.run",
@@ -442,27 +451,54 @@ class EvalService:
             raise AppError(ErrorCode.TASK_FAILED, http_status=503) from None
         async with self.repository.transaction():
             row = await self.repository.required_run(identifier, lock=True)
-            await self.repository.runs.update(row, {"task_id": task.id})
-            return RunView.model_validate(row)
+            # The worker may already have claimed it; never take the run back from it.
+            if row.task_id is None:
+                await self.repository.runs.update(row, {"task_id": task.id})
+        return await self.get(identifier, actor=actor)
+
+    async def _owned(self, identifier: int, task_id: str) -> EvalRun | None:
+        """The locked run while this task still owns it; None once stopped, resumed by
+        another task, or deleted. Must be called inside a transaction."""
+        row = await self.repository.find_run(identifier, lock=True)
+        if row is None or row.status != "running" or row.task_id != task_id:
+            return None
+        return row
 
     async def run(self, context: TaskContext) -> None:
         identifier = int(context.task.payload["run_id"])
         actor = CurrentUser.model_validate(context.task.payload["actor"])
         self._role(actor, write=True)
         async with self.repository.transaction():
-            row = await self.repository.required_run(identifier, lock=True)
-            if row.status != "queued":
+            row = await self.repository.find_run(identifier, lock=True)
+            # Stopped or deleted before a worker got to it, or already taken by a newer task.
+            if row is None or row.status == "canceled":
+                return
+            # A redelivered task (worker restarted mid-run) may continue its own run.
+            redelivered = row.status == "running" and row.task_id == context.task.id
+            if not redelivered and (
+                row.status != "queued" or row.task_id not in {None, context.task.id}
+            ):
                 raise AppError(ErrorCode.CONFLICT)
             await self.repository.runs.update(
-                row, {"status": "running", "started_at": datetime.now(UTC)}
+                row,
+                {
+                    "status": "running",
+                    "task_id": context.task.id,
+                    "started_at": datetime.now(UTC),
+                    "finished_at": None,
+                },
             )
             snapshots = row.case_snapshot
             request = RunRequest(
                 model_id=row.model_id, prompt_versions=row.prompt_versions, config=row.config
             )
-        results = []
+            # A resumed run continues where it stopped.
+            scored = await self.repository.scored_case_ids(identifier)
+            results = await self.repository.results(identifier)
         try:
             for index, snapshot in enumerate(snapshots):
+                if snapshot["case_id"] in scored:
+                    continue
                 case = EvalCaseInput.model_validate(snapshot["definition"])
                 try:
                     # Self-check references before scoring; safety/clarify never execute one.
@@ -482,35 +518,46 @@ class EvalService:
                     )
                     outcome = await self.pipeline.run(question, request)
                     result = evaluate(
-                        case, outcome, reference, await self.assets.hidden_names(case)
+                        case,
+                        outcome,
+                        reference,
+                        await self.assets.hidden_names(case),
+                        exact_code=False,
                     )
-                except AppError:
+                except AppError as error:
                     result = Evaluation(
                         case_id=case.id,
                         category=case.category,
                         passed=False,
                         reason="execution_failed",
+                        error=error.code.value,
                     )
                 async with self.repository.transaction():
+                    # Locked so a stop request sees either all or none of this question.
+                    if await self._owned(identifier, context.task.id) is None:
+                        return
                     await self.repository.save_result(identifier, snapshot["case_id"], result)
                 results.append(result)
                 await context.progress((index + 1) * 100 // len(snapshots))
         except (Exception, asyncio.CancelledError) as error:
             async with self.repository.transaction():
-                row = await self.repository.required_run(identifier, lock=True)
-                await self.repository.runs.update(
-                    row,
-                    {
-                        "status": "failed",
-                        "finished_at": datetime.now(UTC),
-                        "summary": summarize(results),
-                    },
-                )
+                row = await self._owned(identifier, context.task.id)
+                if row is not None:
+                    await self.repository.runs.update(
+                        row,
+                        {
+                            "status": "failed",
+                            "finished_at": datetime.now(UTC),
+                            "summary": summarize(results),
+                        },
+                    )
             if isinstance(error, asyncio.CancelledError):
                 raise
             raise AppError(ErrorCode.TASK_FAILED) from None
         async with self.repository.transaction():
-            row = await self.repository.required_run(identifier, lock=True)
+            row = await self._owned(identifier, context.task.id)
+            if row is None:
+                return
             await self.repository.runs.update(
                 row,
                 {
@@ -521,19 +568,140 @@ class EvalService:
             )
             await self.audit.record(actor, "eval.run.finish", ("eval_run", str(identifier)))
 
+    async def cancel(self, identifier: int, *, actor: CurrentUser) -> RunView:
+        """Stop a queued or running run. Works even when its worker is already gone."""
+        self._role(actor, write=True)
+        async with self.repository.transaction():
+            row = await self.repository.required_run(identifier, lock=True)
+            if row.status not in {"queued", "running"}:
+                raise AppError(ErrorCode.CONFLICT)
+            results = await self.repository.results(identifier)
+            # The worker checks this status before saving each answer and then stops.
+            await self.repository.runs.update(
+                row,
+                {
+                    "status": "canceled",
+                    "finished_at": datetime.now(UTC),
+                    "summary": summarize(results),
+                },
+            )
+            await self.audit.record(actor, "eval.run.cancel", ("eval_run", str(identifier)))
+        return await self.get(identifier, actor=actor)
+
+    async def resume(self, identifier: int, *, actor: CurrentUser) -> RunView:
+        """Continue a stopped or failed run with the questions it has not answered yet."""
+        self._role(actor, write=True)
+        async with self.repository.transaction():
+            row = await self.repository.required_run(identifier, lock=True)
+            if row.status not in {"canceled", "failed"}:
+                raise AppError(ErrorCode.CONFLICT)
+            if await self.repository.result_count(identifier) >= len(row.case_snapshot):
+                raise AppError(ErrorCode.CONFLICT, "Every question is already answered")
+            # Clearing the owner makes a stopped worker still finishing a question drop it.
+            await self.repository.runs.update(
+                row, {"status": "queued", "task_id": None, "finished_at": None}
+            )
+            await self.audit.record(actor, "eval.run.resume", ("eval_run", str(identifier)))
+        return await self._enqueue(identifier, actor)
+
+    async def delete(self, identifier: int, *, actor: CurrentUser) -> None:
+        self._role(actor, write=True)
+        async with self.repository.transaction():
+            row = await self.repository.required_run(identifier, lock=True)
+            if row.status in {"queued", "running"}:
+                raise AppError(ErrorCode.CONFLICT, "Stop the run before deleting it")
+            await self.repository.delete_run(row)
+            await self.audit.record(actor, "eval.run.delete", ("eval_run", str(identifier)))
+
+    @staticmethod
+    def case_view(case: EvalCaseInput, actor: CurrentUser) -> EvalCaseView:
+        return EvalCaseView(
+            id=case.id,
+            category=case.category,
+            difficulty=case.difficulty,
+            question=case.question,
+            as_user=case.as_user,
+            expect_status=case.expect_status,
+            expect_code=case.expect_code.value if case.expect_code else None,
+            # Reference SQL is withheld from leaders like the actual SQL is.
+            expected_sql=case.expected_sql if actor.role == Role.ADMIN else None,
+            history=case.history,
+            result_mode=case.result_mode,
+            expect_empty=case.expect_empty,
+            expected_clarification_options=case.expected_clarification_options,
+            accept_clarify=case.accept_clarify,
+            require_assumption=case.require_assumption,
+            accept_safe_answer=case.accept_safe_answer,
+        )
+
+    async def cases(self, *, actor: CurrentUser) -> list[EvalCaseView]:
+        """The loaded question bank, so reviewers can see what a run will ask."""
+        self._role(actor)
+        async with self.repository.transaction():
+            rows = await self.repository.all_cases()
+        return [self.case_view(EvalCaseInput.model_validate(row.definition), actor) for row in rows]
+
+    async def runs(self, *, actor: CurrentUser) -> list[RunListItem]:
+        self._role(actor)
+        async with self.repository.transaction():
+            rows = await self.repository.runs_page()
+            progress = await self.repository.progress([row.id for row in rows])
+            return [
+                RunListItem(
+                    id=row.id,
+                    model_id=row.model_id,
+                    note=row.note,
+                    status=row.status,
+                    created_at=row.created_at,
+                    started_at=row.started_at,
+                    finished_at=row.finished_at,
+                    case_count=len(row.case_snapshot),
+                    done=progress.get(row.id, (0, 0, 0))[0],
+                    passed=progress.get(row.id, (0, 0, 0))[1],
+                    duration_ms=progress.get(row.id, (0, 0, 0))[2],
+                )
+                for row in rows
+            ]
+
     async def get(self, identifier: int, *, actor: CurrentUser) -> RunView:
         self._role(actor)
         async with self.repository.transaction():
-            return RunView.model_validate(await self.repository.required_run(identifier))
+            row = await self.repository.required_run(identifier)
+            view = RunView.model_validate(row)
+            view.case_ids = [str(item["definition"]["id"]) for item in row.case_snapshot]
+            view.case_count = len(row.case_snapshot)
+            view.done = await self.repository.result_count(identifier)
+            return view
 
-    async def results(self, identifier: int, *, actor: CurrentUser) -> list[Evaluation]:
+    async def results(self, identifier: int, *, actor: CurrentUser) -> list[EvalResultView]:
         self._role(actor)
         async with self.repository.transaction():
-            await self.repository.required_run(identifier)
+            run = await self.repository.required_run(identifier)
             results = await self.repository.results(identifier)
-            if actor.role == Role.LEADER:
-                results = [r.model_copy(update={"actual_sql": None}) for r in results]
-            return results
+        # Questions come from the run's own snapshot: later edits to the bank don't rewrite
+        # what this run asked.
+        asked = {
+            case.id: case
+            for case in (
+                EvalCaseInput.model_validate(item["definition"]) for item in run.case_snapshot
+            )
+        }
+        order = {case_id: index for index, case_id in enumerate(asked)}
+        views = []
+        for result in sorted(results, key=lambda r: order.get(r.case_id, len(order))):
+            hidden: dict[str, Any] = {
+                "actual_sql": None,
+                "actual_rows": [],
+                "expected_rows": [],
+            }
+            view = EvalResultView(
+                **result.model_dump(),
+                case=self.case_view(asked[result.case_id], actor)
+                if result.case_id in asked
+                else None,
+            )
+            views.append(view.model_copy(update=hidden) if actor.role == Role.LEADER else view)
+        return views
 
     async def compare(self, before: int, after: int, *, actor: CurrentUser) -> RunComparison:
         old = {r.case_id: r.passed for r in await self.results(before, actor=actor)}

@@ -24,6 +24,7 @@ from app.core.response import Page, PageParams
 from app.modules.auth.service import audit_for, get_session, require_admin, secret_box, settings_for
 from app.modules.modelcfg.repository import ModelRepository
 from app.modules.modelcfg.schemas import (
+    ModelChoice,
     ModelKind,
     ModelRead,
     ModelTestResult,
@@ -110,6 +111,17 @@ class ModelConfigService:
             (str(row.id) for row in rows if row.is_default), str(rows[0].id) if rows else None
         )
 
+    async def choices(self, *, actor: CurrentUser) -> list[ModelChoice]:
+        """Enabled LLMs anyone may pick for a question; the team's usual model is marked."""
+        if not actor.active:
+            raise PermissionDenied()
+        usual = await self.preference(actor.team_id, "llm") or await self.default("llm")
+        return [
+            ModelChoice(id=row.id, name=row.model_name, is_default=str(row.id) == usual)
+            for row in await self.repository.all()
+            if row.enabled and row.type == "llm"
+        ]
+
     async def list(self, page: PageParams, *, actor: CurrentUser) -> Page[ModelRead]:
         if actor.role not in {Role.ADMIN, Role.LEADER} or not actor.active:
             raise PermissionDenied()
@@ -173,6 +185,21 @@ class ModelConfigService:
         await self.audit.record(actor, "model.update", ("model_config", str(row.id)))
         return ModelRead.model_validate(row)
 
+    async def set_enabled(self, target_id: int, enabled: bool, *, actor: CurrentUser) -> ModelRead:
+        """Toggle a model on or off without resending its API key."""
+        require_admin(actor)
+        row = await self.repository.get(target_id)
+        if row is None:
+            raise AppError(ErrorCode.NOT_FOUND, http_status=404)
+        # A model a team has selected stays on, as in a full update.
+        if not enabled and await self.repository.used(target_id):
+            raise AppError(ErrorCode.CONFLICT)
+        await self.repository.update(row, {"enabled": enabled})
+        await self.audit.record(
+            actor, "model.update", ("model_config", str(row.id)), {"enabled": enabled}
+        )
+        return ModelRead.model_validate(row)
+
     async def set_preference(
         self, team_id: int, kind: ModelKind, model_id: int, *, actor: CurrentUser
     ) -> PreferenceRead:
@@ -194,7 +221,12 @@ class ModelConfigService:
         ):
             raise PermissionDenied()
         await self.org.ensure_team(team_id)
-        model = await self.registry.select(team_id, kind)
+        try:
+            model = await self.registry.select(team_id, kind)
+        except AppError as error:
+            if error.code != ErrorCode.LLM_UNAVAILABLE:
+                raise
+            return PreferenceRead(team_id=team_id, type=kind, model_id=None)
         return PreferenceRead(team_id=team_id, type=kind, model_id=int(model.id))
 
     async def test(self, target_id: int, *, actor: CurrentUser) -> ModelTestResult:
@@ -203,10 +235,38 @@ class ModelConfigService:
         if row is None:
             raise AppError(ErrorCode.NOT_FOUND, http_status=404)
         model = self._config(ModelRead.model_validate(row), row.api_key_enc)
+        available = await self._probe(model, row.embedding_dimension, actor)
+        await self.audit.record(
+            actor, "model.test", ("model_config", str(target_id)), {"available": available}
+        )
+        return ModelTestResult(available=available)
+
+    async def test_draft(self, data: ModelWrite, *, actor: CurrentUser) -> ModelTestResult:
+        """Test an unsaved configuration; nothing is stored and the key is never returned."""
+        require_admin(actor)
+        await self._validate(data)
+        model = ModelConfig(
+            id="draft",
+            kind=data.type,
+            model=f"{data.provider}/{data.model_name}",
+            api_key=data.api_key,
+            base_url=data.base_url,
+            enabled=True,
+            **data.params.model_dump(),
+        )
+        available = await self._probe(model, data.embedding_dimension, actor)
+        await self.audit.record(
+            actor, "model.test", ("model_config", "draft"), {"available": available}
+        )
+        return ModelTestResult(available=available)
+
+    async def _probe(
+        self, model: ModelConfig, embedding_dimension: int | None, actor: CurrentUser
+    ) -> bool:
         model.enabled = True  # Administrators can test a configuration before enabling it.
         registry = ModelRegistry(_PinnedModel(model))
         usage = self.recorder or _TestUsage(self.audit, actor)
-        prompt = PromptRegistry().render(PromptId.EXPLAIN, {"connection_test": "Reply OK"})
+        prompt = PromptRegistry().render(PromptId.ANSWER, {"connection_test": "Reply OK"})
         context = CallContext(
             user_id=actor.id,
             team_id=actor.team_id,
@@ -222,7 +282,7 @@ class ModelConfigService:
                 vectors = await EmbeddingClient(registry, usage, self.transport).embed(
                     ["test"], context
                 )
-                available = bool(vectors and len(vectors[0]) == row.embedding_dimension)
+                available = bool(vectors and len(vectors[0]) == embedding_dimension)
             else:
                 await RerankClient(registry, usage, self.transport).rerank(
                     "test", ["test"], context
@@ -231,10 +291,7 @@ class ModelConfigService:
             if error.code != ErrorCode.LLM_UNAVAILABLE:
                 raise
             available = False
-        await self.audit.record(
-            actor, "model.test", ("model_config", str(target_id)), {"available": available}
-        )
-        return ModelTestResult(available=available)
+        return available
 
 
 def build_service(

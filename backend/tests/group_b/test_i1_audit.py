@@ -118,7 +118,9 @@ async def test_full_retrieval_uses_live_services_versions_enums_and_approved_exa
     enum = next(item for item in bundle.items if item.kind == "enum")
     assert enum.ref_id == personal.id and enum.version == personal.version
     assert enum.scope == ScopeLevel.PERSONAL
-    assert any("请选择指标或语义口径" == item.question for item in bundle.ambiguities)
+    # Conflicting levels resolve to the user's own without a clarification.
+    assert not any("请选择指标或语义口径" == item.question for item in bundle.ambiguities)
+    assert "personal" in bundle.definition_levels.values()
     assert next(item for item in bundle.items if item.kind == "metric").ref_id == metric.id
     assert [item.ref_id for item in bundle.items if item.kind == "example"] == [example.id]
     assert platform.id != personal.id and "unapproved" not in bundle.model_dump_json()

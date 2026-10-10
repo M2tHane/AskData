@@ -24,6 +24,7 @@ from app.modules.feedback.schemas import (
     ExampleView,
     FeedbackInput,
     FeedbackView,
+    MyFeedback,
 )
 from app.modules.metric.service import DatasourceResolver
 from app.modules.querylog.service import QueryLogService
@@ -65,6 +66,15 @@ class FeedbackService:
             query = await self.queries.get(data.query_run_id, actor)
             if query.user_id != actor.id:
                 raise PermissionDenied()
+            existing = await self.repository.own(data.query_run_id, actor.id)
+            if existing is not None:
+                # Changing one's mind updates the same feedback and puts it back in the queue.
+                await self.repository.update(
+                    existing,
+                    {**data.model_dump(), "status": "open", "handled_by": None, "handled_at": None},
+                )
+                await self.audit.record(actor, "feedback.update", ("feedback", str(existing.id)))
+                return FeedbackView.model_validate(existing)
             # QueryView contains only the masked preview emitted by the core writer.
             row = await self.repository.create(
                 {
@@ -85,14 +95,35 @@ class FeedbackService:
             await self.audit.record(actor, "feedback.submit", ("feedback", str(row.id)))
             return FeedbackView.model_validate(row)
 
+    async def mine(self, query_run_ids: List[int], *, actor: CurrentUser) -> List[MyFeedback]:
+        if not actor.active or len(query_run_ids) > 200:
+            raise AppError(ErrorCode.VALIDATION_ERROR)
+        if not query_run_ids:
+            return []
+        latest = {
+            row.query_run_id: row for row in await self.repository.mine(query_run_ids, actor.id)
+        }
+        return [MyFeedback.model_validate(row) for row in latest.values()]
+
     async def list(
-        self, actor: CurrentUser, page: PageParams, status: str | None = None
+        self,
+        actor: CurrentUser,
+        page: PageParams,
+        status: str | None = None,
+        *,
+        user_id: int | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
     ) -> Page[FeedbackView]:
         if not actor.active:
             raise PermissionDenied()
         if status is not None and status not in {"open", "handled"}:
             raise AppError(ErrorCode.VALIDATION_ERROR)
-        rows, total = await self.repository.search(actor, page, status)
+        if since and until and since >= until:
+            raise AppError(ErrorCode.VALIDATION_ERROR)
+        rows, total = await self.repository.search(
+            actor, page, status, user_id=user_id, since=since, until=until
+        )
         return Page(
             items=[FeedbackView.model_validate(row) for row in rows],
             total=total,

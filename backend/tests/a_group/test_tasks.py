@@ -3,8 +3,10 @@ from typing import Literal
 import pytest
 from pydantic import SecretStr
 
+from app.core.deps import CurrentUser, Role
 from app.core.errors import AppError
 from app.core.tasks import TaskManager, TaskStatus
+from app.modules.permission.schemas import DatasourceVisibilityWrite
 from app.modules.schema.service import SYNC_TASK, enqueue_daily, sync_handler
 from tests.a_group.test_datasource_schema_permission import draft, snapshot
 from tests.fakes import MemoryQueue, MemoryTaskStore
@@ -21,6 +23,9 @@ async def test_sync_task_queue_progress_polling_duplicate_and_daily(identity_db)
     world.inspector.snapshot = snapshot("id", "phone")
     async with world.database.transaction() as session:
         source = await world.datasource(session).create(draft(), actor=world.admin)
+        await world.grants(session).set_datasource_scope(
+            source.id, DatasourceVisibilityWrite(team_ids=[world.team]), actor=world.admin
+        )
     async with world.database.transaction() as session:
         schema = world.schema(session)
         tasks = await enqueue_daily(schema, manager, actor=world.admin)
@@ -36,9 +41,12 @@ async def test_sync_task_queue_progress_polling_duplicate_and_daily(identity_db)
     async with world.database.session() as session:
         catalog = await world.schema(session).catalog(source.id)
         assert {c.name for c in catalog[0].columns} == {"id", "phone"}
-        assert not (
-            await world.grants(session).permissions.visible_scope(world.member, source.id)
-        ).tables
+        # Newly discovered objects inherit the datasource's teams (employees included);
+        # narrowing them is an explicit administrator action afterwards.
+        scope = await world.grants(session).permissions.visible_scope(world.member, source.id)
+        assert scope.tables["public.orders"].columns == {"id", "phone"}
+        other = CurrentUser(id=world.member.id, role=Role.MEMBER, team_id=world.other)
+        assert not (await world.grants(session).permissions.visible_scope(other, source.id)).tables
         assert (
             await world.schema(session).task(task.id, manager, actor=world.admin)
         ).status == "success"

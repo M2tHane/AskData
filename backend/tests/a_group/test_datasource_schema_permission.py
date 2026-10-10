@@ -256,3 +256,38 @@ async def test_sync_preserves_descriptions_expires_missing_grants_and_never_auto
         grants = world.grants(session)
         await world.schema(session).synchronize(world.source, grants, actor=world.admin)
         assert not (await grants.permissions.visible_scope(world.leader, world.source)).tables
+
+
+async def test_new_objects_inherit_visibility_without_touching_existing_grants(
+    catalog,
+):
+    world = catalog
+    async with world.database.transaction() as session:
+        await authorize(world, session)
+    world.inspector.snapshot = snapshot("id", "phone", "secret", "new_field")
+    async with world.database.transaction() as session:
+        grants, schema = world.grants(session), world.schema(session)
+        before = await grants.permissions.visible_scope(world.leader, world.source)
+        result = await schema.synchronize(world.source, grants, actor=world.admin)
+        new_column = next(
+            c.id for c in (await schema.catalog(world.source))[0].columns if c.name == "new_field"
+        )
+        assert result.added_columns == [new_column] and result.added_tables == []
+        # The plain synchronize call never widens access by itself.
+        mid = await grants.permissions.visible_scope(world.leader, world.source)
+        assert mid.tables["public.orders"].columns == before.tables["public.orders"].columns
+        granted_to = await grants.apply_inherited_defaults(result, actor=world.admin)
+        assert granted_to >= 1
+        after = await grants.permissions.visible_scope(world.leader, world.source)
+        assert "new_field" in after.tables["public.orders"].columns
+        # Columns that existed before stay exactly as the administrator left them.
+        assert "secret" not in after.tables["public.orders"].columns
+        # The administrator had not exposed this table to employees; that choice stands.
+        member = await grants.permissions.visible_scope(world.member, world.source)
+        assert "public.orders" not in member.tables
+        assert (
+            await grants.apply_inherited_defaults(
+                result.model_copy(update={"added_columns": []}), actor=world.admin
+            )
+            == 0
+        )

@@ -1,6 +1,7 @@
 """Business-service adapter for the query pipeline's retrieval protocol."""
 
 import json
+from typing import Any
 
 from app.core.deps import CurrentUser
 from app.core.errors import AppError, ErrorCode
@@ -27,13 +28,26 @@ class ServiceRetrievalIndex:
     ) -> None:
         self.schema, self.semantic, self.metric, self.feedback = schema, semantic, metric, feedback
         self.embedding, self.rerank = embedding, rerank
+        # Request-scoped instance: browse the authorized schema once per question.
+        self._browsed: dict[tuple[int, int], Any] = {}
+
+    async def _tables(self, user: CurrentUser, datasource_id: int) -> Any:
+        key = (user.id, datasource_id)
+        if key not in self._browsed:
+            self._browsed[key] = await self.schema.browse(
+                datasource_id, self.semantic.permissions, actor=user
+            )
+        return self._browsed[key]
 
     async def retrieve(
-        self, user: CurrentUser, scope: VisibleScope, question: str, mode: str
+        self,
+        user: CurrentUser,
+        scope: VisibleScope,
+        question: str,
+        mode: str,
+        pinned_metric_ids: frozenset[int] = frozenset(),
     ) -> RetrievalBundle:
-        tables = await self.schema.browse(
-            scope.datasource_id, self.semantic.permissions, actor=user
-        )
+        tables = await self._tables(user, scope.datasource_id)
         items: list[ContextItem] = []
         for term in await self.semantic.list(user, scope.datasource_id):
             target = await self.semantic.targets.resolve_target(
@@ -63,6 +77,7 @@ class ServiceRetrievalIndex:
                         },
                         ensure_ascii=False,
                     ),
+                    description=term.description or "",
                     tables={target.table: columns},
                     score=self._score(question, term.aliases),
                 )
@@ -90,8 +105,10 @@ class ServiceRetrievalIndex:
                         },
                         ensure_ascii=False,
                     ),
+                    description=metric.description or "",
                     tables=checked.columns,
                     score=self._score(question, [metric.name, *metric.aliases]),
+                    matched=self._matched(question, [metric.name, *metric.aliases]),
                 )
             )
         for example in await self.feedback.examples(user, scope.datasource_id):
@@ -142,6 +159,7 @@ class ServiceRetrievalIndex:
                 item
                 for item in items
                 if ("semantic" if item.kind == "enum" else item.kind, item.ref_id) in references
+                or (item.kind == "metric" and item.ref_id in pinned_metric_ids)
             ]
         selected.update(name for item in items for name in item.tables)
         return RetrievalBundle(
@@ -155,6 +173,11 @@ class ServiceRetrievalIndex:
         )
 
     @staticmethod
+    def _matched(question: str, names: list[str]) -> str:
+        found = [name for name in names if name and name.casefold() in question.casefold()]
+        return max(found, key=len, default="")
+
+    @staticmethod
     def _score(question: str, names: list[str]) -> float:
         return (
             1.0 if any(name and name.casefold() in question.casefold() for name in names) else 0.0
@@ -163,9 +186,7 @@ class ServiceRetrievalIndex:
     async def expand_relations(
         self, user: CurrentUser, scope: VisibleScope, bundle: RetrievalBundle
     ) -> RetrievalBundle:
-        tables = await self.schema.browse(
-            scope.datasource_id, self.semantic.permissions, actor=user
-        )
+        tables = await self._tables(user, scope.datasource_id)
         endpoints = {
             column.id: table.qualified_name for table in tables for column in table.columns
         }

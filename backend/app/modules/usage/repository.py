@@ -158,6 +158,53 @@ class UsageRepository:
             )
         )
 
+    async def trend(
+        self,
+        actor: CurrentUser,
+        by: str,
+        since: date,
+        until: date,
+    ) -> list[tuple[date, str, int, int, int]]:
+        group = UsageDaily.team_id if by == "team" else UsageDaily.model_id
+        query = (
+            select(
+                UsageDaily.date,
+                group,
+                func.sum(UsageDaily.calls),
+                func.sum(UsageDaily.tokens_in),
+                func.sum(UsageDaily.tokens_out),
+            )
+            .where(UsageDaily.date >= since, UsageDaily.date <= until)
+            .group_by(UsageDaily.date, group)
+            .order_by(UsageDaily.date, group)
+        )
+        if actor.role == Role.LEADER:
+            query = query.where(UsageDaily.team_id == actor.team_id)
+        elif actor.role == Role.MEMBER:
+            query = query.where(UsageDaily.user_id == actor.id)
+        rows = await self.session.execute(query)
+        return [
+            (day, "" if key is None else str(key), int(calls or 0), int(tin or 0), int(tout or 0))
+            for day, key, calls, tin, tout in rows
+        ]
+
+    async def month_tokens(self, since: date) -> dict[int, int]:
+        rows = await self.session.execute(
+            select(UsageDaily.team_id, func.sum(UsageDaily.tokens_in + UsageDaily.tokens_out))
+            .where(UsageDaily.date >= since, UsageDaily.team_id.is_not(None))
+            .group_by(UsageDaily.team_id)
+        )
+        return {int(team): int(total or 0) for team, total in rows if team is not None}
+
+    async def limited_quotas(self) -> list[TeamQuota]:
+        rows = await self.session.scalars(
+            select(TeamQuota).where(
+                (TeamQuota.monthly_token_limit.is_not(None))
+                | (TeamQuota.daily_query_limit.is_not(None))
+            )
+        )
+        return list(rows)
+
     async def search(
         self, actor: CurrentUser, page: PageParams, since: date | None, until: date | None
     ) -> tuple[list[UsageDaily], int]:

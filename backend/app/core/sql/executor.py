@@ -147,9 +147,15 @@ class SqlExecutor:
             # Driver messages can contain secrets and invisible object names; discard them.
             sqlstate = getattr(error, "sqlstate", None)
             args = getattr(error, "args", ())
+            # PostgreSQL (postgres/kingbase/gaussdb): sqlstate 42601 (syntax), 42703
+            # (undefined column); MySQL: error code 1054 (unknown column), 1064
+            # (syntax error); ClickHouse: DatabaseError with message containing error code
             if sqlstate in {"42601", "42703"} or (
                 datasource.dialect == "mysql" and args and args[0] in {1054, 1064}
             ):
+                raise AppError(ErrorCode.SQL_EXECUTION_ERROR) from None
+            # ClickHouse DatabaseError treated as SQL_EXECUTION_ERROR for auto-correction
+            if datasource.dialect == "clickhouse" and error.__class__.__name__ == "DatabaseError":
                 raise AppError(ErrorCode.SQL_EXECUTION_ERROR) from None
             raise DatasourceUnavailable() from None
         finally:

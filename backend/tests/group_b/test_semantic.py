@@ -70,3 +70,21 @@ async def test_audit_failure_rolls_back_source(b_services, member):
             SemanticInput(datasource_id=1, target_type="column", target_id=1), actor=member
         )
     assert await b_services.session.scalar(select(func.count()).select_from(SemanticTerm)) == 0
+
+
+async def test_admin_edits_team_definitions_without_taking_ownership(b_services, leader, admin):
+    data = SemanticInput(
+        datasource_id=1,
+        target_type="column",
+        target_id=1,
+        aliases=["单号"],
+        scope=ScopeLevel.TEAM,
+    )
+    saved = await b_services.semantic.save(data, actor=leader)
+    edited = await b_services.semantic.save(
+        data.model_copy(update={"description": "管理员修订"}), identifier=saved.id, actor=admin
+    )
+    assert edited.scope == ScopeLevel.TEAM and edited.description == "管理员修订"
+    assert edited.owner_team_id == saved.owner_team_id
+    await b_services.semantic.delete(saved.id, actor=admin)
+    assert await b_services.semantic.list(leader, 1) == []

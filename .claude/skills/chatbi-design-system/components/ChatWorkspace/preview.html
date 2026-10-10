@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+<head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../../components/bundle.css"><script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script><script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script><script src="../../components/bundle.js"></script><meta charset="utf-8"><title>ChatWorkspace</title></head>
+<body>
+<div id="root" class="cb-root"></div>
+<script>
+var C = window.ChatBI, h = React.createElement;
+var NAV = [
+  { label: '查数', items: [{ id: 'chat', label: '对话', icon: 'chat' }, { id: 'history', label: '我的会话', icon: 'log', count: 12 }] },
+  { label: '数据', items: [{ id: 'src', label: '数据源', icon: 'database' }, { id: 'schema', label: '表与字段', icon: 'table' }, { id: 'sem', label: '语义与别名', icon: 'book' }, { id: 'metric', label: '指标', icon: 'sigma' }] },
+  { label: '治理', items: [{ id: 'perm', label: '权限', icon: 'shield' }, { id: 'fb', label: '反馈', icon: 'flag', count: 4 }, { id: 'logs', label: '查询日志', icon: 'log' }, { id: 'eval', label: '评测', icon: 'flask' }, { id: 'model', label: '模型配置', icon: 'cpu' }] }
+];
+var FOOT = h('div', null, '华东销售组 · 团队负责人', h('br'), '只读账号执行 · 每次查询留痕');
+var SQL = "SELECT s.sales_name AS 销售,\n       SUM(p.amount)  AS 回款金额,\n       COUNT(*)       AS 回款笔数\nFROM   payment p\nJOIN   sales s ON s.id = p.sales_id\nWHERE  s.region = '华东'\n  AND  p.paid_at >= '2026-09-01' AND p.paid_at < '2026-10-01'\nGROUP  BY s.sales_name\nORDER  BY 回款金额 DESC\nLIMIT  1000";
+var COLS = [{ key: 'n', label: '销售', field: 'sales.sales_name' }, { key: 'p', label: '手机号', field: 'sales.phone', masked: true }, { key: 'a', label: '回款金额', field: 'SUM(payment.amount)', type: 'number' }, { key: 'c', label: '回款笔数', field: 'COUNT(*)', type: 'number' }];
+var ROWS = [{ n: '周敏', p: '138****2071', a: 1284300, c: 46 }, { n: '陈立', p: '139****5520', a: 962150.5, c: 38 }, { n: '王一舟', p: '186****0913', a: 804900, c: 31 }, { n: '李嘉', p: '135****7764', a: 611020, c: 27 }, { n: '赵晴', p: '177****3308', a: 402880, c: 19 }];
+var DATA = [{ label: '周敏', values: [1284300] }, { label: '陈立', values: [962150] }, { label: '王一舟', values: [804900] }, { label: '李嘉', values: [611020] }, { label: '赵晴', values: [402880] }];
+var SESS = [{ t: '上个月华东区每个销售的回款金额', s: 'sales_dw · 14:22', cur: true }, { t: '各渠道 9 月新增客户数', s: 'sales_dw · 09:40' }, { t: '库存周转天数 TOP 20 SKU', s: 'erp_pg · 昨天' }, { t: '9 月活动报名表.xlsx 按城市汇总', s: 'excel · 周一' }];
+function App() {
+  return h('div', { className: 'cb-app' },
+    h(C.Sidebar, { active: 'chat', groups: NAV, footer: FOOT }),
+    h('div', { className: 'cb-main' },
+      h('header', { className: 'cb-topbar' },
+        h('span', { className: 'cb-crumb' }, '对话'), h('span', { className: 'cb-crumb' }, '/'),
+        h('span', { className: 'cb-title' }, '上个月华东区每个销售的回款金额'),
+        h(C.Badge, { mono: true }, 'mysql · sales_dw'),
+        h('span', { className: 'cb-spacer' }),
+        h(C.Button, { icon: 'plus' }, '新会话')),
+      h('div', { className: 'cb-work', style: { gridTemplateColumns: '200px minmax(0,1fr) var(--inspector-width)' } },
+        h(C.Panel, { title: '会话', actions: h(C.Button, { size: 'sm', variant: 'ghost', icon: 'search', 'aria-label': '搜索会话' }) },
+          h('ul', { className: 'cb-sessions' }, SESS.map(function (s, i) { return h('li', { key: i, 'aria-current': s.cur ? 'true' : null }, h('b', null, s.t), h('span', null, s.s)); }))),
+        h('section', { className: 'cb-panel', style: { display: 'flex', flexDirection: 'column', minHeight: 0 } },
+          h('div', { className: 'cb-convo', style: { flex: 1 } },
+            h(C.ChatMessage, { role: 'user' }, '上个月华东的销售额，按人排一下'),
+            h(C.ChatMessage, { meta: '1.1 s' }, h(C.ClarifyPrompt, { question: '“销售额”有两种口径，你要哪一种？', options: [{ label: '下单金额', hint: 'orders.amount' }, { label: '回款金额', hint: 'payment.amount' }] })),
+            h(C.ChatMessage, { role: 'user' }, '回款金额'),
+            h(C.ChatMessage, { meta: [h('span', { key: 1 }, 'gpt-4.1 · 2.4 s · 纠错 1 次'), h(C.Badge, { key: 2, tone: 'success', icon: 'check' }, '5 行')] },
+              h('div', null, '9 月华东区 5 位销售共回款 ', h('b', null, '406.5 万元'), '，周敏最高（128.4 万，46 笔），赵晴最低（40.3 万）。'),
+              h(C.ExplainCard, { summary: '统计 9 月华东区每位销售的回款金额与笔数，按金额从高到低。', metric: { name: '回款金额', scope: 'team', expr: 'SUM(payment.amount)' }, terms: [{ term: '华东', field: "sales.region = '华东'", scope: 'personal' }], timeRange: '上个月 → 2026-09-01 至 2026-09-30' }),
+              h(C.ChartCard, { title: '9 月华东区回款金额（元）', data: DATA, series: ['回款金额'] }),
+              h(C.ResultTable, { columns: COLS, rows: ROWS, ms: 812 }),
+              h(C.FeedbackBar, null))),
+          h('div', { style: { padding: '0 var(--space-6) var(--space-5)' } }, h(C.Composer, { source: 'mysql · sales_dw', hint: '可见 48 张表' }))),
+        h('aside', { className: 'cb-panel', style: { padding: 'var(--space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' } },
+          h(C.Tabs, { items: [{ id: 'sql', label: 'SQL' }, { id: 'chk', label: '校验' }, { id: 'tr', label: '过程' }, { id: 'ex', label: '解释' }] }),
+          h(C.SqlBlock, { sql: SQL, meta: '0.8 s' }),
+          h('div', null, h('div', { className: 'cb-eyebrow', style: { marginBottom: 6 } }, '执行前校验 · 6 项通过'),
+            h(C.CheckList, { items: [{ status: 'pass', label: '只读账号 bi_reader' }, { status: 'pass', label: '单条 SELECT' }, { status: 'pass', label: '只访问可见的表和字段' }, { status: 'pass', label: '未用禁用函数与系统表' }] })),
+          h('div', null, h('div', { className: 'cb-eyebrow', style: { marginBottom: 6 } }, '过程 · q_8812'),
+            h(C.Trace, { steps: [{ status: 'ok', label: '检索可见表和字段', time: '0.3 s' }, { status: 'ok', label: '生成 SQL', time: '1.2 s' }, { status: 'fail', label: 'Unknown column p.pay_time', time: '0.1 s' }, { status: 'retry', label: '自动纠错 1/3', time: '0.9 s' }, { status: 'ok', label: '执行 · 5 行', time: '0.8 s' }] }))))));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(App());
+</script>
+</body>
+</html>

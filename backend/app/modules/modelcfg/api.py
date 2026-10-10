@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends
 from app.core.deps import CurrentUser, current_user
 from app.core.response import Envelope, Page, PageParams
 from app.modules.modelcfg.schemas import (
+    EnabledWrite,
+    ModelChoice,
     ModelKind,
     ModelRead,
     ModelTestResult,
@@ -26,6 +28,11 @@ async def listing(
     return Envelope(data=await service.list(page, actor=actor))
 
 
+@router.get("/choices", response_model=Envelope[list[ModelChoice]])
+async def choices(service: Service, actor: Actor) -> Envelope[list[ModelChoice]]:
+    return Envelope(data=await service.choices(actor=actor))
+
+
 @router.post("", response_model=Envelope[ModelRead])
 async def create(data: ModelWrite, service: Service, actor: Actor) -> Envelope[ModelRead]:
     return Envelope(data=await service.create(data, actor=actor))
@@ -36,6 +43,18 @@ async def update(
     target_id: int, data: ModelWrite, service: Service, actor: Actor
 ) -> Envelope[ModelRead]:
     return Envelope(data=await service.update(target_id, data, actor=actor))
+
+
+@router.patch("/{target_id}/enabled", response_model=Envelope[ModelRead])
+async def set_enabled(
+    target_id: int, data: EnabledWrite, service: Service, actor: Actor
+) -> Envelope[ModelRead]:
+    return Envelope(data=await service.set_enabled(target_id, data.enabled, actor=actor))
+
+
+@router.post("/test", response_model=Envelope[ModelTestResult])
+async def test_draft(data: ModelWrite, service: Service, actor: Actor) -> Envelope[ModelTestResult]:
+    return Envelope(data=await service.test_draft(data, actor=actor))
 
 
 @router.post("/{target_id}/test", response_model=Envelope[ModelTestResult])

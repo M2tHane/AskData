@@ -10,9 +10,25 @@ class TeamWrite(BaseModel):
     status: Literal["active", "disabled"] = "active"
 
 
+class TeamCreate(TeamWrite):
+    # The leader must be an unassigned ("free") employee.
+    leader_id: int | None = Field(default=None, ge=1)
+
+
 class TeamRead(TeamWrite):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    leader_id: int | None = None
+    leader_name: str | None = None
+    member_count: int = 0
+
+
+class TeamLeaderWrite(BaseModel):
+    user_id: int = Field(ge=1)
+
+
+class TeamMembersWrite(BaseModel):
+    user_ids: list[int] = Field(min_length=1, max_length=100)
 
 
 class UserWrite(BaseModel):
@@ -28,6 +44,14 @@ class UserUpdate(BaseModel):
     team_id: int | None = Field(default=None, ge=1)
     status: Literal["active", "disabled"] = "active"
     password: SecretStr | None = Field(default=None, min_length=12, max_length=1024)
+
+
+class PersonRead(BaseModel):
+    """Just enough to name a user in logs and filters."""
+
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    username: str
 
 
 class UserRead(BaseModel):

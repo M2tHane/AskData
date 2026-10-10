@@ -10,7 +10,7 @@ class UploadJob(AuditFields, Base):
     __tablename__ = "upload_job"
     __table_args__ = (UniqueConstraint("datasource_id", "version"),)
     datasource_id: Mapped[int] = mapped_column(ForeignKey("datasource.id"))
-    owner_team_id: Mapped[int] = mapped_column(ForeignKey("team.id"))
+    owner_team_id: Mapped[int | None] = mapped_column(ForeignKey("team.id"), nullable=True)
     file_key: Mapped[str] = mapped_column(String(500))
     filename: Mapped[str] = mapped_column(String(255))
     sha256: Mapped[str] = mapped_column(String(64))

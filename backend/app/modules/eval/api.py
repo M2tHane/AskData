@@ -5,7 +5,15 @@ from fastapi import APIRouter, Depends
 from app.core.deps import CurrentUser, Role, require_role
 from app.core.errors import AppError, ErrorCode
 from app.core.response import Envelope
-from app.modules.eval.schemas import EvalCaseInput, Evaluation, RunComparison, RunRequest, RunView
+from app.modules.eval.schemas import (
+    EvalCaseInput,
+    EvalCaseView,
+    EvalResultView,
+    RunComparison,
+    RunListItem,
+    RunRequest,
+    RunView,
+)
 from app.modules.eval.service import EvalService
 
 router = APIRouter(prefix="/eval", tags=["eval"])
@@ -25,6 +33,16 @@ async def save_case(
     case: EvalCaseInput, service: Service, actor: Writer
 ) -> Envelope[EvalCaseInput]:
     return Envelope(data=await service.save_case(case, actor=actor))
+
+
+@router.get("/cases", response_model=Envelope[list[EvalCaseView]])
+async def cases(service: Service, actor: Reader) -> Envelope[list[EvalCaseView]]:
+    return Envelope(data=await service.cases(actor=actor))
+
+
+@router.get("/runs", response_model=Envelope[list[RunListItem]])
+async def runs(service: Service, actor: Reader) -> Envelope[list[RunListItem]]:
+    return Envelope(data=await service.runs(actor=actor))
 
 
 @router.post("/cases/load", response_model=Envelope[int])
@@ -49,6 +67,24 @@ async def get(identifier: int, service: Service, actor: Reader) -> Envelope[RunV
     return Envelope(data=await service.get(identifier, actor=actor))
 
 
-@router.get("/runs/{identifier}/results", response_model=Envelope[list[Evaluation]])
-async def results(identifier: int, service: Service, actor: Reader) -> Envelope[list[Evaluation]]:
+@router.post("/runs/{identifier}/cancel", response_model=Envelope[RunView])
+async def cancel(identifier: int, service: Service, actor: Writer) -> Envelope[RunView]:
+    return Envelope(data=await service.cancel(identifier, actor=actor))
+
+
+@router.post("/runs/{identifier}/resume", response_model=Envelope[RunView])
+async def resume(identifier: int, service: Service, actor: Writer) -> Envelope[RunView]:
+    return Envelope(data=await service.resume(identifier, actor=actor))
+
+
+@router.delete("/runs/{identifier}", response_model=Envelope[None])
+async def delete(identifier: int, service: Service, actor: Writer) -> Envelope[None]:
+    await service.delete(identifier, actor=actor)
+    return Envelope(data=None)
+
+
+@router.get("/runs/{identifier}/results", response_model=Envelope[list[EvalResultView]])
+async def results(
+    identifier: int, service: Service, actor: Reader
+) -> Envelope[list[EvalResultView]]:
     return Envelope(data=await service.results(identifier, actor=actor))

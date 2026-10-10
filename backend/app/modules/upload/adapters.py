@@ -1,6 +1,6 @@
 """Upload composition boundary; all persistence stays in the owning services.
 
-The ports below are required public service extensions, documented in INTEGRATION.md.
+The ports below are required public service extensions (see docs/archive/upload_INTEGRATION.md).
 The factory fails closed if the supplied services do not yet implement them. Every
 publication step must share the upload transaction and datasource lock; receipts must
 be durable, so retries after a worker restart cannot extend grants.
@@ -19,23 +19,23 @@ from app.modules.schema.service import SyncResult
 
 class UploadPublication(BaseModel):
     datasource_id: int = Field(ge=1)
-    owner_team_id: int = Field(ge=1)
+    owner_team_id: int | None = Field(default=None, ge=1)
     completed: bool = False
     initialize_owner_grants: bool = False
 
 
 @runtime_checkable
 class UploadDatasourceService(Protocol):
-    async def reserve_upload(self, name: str, team_id: int, *, actor: CurrentUser) -> int:
+    async def reserve_upload(self, name: str, team_id: int | None, *, actor: CurrentUser) -> int:
         """Create an ungranted pending upload without testing a reader that does not exist."""
         ...
 
-    async def upload_owner(self, datasource_id: int) -> int:
-        """Read owner through service; reject non-upload sources, including pending ones."""
+    async def upload_owner(self, datasource_id: int) -> int | None:
+        """Read owner (None for admin-created sources); reject non-upload sources."""
         ...
 
     async def publish_upload_credentials(
-        self, job_id: int, datasource: Datasource, owner_team_id: int, *, actor: CurrentUser
+        self, job_id: int, datasource: Datasource, owner_team_id: int | None, *, actor: CurrentUser
     ) -> UploadPublication:
         """Lock source, validate owner/type, encrypt reader secret, return durable receipt.
 
@@ -61,6 +61,10 @@ class UploadSchemaService(Protocol):
 @runtime_checkable
 class UploadGrantService(Protocol):
     async def expire_metadata(self, result: SyncResult) -> None: ...
+
+    async def apply_inherited_defaults(self, result: SyncResult, *, actor: CurrentUser) -> int:
+        """New tables and columns inherit the visibility of their datasource and table."""
+        ...
 
     async def grant_upload_owner(
         self, datasource_id: int, team_id: int, *, actor: CurrentUser
@@ -91,20 +95,22 @@ class ServiceUploadRegistration:
         self.org, self.permissions = org, permissions
 
     @staticmethod
-    def _owner_actor(team_id: int, actor: CurrentUser) -> None:
+    def _owner_actor(team_id: int | None, actor: CurrentUser) -> None:
         if not actor.active or (
-            actor.role != Role.ADMIN and (actor.role != Role.LEADER or actor.team_id != team_id)
+            actor.role != Role.ADMIN
+            and (team_id is None or actor.role != Role.LEADER or actor.team_id != team_id)
         ):
             raise PermissionDenied()
-        if team_id < 1:
+        if team_id is not None and team_id < 1:
             raise AppError(ErrorCode.VALIDATION_ERROR)
 
-    async def reserve(self, name: str, team_id: int, actor: CurrentUser) -> int:
+    async def reserve(self, name: str, team_id: int | None, actor: CurrentUser) -> int:
         self._owner_actor(team_id, actor)
-        await self.org.ensure_team(team_id)
+        if team_id is not None:
+            await self.org.ensure_team(team_id)
         return await self.datasources.reserve_upload(name, team_id, actor=actor)
 
-    async def owner_team(self, datasource_id: int) -> int:
+    async def owner_team(self, datasource_id: int) -> int | None:
         return await self.datasources.upload_owner(datasource_id)
 
     async def publish(
@@ -112,7 +118,7 @@ class ServiceUploadRegistration:
         job_id: int,
         datasource: Datasource,
         table: TableMetadata,
-        owner_team_id: int,
+        owner_team_id: int | None,
         actor: CurrentUser,
     ) -> None:
         self._owner_actor(owner_team_id, actor)
@@ -138,8 +144,9 @@ class ServiceUploadRegistration:
         if result.datasource_id != datasource.id:
             raise AppError(ErrorCode.CONFLICT)
         await self.grants.expire_metadata(result)
-        if receipt.initialize_owner_grants:
+        if receipt.initialize_owner_grants and owner_team_id is not None:
             await self.grants.grant_upload_owner(datasource.id, owner_team_id, actor=actor)
+        await self.grants.apply_inherited_defaults(result, actor=actor)
         await self.permissions.invalidate(datasource.id)
         await self.datasources.finish_upload_publication(job_id, datasource.id, actor=actor)
 

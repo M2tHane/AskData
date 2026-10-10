@@ -94,6 +94,21 @@ async def test_a_group_http_auth_openapi_roles_grants_and_sync(identity_db):
         assert disabled.status_code == 200
         response = client.get(f"/api/permissions/{source_id}/scope", headers=member_headers)
         assert response.status_code == 503
+        # Disabling stops queries, not management: the admin still sees fields and edits scope.
+        tables = client.get(f"/api/schema/{source_id}/tables", headers=member_headers)
+        assert tables.status_code == 503
+        tables = client.get(f"/api/schema/{source_id}/tables", headers=headers)
+        assert tables.status_code == 200 and len(tables.json()["data"][0]["columns"]) == 3
+        visibility = client.get(f"/api/permissions/{source_id}/visibility", headers=headers)
+        assert visibility.status_code == 200, visibility.text
+        response = client.put(
+            f"/api/permissions/{source_id}/visibility",
+            headers=headers,
+            json={"team_ids": [world.team]},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["data"]["team_ids"] == [world.team]
+        assert client.get("/api/schema/999999/tables", headers=headers).status_code == 404
         replay = client.post("/api/auth/refresh", json={"refresh_token": pair["refresh_token"]})
         assert replay.status_code == 200, replay.text
         assert (

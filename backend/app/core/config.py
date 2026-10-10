@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     query_timeout_seconds: float = Field(default=30, gt=0, le=300)
     max_query_rows: int = Field(default=10000, ge=1, le=100000)
     max_query_cost: float = Field(default=100000, gt=0)
+    # Exports re-run the SQL; the file stops at whichever cap is reached first.
+    export_max_rows: int = Field(default=100_000, ge=1, le=1_000_000)
+    export_max_mb: int = Field(default=50, ge=1, le=500)
     retention_days: int = Field(default=90, ge=1)
     minio_endpoint: str = "localhost:9000"
     minio_access_key: SecretStr | None = None

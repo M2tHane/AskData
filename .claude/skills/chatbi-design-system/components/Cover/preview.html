@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../../components/bundle.css"><script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script><script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script><script src="../../components/bundle.js"></script><meta charset="utf-8"><title>Cover</title>
+<style>
+  html, body { margin: 0; background: var(--canvas); }
+  .cv { position: relative; width: 960px; height: 300px; overflow: hidden; background: var(--canvas); font-family: var(--font-sans); }
+  .cv svg { position: absolute; inset: 0; }
+  .ink { fill: var(--primary); } .acc { fill: var(--accent); } .blu { fill: var(--chart-1); } .tint { fill: var(--warning-soft); } .amb { fill: var(--chart-2); }
+  .dot { fill: var(--chart-1); }
+  .bar { rx: var(--radius-lg); }
+  .txt { position: absolute; left: 40px; bottom: 36px; max-width: 440px; }
+  .name { font: 600 120px/.92 var(--font-sans); letter-spacing: -.03em; color: var(--ink); margin: 0; }
+  .tag { margin: 16px 0 0; font-size: 14px; line-height: 20px; color: var(--ink-muted); }
+</style></head>
+<body>
+<div class="cv">
+<svg width="960" height="300" viewBox="0 0 960 300" aria-hidden="true">
+  <!-- blocks: primary 112×(bleed), accent 112×, chart-1 112×, warning-soft 64×; widths = 7×space-4, gaps = space-4
+       arrangement: a bar chart rising from the bottom edge, bars bleeding off the bottom, right of x=480
+       pattern: dot grid (chart-1) at space-4 pitch — "precise, technical, mono" plus the literal motif of a BI product: bars
+       scales: space-4 (16px) pitch and gap, radius-lg (14px) bar corners -->
+  <circle class="dot" cx="528" cy="20" r="2"/><circle class="dot" cx="528" cy="36" r="2"/><circle class="dot" cx="528" cy="52" r="2"/><circle class="dot" cx="544" cy="20" r="2"/><circle class="dot" cx="544" cy="36" r="2"/><circle class="dot" cx="544" cy="52" r="2"/><circle class="dot" cx="560" cy="20" r="2"/><circle class="dot" cx="560" cy="36" r="2"/><circle class="dot" cx="560" cy="52" r="2"/><circle class="dot" cx="576" cy="20" r="2"/><circle class="dot" cx="576" cy="36" r="2"/><circle class="dot" cx="576" cy="52" r="2"/><circle class="dot" cx="592" cy="20" r="2"/><circle class="dot" cx="592" cy="36" r="2"/><circle class="dot" cx="592" cy="52" r="2"/><circle class="dot" cx="608" cy="20" r="2"/><circle class="dot" cx="608" cy="36" r="2"/><circle class="dot" cx="608" cy="52" r="2"/><circle class="dot" cx="624" cy="20" r="2"/><circle class="dot" cx="624" cy="36" r="2"/><circle class="dot" cx="624" cy="52" r="2"/>
+  <rect class="ink bar" x="520" y="80" width="112" height="260"/>
+  <rect class="acc bar" x="648" y="148" width="112" height="200"/>
+  <rect class="blu bar" x="776" y="24" width="112" height="320"/>
+  <rect class="tint bar" x="904" y="196" width="80" height="140"/>
+</svg>
+<div class="txt"><h1 class="name">ChatBI</h1><p class="tag">用一句话查数：越权不可能、SQL 只读、口径可追溯。</p></div>
+</div>
+</body>
+</html>

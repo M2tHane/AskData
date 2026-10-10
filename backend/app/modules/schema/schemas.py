@@ -50,3 +50,5 @@ class SyncResult(BaseModel):
     removed_tables: list[int]
     removed_columns: list[int]
     table_count: int
+    added_tables: list[int] = Field(default_factory=list)
+    added_columns: list[int] = Field(default_factory=list)

@@ -51,7 +51,7 @@ async def identity_db(tmp_path, monkeypatch):
     )
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
-    await asyncio.to_thread(command.upgrade, config, "0003")
+    await asyncio.to_thread(command.upgrade, config, "head")
     database = Database(url)
     box = SecretBox(settings.encryption_key)
     cache, inspector = MemoryScopeCache(), Inspector()

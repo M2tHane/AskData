@@ -13,8 +13,10 @@ from app.core.audit import (
     AuditService,
     DatabaseAuditStore,
     DatabaseQueryLogStore,
+    DetachedQueryLogStore,
     QueryLogWriter,
 )
+from app.core.cache import TextCache
 from app.core.datasource import Datasource
 from app.core.db import AsyncSession, Database
 from app.core.deps import CurrentUser
@@ -26,6 +28,7 @@ from app.core.sql.executor import QueryLimits, SqlExecutor
 from app.core.sql.guard import SqlGuard
 from app.core.stream import EventType, StreamEvent
 from app.modules.chat.pipeline import (
+    PREVIEW_ROWS,
     ContextBuilder,
     ExecuteStage,
     GuardStage,
@@ -39,15 +42,33 @@ from app.modules.chat.pipeline import ScopeOnlyIndex as ScopeOnlyIndex
 from app.modules.chat.repository import ChatRepository
 from app.modules.chat.retrieval import ServiceRetrievalIndex
 from app.modules.chat.schemas import (
+    ChatLimits,
+    ContextItemView,
+    ContextPreview,
+    ContextPreviewRequest,
     ConversationCreate,
+    ConversationRename,
     ConversationView,
     ExportFile,
     MessageView,
     QueryReply,
     QuestionRequest,
     RerunRequest,
+    SuggestedQuestions,
 )
+from app.modules.chat.suggestions import SuggestionService
 from app.modules.querylog.service import build_service as build_querylog
+
+# Exports re-run the SQL under fresh grants, with caps larger than the interactive ones.
+EXPORT_MAX_ROWS = 100_000
+EXPORT_MAX_BYTES = 50 * 1024 * 1024
+EXPORT_TIMEOUT_SECONDS = 120.0
+# New conversations start with this title until the first answer names them.
+DEFAULT_TITLE = ConversationCreate.model_fields["title"].default
+
+
+# The user bubble of an edited-SQL rerun; the real question travels in rerun_of.
+RERUN_QUESTION = "手动编辑 SQL 重跑"
 
 
 class ChatService:
@@ -58,9 +79,18 @@ class ChatService:
     """
 
     def __init__(
-        self, repository: ChatRepository, pipeline: QueryPipeline, audit: AuditService
+        self,
+        repository: ChatRepository,
+        pipeline: QueryPipeline,
+        audit: AuditService,
+        cache: TextCache | None = None,
+        *,
+        export_max_rows: int = EXPORT_MAX_ROWS,
+        export_max_bytes: int = EXPORT_MAX_BYTES,
     ) -> None:
         self.repository, self.pipeline, self.audit = repository, pipeline, audit
+        self.export_max_rows, self.export_max_bytes = export_max_rows, export_max_bytes
+        self.suggestions = SuggestionService(pipeline.deps, cache)
         self.queries = (
             build_querylog(repository.session) if isinstance(repository, ChatRepository) else None
         )
@@ -77,8 +107,10 @@ class ChatService:
             raise AppError(ErrorCode.INTERNAL_ERROR, http_status=500) from None
         return conversation
 
-    async def list(self, page: PageParams, *, actor: CurrentUser) -> Page[ConversationView]:
-        items, total = await self.repository.list_conversations(actor.id, page)
+    async def list(
+        self, page: PageParams, *, actor: CurrentUser, query: str = ""
+    ) -> Page[ConversationView]:
+        items, total = await self.repository.list_conversations(actor.id, page, query.strip())
         return Page(items=items, total=total, page=page.page, page_size=page.page_size)
 
     async def get(self, identifier: int, *, actor: CurrentUser) -> ConversationView:
@@ -90,6 +122,18 @@ class ChatService:
         await self.repository.get(identifier, actor.id)
         items, total = await self.repository.messages(identifier, page)
         return Page(items=items, total=total, page=page.page, page_size=page.page_size)
+
+    async def rename(
+        self, identifier: int, request: ConversationRename, *, actor: CurrentUser
+    ) -> ConversationView:
+        try:
+            conversation = await self.repository.rename(identifier, actor.id, request.title)
+            await self.audit.record(actor, "chat.rename", ("conversation", str(identifier)))
+            await self.repository.commit()
+        except AppError:
+            await self.repository.rollback()
+            raise
+        return conversation
 
     async def delete(self, identifier: int, *, actor: CurrentUser) -> None:
         await self.repository.get(identifier, actor.id)
@@ -109,21 +153,24 @@ class ChatService:
         question = request.question
         query_id = None
         used = False
+        ref = None
+        # The user's bubble shows what they typed or the option they picked, never a mix.
+        shown = question
         if request.clarification_message_id is not None:
             if not request.clarification_choice:
                 raise AppError(ErrorCode.VALIDATION_ERROR)
             query_id = await self.repository.clarification_query_id(
                 identifier, request.clarification_message_id
             )
-            question = await self.repository.consume_clarification(
+            # The pipeline continues the original question; the choice travels separately.
+            question, ref = await self.repository.consume_clarification(
                 identifier, request.clarification_message_id, request.clarification_choice
             )
-            # Selected backend time choices are part of the continued original question.
-            question += "\n澄清选择：" + request.clarification_choice
+            shown = request.clarification_choice
             used = True
         elif request.clarification_choice:
             raise AppError(ErrorCode.VALIDATION_ERROR)
-        message = await self.repository.add_message(identifier, actor.id, "user", question)
+        message = await self.repository.add_message(identifier, actor.id, "user", shown)
         await self.audit.record(
             actor, "chat.rerun" if sql else "chat.ask", ("message", str(message.id))
         )
@@ -137,6 +184,9 @@ class ChatService:
             manual_sql=sql,
             clarification_used=used,
             clarification_choice=request.clarification_choice,
+            clarification_ref=ref,
+            pinned_metric_ids=frozenset(request.referenced_metric_ids),
+            requested_model_id=getattr(request, "model_id", None),
             message_id=message.id,
             query_id=query_id or f"chat:{identifier}:{message.id}",
         )
@@ -158,14 +208,32 @@ class ChatService:
             clarification=ctx.clarification,
             parent_message_id=ctx.message_id,
             query_run_created_at=query_created_at,
+            chart=ctx.chart if ctx.status == "success" else None,
+            meta=ctx.answer_meta() if ctx.status in {"success", "clarify"} else None,
         )
         await self.audit.record(
             ctx.user, "chat.answer", ("message", str(message.id)), {"status": ctx.status}
         )
+        title = await self._name_conversation(ctx)
         await self.repository.commit()
         reply = ctx.reply()
         reply.message_id = message.id
+        reply.title = title
         return reply
+
+    async def _name_conversation(self, ctx: QueryContext) -> str | None:
+        """The first question names a conversation that still has the default title.
+
+        Failed and blocked questions name it too, so the list never fills up with "新会话".
+        """
+        if ctx.manual_sql:
+            return None
+        title = ctx.title or " ".join(ctx.question.split())[:20]
+        if not title or not await self.repository.rename_default(
+            ctx.conversation_id, DEFAULT_TITLE, title
+        ):
+            return None
+        return title
 
     async def ask(
         self, identifier: int, request: QuestionRequest, *, actor: CurrentUser
@@ -180,13 +248,71 @@ class ChatService:
     ) -> QueryReply:
         ctx = await self.prepare(
             identifier,
-            QuestionRequest(question="手动编辑 SQL 重跑", timezone=request.timezone),
+            QuestionRequest(question=RERUN_QUESTION, timezone=request.timezone),
             actor=actor,
             sql=request.sql,
         )
+        if request.source_message_id is not None:
+            # No model call writes a chart for edited SQL: keep the one the user already saw.
+            # Presentation validates it against the new columns and falls back by shape.
+            source = await self.repository.assistant_message(identifier, request.source_message_id)
+            if source.chart is not None:
+                ctx.chart_hint = source.chart.model_dump()
+            # Older answers carry no question in their meta; their user message holds it.
+            question = (source.meta.question if source.meta else "") or (
+                await self.repository.asked_before(identifier, source.id)
+            )
+            ctx.rerun_of = {
+                "message_id": source.id,
+                "query_run_id": source.query_run_id,
+                "question": "" if question == RERUN_QUESTION else question,
+            }
         await self.pipeline.run(ctx)
         await self.repository.commit()
         return await self.finish(ctx)
+
+    async def replay(self, identifier: int, message_id: int, *, actor: CurrentUser) -> QueryReply:
+        """Re-read an earlier answer's rows under today's grants; results are never stored."""
+        conversation = await self.repository.get(identifier, actor.id)
+        message = await self.repository.assistant_message(identifier, message_id)
+        if not message.normalized_sql:
+            raise AppError(ErrorCode.NOT_FOUND, http_status=404)
+        ctx = QueryContext(
+            user=actor,
+            datasource_id=conversation.datasource_id,
+            conversation_id=identifier,
+            question="查看历史结果",
+            message_id=message_id,
+            manual_sql=message.normalized_sql,
+            generated_sql=message.normalized_sql,
+        )
+        try:
+            ctx.scope = await self.pipeline.deps.permissions.visible_scope(
+                actor, conversation.datasource_id
+            )
+            ctx.datasource = await self.pipeline.deps.datasource(conversation.datasource_id, actor)
+            await GuardStage(self.pipeline.deps).run(ctx)
+            await ExecuteStage(self.pipeline.deps).run(ctx)
+        except AppError as error:
+            # Access may have been revoked since the answer; report only the category.
+            blocked = error.code.value.startswith("SQL_") and (
+                error.code != ErrorCode.SQL_EXECUTION_ERROR
+            )
+            return QueryReply(
+                status="blocked" if blocked or error.code == ErrorCode.FORBIDDEN else "failed",
+                message_id=message_id,
+                code=error.code,
+                explanation=message.content,
+            )
+        ctx.chart = message.chart
+        ctx.explanation = message.content
+        ctx.meta = message.meta.model_copy(update={"reasoning": ""}) if message.meta else None
+        return ctx.reply()
+
+    async def _commit_cancelled(self) -> None:
+        # A detached writer already committed the run; the request session may be closing.
+        if self.pipeline.deps.cancelled_querylog is None:
+            await self.repository.commit()
 
     def stream(self, ctx: QueryContext) -> AsyncIterator[StreamEvent]:
         return self._stream(ctx)
@@ -209,6 +335,11 @@ class ChatService:
                 await self.pipeline.run(ctx)
                 await self.repository.commit()
                 reply = await self.finish(ctx)
+                if reply.title:
+                    await queue.put(
+                        encode_event(identifier, EventType.TITLE, {"title": reply.title})
+                    )
+                    identifier += 1
                 await queue.put(
                     encode_event(
                         identifier,
@@ -222,8 +353,8 @@ class ChatService:
                 )
             except AppError as error:
                 if error.code == ErrorCode.QUERY_CANCELLED:
-                    # Disconnect: preserve the run written by the pipeline, without queue I/O.
-                    await self.repository.commit()
+                    # Disconnect: the run is already logged; no queue I/O.
+                    await self._commit_cancelled()
                     return
                 await self.repository.rollback()
                 await queue.put(
@@ -239,7 +370,7 @@ class ChatService:
                 identifier += 1
                 await queue.put(encode_event(identifier, EventType.DONE, {"status": "failed"}))
             except asyncio.CancelledError:
-                await self.repository.commit()
+                await self._commit_cancelled()
                 return
             except Exception:
                 await self.repository.rollback()
@@ -293,6 +424,11 @@ class ChatService:
             message_id=message_id,
             manual_sql=sql_text,
             generated_sql=sql_text,
+            # Exports re-run the guarded SQL with the larger export caps, never the preview cap.
+            limit_overrides={
+                "max_rows": self.export_max_rows,
+                "timeout_seconds": EXPORT_TIMEOUT_SECONDS,
+            },
         )
         try:
             ctx.scope = await self.pipeline.deps.permissions.visible_scope(
@@ -336,7 +472,15 @@ class ChatService:
             return safe_export_cell(value)
 
         cells = [[export_cell(column) for column in result.columns]]
-        cells.extend([[export_cell(row.get(column)) for column in result.columns] for row in rows])
+        # Size cap: estimate the encoded size row by row and stop before the file exceeds it.
+        size, truncated = 0, result.truncated
+        for record in rows:
+            line = [export_cell(record.get(column)) for column in result.columns]
+            size += sum(len(str(value).encode()) + 1 for value in line)
+            if size > self.export_max_bytes:
+                truncated = True
+                break
+            cells.append(line)
         if format == "csv":
             output = StringIO(newline="")
             csv.writer(output).writerows(cells)
@@ -352,8 +496,54 @@ class ChatService:
             content = buffer.getvalue()
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         return ExportFile(
-            filename=f"query_{message_id}.{format}", content_type=content_type, content=content
+            filename=f"query_{message_id}.{format}",
+            content_type=content_type,
+            content=content,
+            row_count=len(cells) - 1,
+            truncated=truncated,
         )
+
+    def limits(self) -> ChatLimits:
+        return ChatLimits(
+            preview_rows=PREVIEW_ROWS,
+            export_max_rows=self.export_max_rows,
+            export_max_mb=self.export_max_bytes // (1024 * 1024),
+        )
+
+    async def context_preview(
+        self, request: ContextPreviewRequest, *, actor: CurrentUser
+    ) -> ContextPreview:
+        deps = self.pipeline.deps
+        scope = await deps.permissions.visible_scope(actor, request.datasource_id)
+        await deps.datasource(request.datasource_id, actor)
+        if not request.question and len(scope.tables) > deps.builder.threshold:
+            # Large datasets retrieve by question; there is nothing meaningful to preview.
+            raise AppError(ErrorCode.VALIDATION_ERROR)
+        bundle = await deps.builder.build(
+            actor, scope, request.question, None, frozenset(request.referenced_metric_ids)
+        )
+        return ContextPreview(
+            mode=bundle.mode,
+            tables=bundle.tables,
+            items=[
+                ContextItemView(
+                    kind=item.kind,
+                    name=item.name,
+                    scope=item.scope.value,
+                    version=item.version,
+                    definition=item.definition,
+                    pinned=item.key in bundle.pinned,
+                )
+                for item in bundle.items
+            ],
+            required_conditions=bundle.required_conditions,
+            ambiguities=bundle.ambiguities,
+        )
+
+    async def suggested_questions(
+        self, datasource_id: int, *, actor: CurrentUser
+    ) -> SuggestedQuestions:
+        return await self.suggestions.suggest(actor, datasource_id)
 
 
 class ChatRetentionStore:
@@ -394,6 +584,7 @@ def build_service(session: AsyncSession, request: Request) -> ChatService:
     from app.modules.metric.service import build_service as build_metric
     from app.modules.modelcfg.service import build_service as build_models
     from app.modules.permission.service import build_service as build_permissions
+    from app.modules.promptcfg.service import build_service as build_prompts
     from app.modules.schema.service import build_service as build_schema
     from app.modules.semantic.service import SchemaTargets
     from app.modules.semantic.service import build_service as build_semantic
@@ -441,6 +632,12 @@ def build_service(session: AsyncSession, request: Request) -> ChatService:
                 models.registry, recorder, getattr(request.app.state, "model_transport", None)
             ),
         )
+    database = cast(Database | None, getattr(request.app.state, "database", None))
+    cancelled_log = (
+        QueryLogWriter(DetachedQueryLogStore(database.sessions), settings.retention_days)
+        if database is not None
+        else None
+    )
     dependencies = PipelineDependencies(
         permissions,
         resolve,
@@ -450,6 +647,8 @@ def build_service(session: AsyncSession, request: Request) -> ChatService:
         SqlGuard(),
         executor,
         QueryLogWriter(DatabaseQueryLogStore(session), settings.retention_days),
+        prompt_source=build_prompts(session),
+        cancelled_querylog=cancelled_log,
         limits=QueryLimits(
             user_id=1,
             timeout_seconds=settings.query_timeout_seconds,
@@ -457,7 +656,13 @@ def build_service(session: AsyncSession, request: Request) -> ChatService:
             max_cost=settings.max_query_cost,
         ),
     )
-    return ChatService(repository, QueryPipeline(dependencies), audit)
+    return ChatService(
+        repository,
+        QueryPipeline(dependencies),
+        audit,
+        export_max_rows=settings.export_max_rows,
+        export_max_bytes=settings.export_max_mb * 1024 * 1024,
+    )
 
 
 async def get_service(request: Request) -> AsyncIterator[ChatService]:

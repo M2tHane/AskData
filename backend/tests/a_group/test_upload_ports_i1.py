@@ -155,3 +155,45 @@ async def test_upload_publication_rolls_back_receipt_grants_and_metadata_togethe
         assert (
             await publish(world, session, identifier, 1, table(identifier))
         ).initialize_owner_grants
+
+
+async def test_admin_upload_has_no_owner_team_and_later_sheets_inherit_the_datasource_scope(
+    identity_db,
+):
+    from app.modules.permission.schemas import DatasourceVisibilityWrite
+    from app.modules.upload.adapters import build_upload_registration
+
+    world = identity_db
+    async with world.database.transaction() as session:
+        grants = world.grants(session)
+        registration = build_upload_registration(
+            world.datasource(session),
+            world.schema(session),
+            grants,
+            world.org(session),
+            grants.permissions,
+        )
+        with pytest.raises(AppError):
+            await registration.reserve("leader without team", None, world.leader)
+        identifier = await registration.reserve("workbook", None, world.admin)
+        assert await registration.owner_team(identifier) is None
+        await registration.publish(
+            1, reader(identifier), table(identifier, "sheet_a"), None, world.admin
+        )
+        # Nobody sees the data until the administrator chooses teams on the datasource.
+        assert not (await grants.visible_scope(world.member, identifier)).tables
+        await grants.set_datasource_scope(
+            identifier, DatasourceVisibilityWrite(team_ids=[world.team]), actor=world.admin
+        )
+        scope = await grants.visible_scope(world.member, identifier)
+        assert set(scope.tables) == {f"ds_{identifier}.sheet_a"}
+        # A second sheet imported later inherits the same teams.
+        await registration.publish(
+            2, reader(identifier), table(identifier, "sheet_b"), None, world.admin
+        )
+        scope = await grants.visible_scope(world.member, identifier)
+        assert set(scope.tables) == {f"ds_{identifier}.sheet_a", f"ds_{identifier}.sheet_b"}
+        with pytest.raises(AppError):
+            await registration.publish(
+                3, reader(identifier), table(identifier, "x"), None, world.leader
+            )

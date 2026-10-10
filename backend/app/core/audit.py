@@ -106,6 +106,23 @@ class DatabaseQueryLogStore:
         return row.id
 
 
+class DetachedQueryLogStore:
+    """Commits each record in its own session.
+
+    A disconnected stream's request session may be closing (or mid-statement) when its
+    cancelled run is recorded; reusing it corrupts the pooled connection for the next request.
+    """
+
+    def __init__(self, sessions: Callable[[], Any]) -> None:
+        self.sessions = sessions
+
+    async def append(self, record: QueryLogRecord) -> int:
+        async with self.sessions() as session:
+            row_id = await DatabaseQueryLogStore(session).append(record)
+            await session.commit()
+            return row_id
+
+
 class AuditService:
     def __init__(self, store: AuditStore, retention_days: int = 90) -> None:
         self.store, self.retention_days = store, retention_days

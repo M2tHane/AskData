@@ -5,7 +5,13 @@ from fastapi import APIRouter, Depends
 from app.core.deps import CurrentUser, Role, require_role
 from app.core.errors import AppError, ErrorCode
 from app.core.response import Envelope, PageParams
-from app.modules.upload.schemas import ConfirmRequest, JobView, Preview, PreviewRequest
+from app.modules.upload.schemas import (
+    ConfirmRequest,
+    JobView,
+    ParseConfig,
+    Preview,
+    PreviewRequest,
+)
 from app.modules.upload.service import UploadService
 
 router = APIRouter(prefix="/upload", tags=["upload"])
@@ -23,6 +29,13 @@ Service = Annotated[UploadService, Depends(upload_service)]
 @router.post("/preview", response_model=Envelope[Preview])
 async def preview(request: PreviewRequest, service: Service, actor: Actor) -> Envelope[Preview]:
     return Envelope(data=await service.preview(request, actor=actor))
+
+
+@router.post("/{identifier}/sheets", response_model=Envelope[Preview])
+async def add_sheet(
+    identifier: int, config: ParseConfig, service: Service, actor: Actor
+) -> Envelope[Preview]:
+    return Envelope(data=await service.add_sheet(identifier, config, actor=actor))
 
 
 @router.post("/{identifier}/confirm", response_model=Envelope[JobView])

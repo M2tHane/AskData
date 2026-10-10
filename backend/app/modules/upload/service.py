@@ -15,7 +15,7 @@ from app.core.deps import CurrentUser, Role
 from app.core.errors import AppError, ErrorCode, PermissionDenied
 from app.core.importer import ImportGateway, ImportPlan
 from app.core.permission import PermissionService
-from app.core.storage import ObjectStore, object_key
+from app.core.storage import ObjectStore, object_key, team_segment
 from app.core.tasks import TaskContext, TaskManager
 from app.modules.upload.parsing import (
     clean_name,
@@ -28,6 +28,7 @@ from app.modules.upload.repository import UploadRepository
 from app.modules.upload.schemas import (
     ConfirmRequest,
     JobView,
+    ParseConfig,
     Preview,
     PreviewRequest,
     UploadHistoryRecord,
@@ -44,14 +45,14 @@ class UploadRegistration(Protocol):
     removed-column grants. Implementations must be idempotent for job_id.
     """
 
-    async def reserve(self, name: str, team_id: int, actor: CurrentUser) -> int: ...
-    async def owner_team(self, datasource_id: int) -> int: ...
+    async def reserve(self, name: str, team_id: int | None, actor: CurrentUser) -> int: ...
+    async def owner_team(self, datasource_id: int) -> int | None: ...
     async def publish(
         self,
         job_id: int,
         datasource: Datasource,
         table: TableMetadata,
-        owner_team_id: int,
+        owner_team_id: int | None,
         actor: CurrentUser,
     ) -> None: ...
 
@@ -184,7 +185,7 @@ class UploadService:
         if not actor.active or actor.role not in {Role.ADMIN, Role.LEADER}:
             raise PermissionDenied()
 
-    async def _source_access(self, datasource_id: int, actor: CurrentUser) -> int:
+    async def _source_access(self, datasource_id: int, actor: CurrentUser) -> int | None:
         self._role(actor)
         scope = await self.permissions.visible_scope(actor, datasource_id)
         owner = await self.registration.owner_team(datasource_id)
@@ -215,16 +216,16 @@ class UploadService:
         )
         async with self.repository.transaction():
             if request.datasource_id is None:
+                # Leaders own what they create; admins create team-less sources and choose
+                # the visible teams on the datasource afterwards.
                 team = actor.team_id if actor.role == Role.LEADER else request.owner_team_id
-                if team is None:
-                    raise AppError(ErrorCode.VALIDATION_ERROR, "Owner team is required")
                 datasource_id = await self.registration.reserve(
                     request.datasource_name, team, actor
                 )
             else:
                 datasource_id = request.datasource_id
                 team = await self._source_access(datasource_id, actor)
-            key = f"tmp/team_{team}/ds_{datasource_id}/{uuid4()}/{request.filename}"
+            key = f"tmp/{team_segment(team)}/ds_{datasource_id}/{uuid4()}/{request.filename}"
             stored = await self.storage.put(key, data, "application/octet-stream")
             job = await self.repository.allocate(
                 {
@@ -250,6 +251,59 @@ class UploadService:
             sheets=sheets,
             warnings=warnings + suspicious,
             config=config,
+        )
+
+    async def add_sheet(
+        self, identifier: int, config: ParseConfig, *, actor: CurrentUser
+    ) -> Preview:
+        """Preview another sheet of an uploaded workbook as its own job (one table per sheet).
+
+        The stored file is copied server-side, so the browser never re-uploads it and each job
+        owns its temporary object (the importer deletes it after success).
+        """
+        self._role(actor)
+        async with self.repository.transaction():
+            await self._job_access(identifier, actor)
+            job = await self.repository.required(identifier)
+            if job.status != "preview":
+                raise AppError(ErrorCode.CONFLICT)
+            data = await self.storage.get(job.file_key)
+            headers, rows, sheets, warnings = await asyncio.to_thread(
+                parse_rows, job.filename, data, config, 100
+            )
+            columns, suspicious = configured_columns(config, headers, rows)
+            normalized = config.model_copy(
+                update={"columns": columns, "table_name": clean_name(config.table_name, "data")}
+            )
+            key = (
+                f"tmp/{team_segment(job.owner_team_id)}/ds_{job.datasource_id}"
+                f"/{uuid4()}/{job.filename}"
+            )
+            stored = await self.storage.put(key, data, "application/octet-stream")
+            sibling = await self.repository.allocate(
+                {
+                    "datasource_id": job.datasource_id,
+                    "owner_team_id": job.owner_team_id,
+                    "file_key": key,
+                    "filename": job.filename,
+                    "sha256": stored.sha256,
+                    "size": stored.size,
+                    "parse_config": normalized.model_dump(mode="json"),
+                    "status": "preview",
+                    "mode": "overwrite",
+                    "row_count": 0,
+                },
+                actor.id,
+            )
+            await self.audit.record(actor, "upload.preview", ("upload_job", str(sibling.id)))
+        return Preview(
+            id=sibling.id,
+            datasource_id=job.datasource_id,
+            columns=columns,
+            rows=rows,
+            sheets=sheets,
+            warnings=warnings + suspicious,
+            config=normalized,
         )
 
     async def _job_access(self, identifier: int, actor: CurrentUser) -> None:
@@ -281,7 +335,7 @@ class UploadService:
                 request.config,
                 100,
             )
-            columns, _ = configured_columns(request.config, headers, rows)
+            columns, _ = configured_columns(request.config, headers, rows, enforce=True)
             config = request.config.model_copy(
                 update={
                     "columns": columns,
@@ -352,11 +406,9 @@ class UploadService:
             data = await self.storage.get(key)
             if hashlib.sha256(data).hexdigest() != job.sha256:
                 raise AppError(ErrorCode.VALIDATION_ERROR)
-            from app.modules.upload.schemas import ParseConfig
-
             parse_config = ParseConfig.model_validate(config)
             headers, rows, _, _ = await asyncio.to_thread(parse_rows, filename, data, parse_config)
-            columns, _ = configured_columns(parse_config, headers, rows)
+            columns, _ = configured_columns(parse_config, headers, rows, enforce=True)
             converted = await asyncio.to_thread(convert_rows, rows, columns)
             plan = ImportPlan.model_validate(
                 {
@@ -424,6 +476,7 @@ class UploadService:
                 TableMetadata(
                     schema_name=plan.schema_name,
                     name=plan.table_name,
+                    comment=str(job.parse_config.get("table_comment") or ""),
                     columns=[
                         ColumnMetadata(
                             name=c.name, data_type=c.data_type, comment=c.description, ordinal=i + 1

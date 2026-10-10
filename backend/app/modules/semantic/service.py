@@ -50,6 +50,10 @@ def creation_scope(level: ScopeLevel, actor: CurrentUser) -> dict[str, Any]:
 def require_edit(item: ScopeMixin, actor: CurrentUser) -> None:
     if not actor.active or item.status == "pending":
         raise AppError(ErrorCode.CONFLICT)
+    # Admins govern shared definitions: team-level items too, keeping their owner and scope.
+    # Personal items stay with their owner.
+    if actor.role == Role.ADMIN and item.scope == ScopeLevel.TEAM:
+        return
     expected = creation_scope(item.scope, actor)
     if item.owner_team_id != expected["owner_team_id"] or (
         item.scope != ScopeLevel.TEAM and item.owner_user_id != expected["owner_user_id"]

@@ -301,6 +301,117 @@ class MysqlConnector(Connector):
             return ConnectionTest(available=False, read_only_account=False)
 
 
+class _ClickHouseSession:
+    def __init__(self, client: Any) -> None:
+        self.client = client
+
+    async def explain(self, sql: str) -> float:
+        # ClickHouse has no planner cost comparable to PostgreSQL/MySQL; EXPLAIN ESTIMATE only
+        # gives rows to read per table. The cost cap does not apply; the server-side
+        # max_execution_time and the row cap bound the query instead.
+        return 0.0
+
+    async def fetch(self, sql: str, max_rows: int) -> QueryBatch:
+        # Wrap rather than append: the guarded SQL may already end with its own LIMIT.
+        result = await self.client.query(f"SELECT * FROM ({sql}) LIMIT {int(max_rows) + 1}")
+        columns = list(result.column_names)
+        rows = [dict(zip(columns, row, strict=True)) for row in result.result_rows]
+        return QueryBatch(columns=columns, rows=rows)
+
+
+class ClickHouseConnector(Connector):
+    async def _connect(
+        self, ds: Datasource, timeout: float = 30, *, restricted: bool = True
+    ) -> Any:
+        try:
+            from clickhouse_connect import get_async_client
+        except ImportError:
+            raise DatasourceUnavailable() from None
+        # readonly=2: only read queries, while the client may still set its own limits;
+        # the SQL guard rejects any SETTINGS clause, so queries cannot change them.
+        settings = (
+            {"readonly": "2", "max_execution_time": max(1, int(timeout))} if restricted else {}
+        )
+        return await get_async_client(
+            host=ds.host,
+            port=ds.port,
+            database=ds.database,
+            username=ds.username,
+            password=ds.password.get_secret_value(),
+            secure=ds.tls,
+            connect_timeout=min(int(timeout), 30),
+            send_receive_timeout=int(timeout) + 5,
+            settings=settings,
+        )
+
+    @asynccontextmanager
+    async def read_session(
+        self, datasource: Datasource, timeout: float
+    ) -> AsyncIterator[QuerySession]:
+        client = await self._connect(datasource, timeout)
+        try:
+            yield _ClickHouseSession(client)
+        finally:
+            await client.close()
+
+    async def metadata(self, datasource: Datasource) -> MetadataSnapshot:
+        client = await self._connect(datasource)
+        try:
+            # Query system.columns and system.tables for metadata
+            rows_result = await client.query(
+                """
+                SELECT t.database AS schema_name, t.name AS table_name,
+                       c.name, c.type AS data_type, c.position AS ordinal,
+                       c.comment AS comment, t.comment AS table_comment,
+                       0 AS is_pk
+                FROM system.columns c
+                JOIN system.tables t ON c.table = t.name AND c.database = t.database
+                WHERE t.database = %(db)s
+                ORDER BY t.name, c.position
+                """,
+                parameters={"db": datasource.database},
+            )
+            # Convert result to list of dicts matching expected schema
+            rows = []
+            for row in rows_result.result_rows:
+                rows.append(
+                    {
+                        "schema_name": row[0],
+                        "table_name": row[1],
+                        "name": row[2],
+                        "data_type": row[3],
+                        "ordinal": row[4],
+                        "comment": row[5] or "",
+                        "table_comment": row[6] or "",
+                        "is_pk": row[7],
+                    }
+                )
+            # ClickHouse has no foreign keys
+            relations: list[Any] = []
+            return _metadata(rows, relations)
+        except Exception:
+            raise DatasourceUnavailable() from None
+        finally:
+            await client.close()
+
+    async def test(self, datasource: Datasource) -> ConnectionTest:
+        try:
+            # Without client-side settings, getSetting reports the account profile itself.
+            client = await self._connect(datasource, restricted=False)
+            try:
+                result = await client.query("SELECT getSetting('readonly')")
+                readonly = bool(result.result_rows) and int(result.result_rows[0][0]) > 0
+            finally:
+                await client.close()
+        except Exception:
+            return ConnectionTest(available=False, read_only_account=False)
+        return ConnectionTest(
+            available=True,
+            read_only_account=readonly,
+            warning=None if readonly else "Account is not read-only",
+        )
+
+
 def _metadata(rows: Any, relations: Any) -> MetadataSnapshot:
     tables: dict[tuple[str, str], TableMetadata] = {}
     for row in rows:
@@ -329,6 +440,9 @@ class ConnectorRegistry:
         self.connectors = connectors or {
             Dialect.POSTGRES: PostgresConnector(),
             Dialect.MYSQL: MysqlConnector(),
+            Dialect.KINGBASE: PostgresConnector(),
+            Dialect.GAUSSDB: PostgresConnector(),
+            Dialect.CLICKHOUSE: ClickHouseConnector(),
         }
 
     def get(self, dialect: Dialect) -> Connector:
@@ -343,6 +457,9 @@ class DatasourceInspector:
             {
                 Dialect.POSTGRES: _PostgresInspectionConnector(),
                 Dialect.MYSQL: MysqlConnector(),
+                Dialect.KINGBASE: _PostgresInspectionConnector(),
+                Dialect.GAUSSDB: _PostgresInspectionConnector(),
+                Dialect.CLICKHOUSE: ClickHouseConnector(),
             }
         )
 

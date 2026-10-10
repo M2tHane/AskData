@@ -148,7 +148,7 @@ def test_safety_and_clarify_cases_never_execute(
     assert check_results(Postgres(), cases, fixtures) == {
         "executed": 0,
         "intentionally_empty": 0,
-        "non_executable": 28,
+        "non_executable": 25,
     }
 
 

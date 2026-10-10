@@ -43,3 +43,52 @@ class PublicTableScope(BaseModel):
 class PublicScope(BaseModel):
     datasource_id: int
     tables: dict[str, PublicTableScope]
+
+
+class ColumnVisibility(BaseModel):
+    column_id: int
+    custom: bool
+    team_ids: list[int]
+
+
+class TableVisibility(BaseModel):
+    table_id: int
+    custom: bool
+    team_ids: list[int]
+    columns: list[ColumnVisibility]
+
+
+class VisibilityRead(BaseModel):
+    datasource_id: int
+    team_ids: list[int]
+    custom: bool
+    tables: list[TableVisibility]
+
+
+class DatasourceVisibilityWrite(BaseModel):
+    team_ids: list[int] = Field(default_factory=list, max_length=500)
+
+
+class ColumnScopeWrite(BaseModel):
+    column_id: int = Field(ge=1)
+    team_ids: list[int] = Field(default_factory=list, max_length=500)
+
+
+class TableScopeWrite(BaseModel):
+    table_id: int = Field(ge=1)
+    # custom=False keeps the table inheriting; its team_ids are then ignored.
+    custom: bool = False
+    team_ids: list[int] = Field(default_factory=list, max_length=500)
+    columns: list[ColumnScopeWrite] = Field(default_factory=list, max_length=5000)
+
+
+class FullVisibilityWrite(BaseModel):
+    """The whole visibility state in one atomic save; unlisted objects inherit."""
+
+    team_ids: list[int] = Field(default_factory=list, max_length=500)
+    tables: list[TableScopeWrite] = Field(default_factory=list, max_length=5000)
+
+
+class ObjectVisibilityWrite(BaseModel):
+    inherit: bool = False
+    team_ids: list[int] = Field(default_factory=list, max_length=500)

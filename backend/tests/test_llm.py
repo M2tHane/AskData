@@ -105,3 +105,90 @@ async def test_exhausted_provider_errors_are_sanitized(models, context):
         await LLMClient(ModelRegistry(FakeModels(models)), FakeUsage(), transport).chat([], context)
     assert caught.value.code == ErrorCode.LLM_UNAVAILABLE
     assert "secret" not in caught.value.message
+
+
+async def test_caller_selected_model_is_used_but_must_be_an_enabled_model_of_that_kind(
+    models, context
+):
+    transport = FakeTransport()
+    client = LLMClient(ModelRegistry(FakeModels(models)), FakeUsage(), transport)
+    response = await client.chat([], context.model_copy(update={"requested_model_id": "backup"}))
+    assert response.model_id == "backup" and transport.calls == ["backup"]
+    # Wrong kind and unknown IDs never fall back to the default silently.
+    for bad in ("embed", "missing"):
+        with pytest.raises(AppError) as error:
+            await client.chat([], context.model_copy(update={"requested_model_id": bad}))
+        assert error.value.code == ErrorCode.LLM_UNAVAILABLE
+
+
+# ---- streamed reasoning ----
+
+
+def test_think_splitter_routes_inline_thinking_across_chunk_boundaries():
+    from app.core.llm import ThinkSplitter
+
+    splitter = ThinkSplitter()
+    parts = [
+        splitter.feed(chunk) for chunk in ["<thi", "nk>plan the", " join</th", 'ink>{"sql"', ":1}"]
+    ]
+    parts.append(splitter.flush())
+    text = "".join(p[0] for p in parts)
+    thought = "".join(p[1] for p in parts)
+    assert text == '{"sql":1}' and thought == "plan the join"
+    plain = ThinkSplitter()
+    assert plain.feed("a < b") == ("a < b", "")
+    # A possible tag start is held back until it can be decided, then released as text.
+    assert plain.feed(" x <th") == (" x ", "") and plain.flush() == ("<th", "")
+
+
+async def test_responses_stream_parses_reasoning_and_text_and_retries_without_summary(
+    monkeypatch,
+):
+    import json as _json
+
+    import httpx
+    from pydantic import SecretStr
+
+    from app.core.llm import LiteLLMTransport
+
+    bodies = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = _json.loads(request.content)
+        bodies.append(body)
+        if body["reasoning"].get("summary"):
+            return httpx.Response(400, text="summary unsupported")
+        events = [
+            {"type": "response.reasoning_text.delta", "delta": "think "},
+            {"type": "response.reasoning_text.delta", "delta": "more"},
+            {"type": "response.output_text.delta", "delta": '{"sql":'},
+            {"type": "response.output_text.delta", "delta": '"SELECT 1"}'},
+            {
+                "type": "response.completed",
+                "response": {"usage": {"input_tokens": 7, "output_tokens": 3}},
+            },
+        ]
+        text = "".join(f"event: {e['type']}\ndata: {_json.dumps(e)}\n\n" for e in events)
+        return httpx.Response(200, text=text, headers={"content-type": "text/event-stream"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw)
+    )
+    model = ModelConfig(
+        id="r",
+        kind="llm",
+        model="openai/x",
+        api_key=SecretStr("k"),
+        base_url="http://gw/v1",
+        api="responses",
+        reasoning_effort="low",
+    )
+    chunks = [
+        c async for c in LiteLLMTransport().stream(model, [ChatMessage(role="system", content="p")])
+    ]
+    assert "".join(c.reasoning for c in chunks) == "think more"
+    assert "".join(c.text for c in chunks) == '{"sql":"SELECT 1"}'
+    assert [c.usage for c in chunks if c.usage][0].tokens_in == 7
+    assert bodies[0]["reasoning"] == {"effort": "low", "summary": "auto"} and bodies[0]["stream"]
+    assert bodies[1]["reasoning"] == {"effort": "low"}

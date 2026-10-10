@@ -36,13 +36,26 @@ def validate_key(key: str) -> str:
     return key
 
 
+def team_segment(team_id: int | None) -> str:
+    """Path segment for an owner team; admin-created uploads have no owner team."""
+    if team_id is None:
+        return "shared"
+    if team_id < 1:
+        raise AppError(ErrorCode.VALIDATION_ERROR)
+    return f"team_{team_id}"
+
+
 def object_key(
-    team_id: int, datasource_id: int, version: int, filename: str, temporary: bool = False
+    team_id: int | None,
+    datasource_id: int,
+    version: int,
+    filename: str,
+    temporary: bool = False,
 ) -> str:
-    if min(team_id, datasource_id, version) < 1 or PurePosixPath(filename).name != filename:
+    if min(datasource_id, version) < 1 or PurePosixPath(filename).name != filename:
         raise AppError(ErrorCode.VALIDATION_ERROR)
     return validate_key(
-        f"{'tmp' if temporary else 'uploads'}/team_{team_id}/ds_{datasource_id}"
+        f"{'tmp' if temporary else 'uploads'}/{team_segment(team_id)}/ds_{datasource_id}"
         f"/v{version}/{filename}"
     )
 

@@ -1,0 +1,13 @@
+<!doctype html>
+<html>
+<head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../../components/bundle.css"><script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script><script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script><script src="../../components/bundle.js"></script><meta charset="utf-8"><title>Tabs</title></head>
+<body>
+<div id="root" class="cb-root cb-pad"></div>
+<script>
+var C = window.ChatBI, h = React.createElement;
+
+function App() { return h('div', { className: 'cb-col' }, h(C.Tabs, { items: [{ id: 'a', label: '解释' }, { id: 'b', label: 'SQL' }, { id: 'c', label: '校验' }, { id: 'd', label: '过程' }] }), h(C.Tabs, { items: [{ id: 'm', label: '我的', count: 3 }, { id: 't', label: '团队', count: 18 }, { id: 'p', label: '平台', count: 42 }], defaultValue: 't' })); }
+ReactDOM.createRoot(document.getElementById('root')).render(App());
+</script>
+</body>
+</html>

@@ -180,7 +180,7 @@ uv run --frozen python ../eval/run_pipeline.py --responses /path/to/responses.js
 配置错误。此 CLI 默认仅 schema 检索；I3 的生产评测通过 adapters 工厂注入真实检索服务。
 
 适配器工厂、生产 service 身份绑定、权限映射和 I3 接线见
-`backend/app/modules/eval/INTEGRATION.md`。原题目、fixtures、样例和 testdb.sql 保持原样。
+`docs/archive/eval_INTEGRATION.md`。原题目、fixtures、样例和 testdb.sql 保持原样。
 
 新增适配器测试在 `eval/tests/test_i2_*.py`，依赖 backend；独立资产环境会跳过这两个模块。
 后端测试使用明确配置，避免 pytest 自动选择 eval 的配置丢失 asyncio 设置：

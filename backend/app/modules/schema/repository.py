@@ -89,6 +89,8 @@ class SchemaRepository:
         seen_tables = set(untouched_tables)
         untouched_columns = {column.id for column in columns if column.table_id in untouched_tables}
         seen_columns = set(untouched_columns)
+        added_tables: list[int] = []
+        added_columns: list[int] = []
         column_names: dict[tuple[str, str], int] = {}
         for incoming in snapshot.tables:
             key = (incoming.schema_name, incoming.name)
@@ -105,6 +107,7 @@ class SchemaRepository:
                     },
                     actor_id,
                 )
+                added_tables.append(table.id)
             else:
                 table.comment, table.status, table.synced_at = incoming.comment, "active", now
             seen_tables.add(table.id)
@@ -115,6 +118,7 @@ class SchemaRepository:
                     column = await self.columns.create(
                         {**values, "table_id": table.id, "status": "active"}, actor_id
                     )
+                    added_columns.append(column.id)
                 else:
                     await self.columns.update(column, {**values, "status": "active"})
                 seen_columns.add(column.id)
@@ -167,6 +171,8 @@ class SchemaRepository:
             removed_tables=removed_tables,
             removed_columns=removed_columns,
             table_count=len(seen_tables),
+            added_tables=added_tables,
+            added_columns=added_columns,
         )
 
     async def relations(self, column_ids: list[int]) -> list[MetaRelation]:

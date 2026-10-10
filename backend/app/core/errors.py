@@ -58,6 +58,19 @@ class SqlBlocked(AppError):
         super().__init__(code, http_status=403)
 
 
+class UnresolvedReference(SqlBlocked):
+    """A field the SQL names cannot be resolved against the visible schema.
+
+    Only for names that exist nowhere in the table: a withheld column is a plain SqlBlocked
+    and never gets a correction round. The detail goes back to the model so it can correct
+    its own SQL; it is never shown to users or logged.
+    """
+
+    def __init__(self, reference: str) -> None:
+        super().__init__(ErrorCode.SQL_OUT_OF_SCOPE)
+        self.detail = f"无法解析字段 {reference}" if reference else "SQL 中有无法解析的字段引用"
+
+
 class DatasourceUnavailable(AppError):
     def __init__(self) -> None:
         super().__init__(ErrorCode.DATASOURCE_UNAVAILABLE, http_status=503)

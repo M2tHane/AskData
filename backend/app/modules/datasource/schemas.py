@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 class DatasourceWrite(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    type: Literal["mysql", "postgresql"]
+    type: Literal["mysql", "postgresql", "kingbase", "gaussdb", "clickhouse"]
     host: str = Field(min_length=1, max_length=255)
     port: int = Field(ge=1, le=65535)
     database: str = Field(min_length=1, max_length=255)
@@ -42,7 +42,7 @@ class DatasourceChoice(BaseModel):
 
 class UploadPublication(BaseModel):
     datasource_id: int = Field(ge=1)
-    owner_team_id: int = Field(ge=1)
+    owner_team_id: int | None = Field(default=None, ge=1)
     completed: bool = False
     initialize_owner_grants: bool = False
 

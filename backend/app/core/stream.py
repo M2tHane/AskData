@@ -12,6 +12,12 @@ class EventType(StrEnum):
     DATA = "data"
     CHART = "chart"
     EXPLANATION = "explanation"
+    # Incremental model thinking while the SQL is being written: {"delta": str}.
+    REASONING = "reasoning"
+    # Incremental data-grounded answer written after execution: {"delta": str}.
+    ANSWER = "answer"
+    # The conversation got a generated title: {"title": str}.
+    TITLE = "title"
     ERROR = "error"
     DONE = "done"
 

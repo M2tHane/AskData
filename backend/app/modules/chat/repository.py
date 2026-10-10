@@ -11,6 +11,8 @@ from app.core.errors import AppError, ErrorCode
 from app.core.response import PageParams
 from app.modules.chat.models import Conversation, Message
 from app.modules.chat.schemas import (
+    AnswerMeta,
+    ChartSpec,
     Clarification,
     ConversationCreate,
     ConversationView,
@@ -56,20 +58,31 @@ class ChatRepository:
         return ConversationView.model_validate(row)
 
     async def list_conversations(
-        self, user_id: int, page: PageParams
+        self, user_id: int, page: PageParams, query: str = ""
     ) -> tuple[list[ConversationView], int]:
-        condition = (Conversation.user_id == user_id, Conversation.deleted_at.is_(None))
+        condition = [Conversation.user_id == user_id, Conversation.deleted_at.is_(None)]
+        if query:
+            escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            condition.append(Conversation.title.ilike(f"%{escaped}%", escape="\\"))
         total = await self.session.scalar(
             select(func.count()).select_from(Conversation).where(*condition)
         )
         rows = await self.session.scalars(
             select(Conversation)
             .where(*condition)
-            .order_by(Conversation.id.desc())
+            .order_by(Conversation.updated_at.desc(), Conversation.id.desc())
             .offset(page.offset)
             .limit(page.page_size)
         )
         return [ConversationView.model_validate(row) for row in rows], total or 0
+
+    async def rename(self, identifier: int, user_id: int, title: str) -> ConversationView:
+        await self.get(identifier, user_id)
+        row = await self.conversations.get(identifier)
+        if row is None:
+            raise AppError(ErrorCode.NOT_FOUND, http_status=404)
+        await self.conversations.update(row, {"title": title})
+        return ConversationView.model_validate(row)
 
     async def delete(self, identifier: int, user_id: int) -> None:
         await self.get(identifier, user_id)
@@ -78,7 +91,7 @@ class ChatRepository:
             raise AppError(ErrorCode.NOT_FOUND, http_status=404)
         await self.conversations.soft_delete(row)
 
-    async def history(self, identifier: int, limit: int = 12) -> list[MessageView]:
+    async def history(self, identifier: int, limit: int = 11) -> list[MessageView]:
         rows = await self.session.scalars(
             select(Message)
             .where(
@@ -115,6 +128,8 @@ class ChatRepository:
         clarification: Clarification | None = None,
         parent_message_id: int | None = None,
         query_run_created_at: datetime | None = None,
+        chart: ChartSpec | None = None,
+        meta: AnswerMeta | None = None,
     ) -> MessageView:
         row = Message(
             conversation_id=identifier,
@@ -124,6 +139,8 @@ class ChatRepository:
             query_run_id=query_run_id,
             query_run_created_at=query_run_created_at,
             normalized_sql=sql,
+            chart_spec=chart.model_dump_json() if chart else None,
+            answer_meta=meta.model_dump_json() if meta else None,
             created_by=user_id,
             clarification_question=clarification.question if clarification else None,
             clarification_choices=json.dumps(clarification.choices) if clarification else None,
@@ -132,6 +149,12 @@ class ChatRepository:
             expires_at=datetime.now(UTC) + timedelta(days=90),
         )
         self.session.add(row)
+        # Any new message is activity: the conversation moves to the top of the list.
+        await self.session.execute(
+            update(Conversation)
+            .where(Conversation.id == identifier)
+            .values(updated_at=datetime.now(UTC))
+        )
         await self.session.flush()
         return MessageView.model_validate(row)
 
@@ -150,7 +173,20 @@ class ChatRepository:
             raise AppError(ErrorCode.CONFLICT)
         return f"chat:{identifier}:{row.parent_message_id}"
 
-    async def consume_clarification(self, identifier: int, message_id: int, choice: str) -> str:
+    async def rename_default(self, identifier: int, default: str, title: str) -> bool:
+        """Set a generated title only while the conversation still has the default one."""
+        renamed = await self.session.execute(
+            update(Conversation)
+            .where(Conversation.id == identifier, Conversation.title == default)
+            .values(title=title)
+            .returning(Conversation.id)
+        )
+        return renamed.scalar_one_or_none() is not None
+
+    async def consume_clarification(
+        self, identifier: int, message_id: int, choice: str
+    ) -> tuple[str, str | None]:
+        """Mark the clarification answered; return the original question and the choice's ref."""
         row = await self.session.scalar(
             select(Message).where(
                 Message.id == message_id,
@@ -161,8 +197,16 @@ class ChatRepository:
         )
         if row is None or not row.clarification_choices:
             raise AppError(ErrorCode.NOT_FOUND, http_status=404)
-        if choice not in json.loads(row.clarification_choices):
+        choices = json.loads(row.clarification_choices)
+        if choice not in choices:
             raise AppError(ErrorCode.VALIDATION_ERROR)
+        refs = (
+            AnswerMeta.model_validate_json(row.answer_meta).clarification_refs
+            if (row.answer_meta)
+            else []
+        )
+        index = choices.index(choice)
+        ref = refs[index] if index < len(refs) else None
         consumed = await self.session.execute(
             update(Message)
             .where(
@@ -177,7 +221,30 @@ class ChatRepository:
         parent = await self.session.get(Message, row.parent_message_id)
         if parent is None:
             raise AppError(ErrorCode.CONFLICT)
-        return parent.content
+        return parent.content, ref
+
+    async def asked_before(self, identifier: int, message_id: int) -> str:
+        """The user message an assistant message answered; empty when unknown."""
+        row = await self.session.scalar(
+            select(Message).where(Message.id == message_id, Message.conversation_id == identifier)
+        )
+        if row is None or row.parent_message_id is None:
+            return ""
+        parent = await self.session.get(Message, row.parent_message_id)
+        return parent.content if parent is not None and parent.role == "user" else ""
+
+    async def assistant_message(self, identifier: int, message_id: int) -> MessageView:
+        row = await self.session.scalar(
+            select(Message).where(
+                Message.id == message_id,
+                Message.conversation_id == identifier,
+                Message.role == "assistant",
+                Message.expires_at > datetime.now(UTC),
+            )
+        )
+        if row is None:
+            raise AppError(ErrorCode.NOT_FOUND, http_status=404)
+        return MessageView.model_validate(row)
 
     async def execution_sql(self, identifier: int, message_id: int) -> str:
         row = await self.session.scalar(

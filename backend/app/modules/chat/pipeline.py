@@ -1,11 +1,13 @@
 import asyncio
-import json
+import contextlib
+import math
 import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Literal, Protocol
+from decimal import Decimal
+from typing import Any, Literal, Protocol, cast
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -15,23 +17,109 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.core.audit import QueryLogWriter
 from app.core.datasource import Datasource
 from app.core.deps import CurrentUser
-from app.core.errors import MESSAGES, AppError, ErrorCode, SqlBlocked
+from app.core.errors import MESSAGES, AppError, ErrorCode, SqlBlocked, UnresolvedReference
 from app.core.llm import CallContext, ChatMessage, LLMClient, extract_json_object, query_call_scope
+from app.core.logging import LogEvent, logger
 from app.core.permission import PermissionService, TableScope, VisibleScope
-from app.core.prompt import PromptId, PromptRegistry
+from app.core.prompt import PromptId, PromptOverrides, PromptOverrideSource, PromptRegistry
 from app.core.scope import ScopedQuery
 from app.core.sql.dialect import DialectAdapter
 from app.core.sql.executor import QueryLimits, QueryResult, SqlExecutor
 from app.core.sql.guard import GuardedSql, SqlGuard
 from app.core.stream import EventType, StreamEvent
+from app.modules.chat.chart_heuristics import suggest_chart, with_series
 from app.modules.chat.schemas import (
+    AnswerMeta,
     ChartSpec,
     Clarification,
-    Explanation,
+    ContextItem,
     MessageView,
     QueryReply,
     RetrievalBundle,
+    UsedDefinition,
 )
+
+# Rows streamed to the browser and returned inline; exports re-run the guarded SQL in full.
+PREVIEW_ROWS = 500
+# Rows the answer model reads to write its conclusion (already masked).
+ANSWER_ROWS = 30
+# How many first and last rows the answer sees of a longer result, besides column stats.
+ANSWER_HEAD_ROWS = 15
+ANSWER_TAIL_ROWS = 15
+MAX_CORRECTIONS = 3
+# A follow-up can build on at most this many earlier question/answer rounds.
+HISTORY_ROUNDS = 5
+# Reasoning kept with an answer; the live stream is not cut.
+MAX_REASONING_CHARS = 20_000
+
+
+def plain_value(value: Any) -> Any:
+    """JSON-number form of database decimals, identical for streamed and replayed answers."""
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            return str(value)
+        if value == value.to_integral_value() and abs(value) < 2**53:
+            return int(value)
+        return float(value)
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    return value
+
+
+def plain_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{key: plain_value(value) for key, value in row.items()} for row in rows]
+
+
+def answer_rows(result: QueryResult) -> dict[str, Any]:
+    """What the answer may read of a result: all rows when short; otherwise the first and
+    last rows plus per-column stats over every returned row, so "latest", totals and
+    extremes come from the whole result rather than from its first page."""
+    rows = result.rows
+    if len(rows) <= ANSWER_ROWS:
+        return {"rows": plain_rows(rows)}
+    stats: dict[str, dict[str, Any]] = {}
+    for column in result.columns:
+        values = [row[column] for row in rows if row.get(column) is not None]
+        numbers = [
+            v for v in values if isinstance(v, (int, float, Decimal)) and not isinstance(v, bool)
+        ]
+        if numbers and len(numbers) == len(values):
+            try:
+                total: Any = sum(numbers)
+            except TypeError:  # Decimal and float mixed in one column
+                total = sum(float(v) for v in numbers)
+            stats[column] = {
+                "min": plain_value(min(numbers)),
+                "max": plain_value(max(numbers)),
+                "sum": plain_value(total),
+                "count": len(numbers),
+            }
+        elif values and all(isinstance(v, (date, datetime)) for v in values):
+            # Dates and datetimes do not compare with each other; their ISO text does.
+            stamps = sorted(cast(list[date], values), key=lambda v: v.isoformat())
+            stats[column] = {"min": plain_value(stamps[0]), "max": plain_value(stamps[-1])}
+    return {
+        "rows": plain_rows(rows[:ANSWER_HEAD_ROWS]),
+        "tail_rows": plain_rows(rows[-ANSWER_TAIL_ROWS:]),
+        "omitted_rows": len(rows) - ANSWER_HEAD_ROWS - ANSWER_TAIL_ROWS,
+        "column_stats": stats,
+    }
+
+
+_SCOPE_LABEL = {"platform": "平台级", "team": "团队级", "personal": "个人级"}
+# snake_case or dotted ASCII names: table and column identifiers, never business wording.
+_IDENTIFIER = re.compile(r"[A-Za-z0-9]+_[A-Za-z0-9_]+|[A-Za-z_]+\.[A-Za-z_]+")
+
+
+def _scoped_choice(item: ContextItem) -> str:
+    """A clarification option a user can read: name, scope and the plain-language meaning,
+    never the stored JSON definition."""
+    label = _SCOPE_LABEL.get(item.scope.value, item.scope.value)
+    return (
+        f"{item.name}（{label}）：{item.description}"
+        if item.description
+        else f"{item.name}（{label}）"
+    )
 
 
 class RetrievalIndex(Protocol):
@@ -42,7 +130,12 @@ class RetrievalIndex(Protocol):
     """
 
     async def retrieve(
-        self, user: CurrentUser, scope: VisibleScope, question: str, mode: str
+        self,
+        user: CurrentUser,
+        scope: VisibleScope,
+        question: str,
+        mode: str,
+        pinned_metric_ids: frozenset[int] = frozenset(),
     ) -> RetrievalBundle: ...
 
     async def expand_relations(
@@ -54,7 +147,12 @@ class ScopeOnlyIndex:
     """Safe bootstrap adapter; hybrid deployments must inject a real index service."""
 
     async def retrieve(
-        self, user: CurrentUser, scope: VisibleScope, question: str, mode: str
+        self,
+        user: CurrentUser,
+        scope: VisibleScope,
+        question: str,
+        mode: str,
+        pinned_metric_ids: frozenset[int] = frozenset(),
     ) -> RetrievalBundle:
         if mode == "hybrid":
             raise AppError(ErrorCode.LLM_UNAVAILABLE, http_status=503)
@@ -76,7 +174,13 @@ class ContextBuilder:
         self.index, self.threshold = index, threshold
 
     async def build(
-        self, user: CurrentUser, scope: VisibleScope, question: str, choice: str | None = None
+        self,
+        user: CurrentUser,
+        scope: VisibleScope,
+        question: str,
+        choice: str | None = None,
+        pinned_metric_ids: frozenset[int] = frozenset(),
+        choice_ref: str | None = None,
     ) -> RetrievalBundle:
         # Do not give the index withheld column metadata retained by the SQL guard.
         safe_scope = VisibleScope(
@@ -92,7 +196,12 @@ class ContextBuilder:
         mode: Literal["full", "hybrid"] = (
             "full" if len(safe_scope.tables) <= self.threshold else "hybrid"
         )
-        bundle = await self.index.retrieve(user, safe_scope, question, mode)
+        if pinned_metric_ids:
+            bundle = await self.index.retrieve(
+                user, safe_scope, question, mode, pinned_metric_ids=pinned_metric_ids
+            )
+        else:
+            bundle = await self.index.retrieve(user, safe_scope, question, mode)
         bundle = await self.index.expand_relations(user, safe_scope, bundle)
         tables = {
             name: {
@@ -117,37 +226,57 @@ class ContextBuilder:
         visible_items = ScopedQuery.visible_to(authorized, user)
         merged = ScopedQuery.merge(visible_items, user, "key")
         ambiguities = list(bundle.ambiguities)
-        # Same term with different definitions remains explicit despite scope precedence.
+        # Same term defined differently at several levels: the user's own level wins
+        # (personal > team > platform) without asking; the answer names the level used.
+        effective = {item.key: item for item in merged}
+        levels: dict[str, str] = {}
         for key in dict.fromkeys(item.key for item in visible_items):
             matches = [item for item in visible_items if item.key == key and item.score > 0]
-            if len({item.definition for item in matches}) > 1:
-                ambiguities.append(
-                    Clarification(
-                        question="请选择指标或语义口径",
-                        choices=[
-                            f"{item.name}（{item.scope.value}级）：{item.definition}"
-                            for item in matches
-                        ][:8],
-                    )
-                )
+            if len({item.definition for item in matches}) > 1 and key in effective:
+                levels[effective[key].name] = effective[key].scope.value
         metrics = sorted(
             (item for item in merged if item.kind == "metric"),
             key=lambda item: item.score,
             reverse=True,
         )
-        if (
-            len(metrics) >= 2
-            and metrics[0].score > 0
-            and abs(metrics[0].score - metrics[1].score) <= 0.05
-        ):
-            ambiguities.append(
-                Clarification(question="请选择指标", choices=[item.name for item in metrics[:8]])
+        # Several metrics are ambiguous only when they answer to the same words. Metrics named
+        # by different words are all meant: "销售额目标达成率" names 销售额 and 目标达成率.
+        # A term inside a longer matched term (达成率 in 目标达成率) does not count on its own.
+        hits = [item for item in metrics if item.score > 0]
+        terms = {item.matched for item in hits if item.matched}
+        hits = [
+            item
+            for item in hits
+            if not any(
+                item.matched and item.matched != term and item.matched in term for term in terms
             )
+        ]
+        groups: dict[str, list[ContextItem]] = {}
+        for item in hits:
+            groups.setdefault(item.matched.casefold(), []).append(item)
+        for group in groups.values():
+            if len(group) >= 2:
+                ambiguities.append(
+                    Clarification(question="请选择指标", choices=[item.name for item in group[:8]])
+                )
+                break
         if choice:
+            metric_ref = (
+                choice_ref.split(":", 1)[1].strip().casefold()
+                if choice_ref and choice_ref.casefold().startswith("metric:")
+                else None
+            )
             selected = [
                 item
                 for item in visible_items
-                if choice in {item.name, f"{item.name}（{item.scope.value}级）：{item.definition}"}
+                # The raw-definition form is what clarifications offered before readable labels.
+                if choice
+                in {
+                    item.name,
+                    _scoped_choice(item),
+                    f"{item.name}（{item.scope.value}级）：{item.definition}",
+                }
+                or (item.kind == "metric" and item.name.casefold() == metric_ref)
             ]
             if len(selected) == 1:
                 chosen = selected[0]
@@ -157,6 +286,24 @@ class ContextBuilder:
                     if item.key != chosen.key and (chosen.kind != "metric" or item.kind != "metric")
                 ]
                 merged.append(chosen)
+                if chosen.name in levels:
+                    levels[chosen.name] = chosen.scope.value
+        pinned_keys: list[str] = []
+        if pinned_metric_ids:
+            merged = [
+                item.model_copy(update={"score": 2.0})
+                if item.kind == "metric" and item.ref_id in pinned_metric_ids
+                else item
+                for item in merged
+            ]
+            pinned_keys = [
+                item.key
+                for item in merged
+                if item.kind == "metric" and item.ref_id in pinned_metric_ids
+            ]
+            if pinned_keys:
+                # An explicit @mention settles which metric is meant: no metric ambiguity remains.
+                ambiguities = [a for a in ambiguities if a.question != "请选择指标"]
         # Example SQL is still only prompt data; every resulting SQL passes the guard.
         return RetrievalBundle(
             tables=tables,
@@ -164,6 +311,8 @@ class ContextBuilder:
             required_conditions=bundle.required_conditions,
             ambiguities=ambiguities,
             mode=mode,
+            pinned=pinned_keys,
+            definition_levels=levels,
         )
 
 
@@ -212,6 +361,11 @@ class QueryContext:
     manual_sql: str | None = field(default=None, repr=False)
     clarification_used: bool = False
     clarification_choice: str | None = None
+    # The verified table.column or metric ref behind the chosen option, when known.
+    clarification_ref: str | None = None
+    pinned_metric_ids: frozenset[int] = frozenset()
+    requested_model_id: int | None = None
+    limit_overrides: dict[str, Any] = field(default_factory=dict)
     message_id: int | None = None
     query_run_id: int | None = None
     query_id: str = field(default_factory=lambda: f"query:{uuid4()}")
@@ -229,14 +383,31 @@ class QueryContext:
     result: QueryResult | None = field(default=None, repr=False)
     retries: list[dict[str, Any]] = field(default_factory=list)
     chart: ChartSpec | None = None
+    # Presentation proposed by the SQL call; validated against the real result columns.
+    chart_hint: dict[str, Any] | None = None
+    # Edited-SQL rerun: the answer it started from ({message_id, query_run_id, question}).
+    rerun_of: dict[str, Any] | None = None
+    # The data-grounded answer text (or the error message on failure).
     explanation: str = ""
+    meta: AnswerMeta | None = None
+    title: str = ""
+    interpretation: str = ""
+    filters: list[str] = field(default_factory=list)
+    reasoning: str = field(default="", repr=False)
     clarification: Clarification | None = None
+    clarification_refs: list[str] = field(default_factory=list)
     timings: dict[str, int] = field(default_factory=dict)
     tokens_in: int = 0
     tokens_out: int = 0
     status: str = "success"
     error_code: ErrorCode | None = None
     execution_error: ErrorCode | None = None
+    # What could not be resolved in the last rejected SQL; only ever sent back to the model.
+    error_detail: str = field(default="", repr=False)
+    # SQL the guard rejected. Never persisted or returned; evaluation shows it to admins.
+    rejected_sql: str | None = field(default=None, repr=False)
+    # The usual reading the model chose for an open dimension or measure, told to the user.
+    assumption: str = ""
     warnings: list[str] = field(default_factory=list)
     started: float = field(default_factory=time.monotonic)
     emit: Callable[[EventType, dict[str, Any]], Awaitable[None]] | None = field(
@@ -280,6 +451,10 @@ class QueryContext:
             else None,
             "retries": self.retries,
             "chart": self.chart.model_dump() if self.chart else None,
+            "title": self.title,
+            "interpretation": self.interpretation,
+            "filters": self.filters,
+            "clarification_choice": self.clarification_choice,
             "stage_timings": self.timings,
             "tokens_in": self.tokens_in,
             "tokens_out": self.tokens_out,
@@ -305,7 +480,13 @@ class QueryContext:
             "error": self.error_code,
             "warnings": self.warnings,
             "clarification": self.clarification.model_dump() if self.clarification else None,
+            "rerun_of": self.rerun_of,
         }
+
+    @property
+    def business_question(self) -> str:
+        """What the user actually asked; a rerun's own question is only a fixed marker."""
+        return str((self.rerun_of or {}).get("question") or self.question)
 
     def reply(self) -> QueryReply:
         return QueryReply(
@@ -317,11 +498,32 @@ class QueryContext:
             if self.guarded_sql and self.status == "success"
             else None,
             columns=self.result.columns if self.result and self.status == "success" else [],
-            rows=self.result.rows if self.result and self.status == "success" else [],
+            rows=plain_rows(self.result.rows[:PREVIEW_ROWS])
+            if self.result and self.status == "success"
+            else [],
             truncated=self.result.truncated if self.result else False,
+            row_count=self.result.row_count if self.result else 0,
+            preview_truncated=bool(self.result and len(self.result.rows) > PREVIEW_ROWS),
             chart=self.chart,
             explanation=self.explanation,
+            meta=self.meta.model_copy(update={"question": self.business_question[:2000]})
+            if self.meta
+            else None,
             clarification=self.clarification,
+        )
+
+    def answer_meta(self) -> AnswerMeta:
+        """What is persisted with the assistant message, for success and clarification alike."""
+        meta = self.meta or AnswerMeta(
+            interpretation=self.interpretation[:500], filters=self.filters[:20]
+        )
+        return meta.model_copy(
+            update={
+                "reasoning": self.reasoning[:MAX_REASONING_CHARS],
+                "clarification_choice": self.clarification_choice,
+                "clarification_refs": self.clarification_refs if self.clarification else [],
+                "question": self.business_question[:2000],
+            }
         )
 
 
@@ -331,31 +533,43 @@ class Stage(Protocol):
     async def run(self, ctx: QueryContext) -> QueryContext: ...
 
 
-class SqlOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    sql: str
-    # The model reports that the visible schema cannot answer the question.
-    unanswerable: bool = False
-
-
 class ClarifyChoice(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
     label: str = Field(min_length=1, max_length=200)
     ref: str = Field(min_length=1, max_length=300)
 
 
 class ClarifyOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    clarify: bool
+    model_config = ConfigDict(extra="ignore")
+    clarify: bool = True
     question: str = Field(default="", max_length=500)
     choices: list[ClarifyChoice] = Field(default_factory=list, max_length=8)
 
 
-def verified_choices(output: ClarifyOutput, retrieval: RetrievalBundle) -> list[str]:
+class SqlOutput(BaseModel):
+    """One model call: the SQL plus how to present it (or a clarification instead)."""
+
+    model_config = ConfigDict(extra="ignore")
+    sql: str = ""
+    # The model reports that the visible schema cannot answer the question.
+    unanswerable: bool = False
+    # The model reports a request to change data or bypass the rules.
+    write_request: bool = False
+    clarify: ClarifyOutput | None = None
+    title: str = Field(default="", max_length=200)
+    interpretation: str = Field(default="", max_length=1000)
+    filters: list[str] = Field(default_factory=list, max_length=50)
+    assumption: str = Field(default="", max_length=500)
+    # Validated later against the real result columns; never trusted as is.
+    chart: dict[str, Any] | None = None
+
+
+def verified_choices(output: ClarifyOutput, retrieval: RetrievalBundle) -> list[tuple[str, str]]:
     """Keep only choices whose ref names a visible column or retrieved metric.
 
     A model-proposed option that cannot be verified against the authorized context is
     dropped, so clarification never reveals or invents objects outside the visible scope.
+    Returns (label, ref) pairs so the chosen option can later pin its column or metric.
     """
     columns = {
         f"{table}.{column}".casefold()
@@ -370,14 +584,22 @@ def verified_choices(output: ClarifyOutput, retrieval: RetrievalBundle) -> list[
     metrics = {
         f"metric:{item.name}".casefold() for item in retrieval.items if item.kind == "metric"
     }
-    labels: list[str] = []
+    pairs: list[tuple[str, str]] = []
     seen: set[str] = set()
+    labels: set[str] = set()
     for choice in output.choices:
         ref = choice.ref.strip().casefold()
-        if (ref in columns or ref in short or ref in metrics) and ref not in seen:
+        label = choice.label.strip()
+        if (
+            (ref in columns or ref in short or ref in metrics)
+            and ref not in seen
+            and label
+            and label not in labels
+        ):
             seen.add(ref)
-            labels.append(choice.label.strip())
-    return labels
+            labels.add(label)
+            pairs.append((label, choice.ref.strip()))
+    return pairs
 
 
 class PipelineDependencies:
@@ -393,50 +615,114 @@ class PipelineDependencies:
         querylog: QueryLogWriter,
         prompts: PromptRegistry | None = None,
         limits: QueryLimits | None = None,
+        prompt_source: PromptOverrideSource | None = None,
         model_clarification: bool = False,
+        cancelled_querylog: QueryLogWriter | None = None,
     ) -> None:
         self.permissions, self.datasource, self.history = permissions, datasource, history
         # Model-judged clarification is optional: fixed-output replays leave it off.
         self.model_clarification = model_clarification
         self.builder, self.llm, self.guard = builder, llm, guard
         self.executor, self.querylog = executor, querylog
+        # Records runs cancelled by a disconnect without touching the request's session.
+        self.cancelled_querylog = cancelled_querylog
         self.prompts = prompts or PromptRegistry()
+        self.prompt_source = prompt_source
         self.limits = limits or QueryLimits(user_id=1)
 
     def limits_for(self, user_id: int) -> QueryLimits:
         return self.limits.model_copy(update={"user_id": user_id})
 
+    async def overrides(self) -> PromptOverrides | None:
+        return await self.prompt_source.load() if self.prompt_source else None
+
     async def call(self, ctx: QueryContext, prompt_id: PromptId, data: dict[str, Any]) -> str:
-        adapter = DialectAdapter(ctx.datasource.dialect) if ctx.datasource else None
-        rendered = self.prompts.render(
-            prompt_id,
-            jsonable_encoder(data),
-            dialect_hint=adapter.prompt_hint if adapter else "",
-            engine=adapter.engine_name if adapter else "",
-        )
-        ctx.prompt_versions[prompt_id.value] = rendered.version
-        response = await self.llm.chat(
-            [ChatMessage(role="system", content=rendered.content)],
-            CallContext(
-                user_id=ctx.user.id,
-                team_id=ctx.user.team_id,
-                prompt_version=f"{prompt_id.value}:{rendered.version}",
-            ),
-        )
+        messages, context = await self._prepare(ctx, prompt_id, data)
+        response = await self.llm.chat(messages, context)
         ctx.model_id = response.model_id
         ctx.tokens_in += response.usage.tokens_in
         ctx.tokens_out += response.usage.tokens_out
         return response.text
 
-    @staticmethod
-    def data(ctx: QueryContext) -> dict[str, Any]:
+    async def stream_call(
+        self,
+        ctx: QueryContext,
+        prompt_id: PromptId,
+        data: dict[str, Any],
+        text_event: EventType | None = None,
+        show_reasoning: bool = True,
+    ) -> str:
+        """Stream one model call: thinking goes out as REASONING, text optionally as text_event.
+
+        The answer call hides its thinking: once the conclusion streams, the thinking panel
+        stays collapsed.
+
+        Returns the complete text; callers parse and validate it exactly as with call().
+        """
+        messages, context = await self._prepare(ctx, prompt_id, data)
+        parts: list[str] = []
+        async for chunk in self.llm.stream(messages, context):
+            if chunk.model_id:
+                ctx.model_id = chunk.model_id
+            if chunk.usage:
+                ctx.tokens_in += chunk.usage.tokens_in
+                ctx.tokens_out += chunk.usage.tokens_out
+            if chunk.reasoning and show_reasoning:
+                if len(ctx.reasoning) < MAX_REASONING_CHARS:
+                    ctx.reasoning += chunk.reasoning
+                await ctx.event(EventType.REASONING, {"delta": chunk.reasoning})
+            if chunk.text:
+                parts.append(chunk.text)
+                if text_event is not None:
+                    await ctx.event(text_event, {"delta": chunk.text})
+        return "".join(parts)
+
+    async def _prepare(
+        self, ctx: QueryContext, prompt_id: PromptId, data: dict[str, Any]
+    ) -> tuple[list[ChatMessage], CallContext]:
+        adapter = DialectAdapter(ctx.datasource.dialect) if ctx.datasource else None
+        overrides = await self.overrides()
+        hint = adapter.prompt_hint if adapter else ""
+        if adapter and overrides and adapter.prompt_name in overrides.dialects:
+            published = overrides.dialects[adapter.prompt_name]
+            hint = published.content
+            ctx.prompt_versions[f"dialect_{adapter.prompt_name}"] = published.label
+        rendered = self.prompts.render(
+            prompt_id,
+            jsonable_encoder(data),
+            dialect_hint=hint,
+            engine=adapter.engine_name if adapter else "",
+            overrides=overrides,
+        )
+        ctx.prompt_versions[prompt_id.value] = rendered.version
+        return [ChatMessage(role="system", content=rendered.content)], CallContext(
+            user_id=ctx.user.id,
+            team_id=ctx.user.team_id,
+            prompt_version=f"{prompt_id.value}:{rendered.version}",
+            requested_model_id=str(ctx.requested_model_id) if ctx.requested_model_id else None,
+        )
+
+    def data(self, ctx: QueryContext) -> dict[str, Any]:
         return {
             "question": ctx.question,
-            "history": [{"role": item.role, "content": item.content} for item in ctx.history],
+            "history": [
+                {
+                    "role": item.role,
+                    "content": item.content,
+                    # Only guard-approved SQL survives VisibleScopeStage, so this is in scope.
+                    **({"sql": item.normalized_sql} if item.normalized_sql else {}),
+                }
+                for item in ctx.history
+            ],
             "context": ctx.retrieval.model_dump(mode="json"),
             "time_ranges": ctx.time_ranges,
             "inherited_sql": ctx.inherited_sql,
             "clarification_choice": ctx.clarification_choice,
+            "clarification_ref": ctx.clarification_ref,
+            # One clarification round per question; fixed-output replays never clarify.
+            "clarification_allowed": self.model_clarification
+            and not ctx.clarification_used
+            and not ctx.manual_sql,
         }
 
 
@@ -447,19 +733,27 @@ class LoadContextStage:
         self.deps = deps
 
     async def run(self, ctx: QueryContext) -> QueryContext:
-        ctx.history = (await self.deps.history(ctx.conversation_id))[-12:]
-        # Deterministic bounded extractive summary; no separate unversioned model call.
+        recent = await self.deps.history(ctx.conversation_id)
+        # Deterministic bounded extraction: the current question is excluded, answers keep only
+        # their first line (the SQL travels separately), and rounds beyond the cap are dropped.
         ctx.history = [
-            item.model_copy(update={"content": item.content[:800]})
-            for item in ctx.history
-            if item.id != ctx.message_id
-        ]
-        ctx.follow_up = bool(ctx.history) and bool(
-            re.search(
-                r"^(那|再|其中|这些|它们|按|改成|只看|继续|what about|and )", ctx.question, re.I
+            item.model_copy(
+                update={
+                    "content": item.content[:800]
+                    if item.role == "user"
+                    else item.content.split("\n", 1)[0][:300]
+                }
             )
+            for item in recent
+            if item.id != ctx.message_id
+        ][-2 * HISTORY_ROUNDS :]
+        # Whether the question builds on earlier rounds is the model's call (prompt rule); the
+        # latest guard-approved SQL is always offered as the candidate to inherit.
+        ctx.follow_up = bool(ctx.history)
+        # A picked time option ("近7天") resolves together with the original question.
+        ctx.time_ranges = resolve_time_ranges(
+            f"{ctx.question}\n{ctx.clarification_choice or ''}", ctx.timezone, ctx.now
         )
-        ctx.time_ranges = resolve_time_ranges(ctx.question, ctx.timezone, ctx.now)
         return ctx
 
 
@@ -503,7 +797,12 @@ class RetrievalStage:
         if ctx.scope is None:
             raise AppError(ErrorCode.INTERNAL_ERROR)
         ctx.retrieval = await self.deps.builder.build(
-            ctx.user, ctx.scope, ctx.question, ctx.clarification_choice
+            ctx.user,
+            ctx.scope,
+            ctx.question,
+            ctx.clarification_choice,
+            ctx.pinned_metric_ids,
+            ctx.clarification_ref,
         )
         return ctx
 
@@ -529,30 +828,25 @@ class ClarificationStage:
             if isinstance(value, dict)
         ):
             candidates.append(Clarification(question="请选择时间范围", choices=["近7天", "近30天"]))
-        if candidates:
-            # Deterministic backend signals always clarify; no model call is needed.
-            ctx.clarification = candidates[0]
-        elif self.deps.model_clarification:
-            decision = ClarifyOutput.model_validate_json(
-                extract_json_object(
-                    await self.deps.call(ctx, PromptId.CLARIFY, self.deps.data(ctx))
-                )
-            )
-            labels = verified_choices(decision, ctx.retrieval) if decision.clarify else []
-            if len(labels) < 2:
-                # Unverifiable or absent options: never block the question on a guess.
-                return ctx
-            ctx.clarification = Clarification(
-                question=decision.question or "请选择要使用的口径", choices=labels[:8]
-            )
-        else:
+        if not candidates:
+            # Model-judged ambiguity is decided inside the single SQL call (GenerateSqlStage).
             return ctx
-        ctx.status = "clarify"
-        await ctx.event(EventType.EXPLANATION, {"clarification": ctx.clarification.model_dump()})
+        # Deterministic backend signals always clarify; no model call is needed.
+        await ask_clarification(ctx, candidates[0], [])
         return ctx
 
 
+async def ask_clarification(
+    ctx: QueryContext, clarification: Clarification, refs: list[str]
+) -> None:
+    ctx.clarification, ctx.clarification_refs = clarification, refs
+    ctx.status = "clarify"
+    await ctx.event(EventType.EXPLANATION, {"clarification": clarification.model_dump()})
+
+
 class GenerateSqlStage:
+    """One streamed model call: SQL, or a verified clarification, plus presentation hints."""
+
     name = "generate_sql"
 
     def __init__(self, deps: PipelineDependencies) -> None:
@@ -561,14 +855,46 @@ class GenerateSqlStage:
     async def run(self, ctx: QueryContext) -> QueryContext:
         if ctx.manual_sql:
             ctx.generated_sql = ctx.manual_sql
-        else:
+            return ctx
+        data = self.deps.data(ctx)
+        output = SqlOutput.model_validate_json(
+            extract_json_object(await self.deps.stream_call(ctx, PromptId.SQL, data))
+        )
+        if output.write_request:
+            # Refuse the whole request rather than quietly answering only its read part.
+            raise SqlBlocked(ErrorCode.SQL_NOT_SELECT)
+        if output.clarify is not None and output.clarify.clarify and data["clarification_allowed"]:
+            pairs = verified_choices(output.clarify, ctx.retrieval)
+            if len(pairs) >= 2:
+                await ask_clarification(
+                    ctx,
+                    Clarification(
+                        question=output.clarify.question.strip() or "请选择要使用的口径",
+                        choices=[label for label, _ in pairs[:8]],
+                    ),
+                    [ref for _, ref in pairs[:8]],
+                )
+                return ctx
+        if output.clarify is not None and not output.sql.strip() and not output.unanswerable:
+            # Unverifiable or disallowed options never block the question: ask once for SQL.
             output = SqlOutput.model_validate_json(
-                extract_json_object(await self.deps.call(ctx, PromptId.SQL, self.deps.data(ctx)))
+                extract_json_object(
+                    await self.deps.stream_call(
+                        ctx, PromptId.SQL, {**data, "clarification_allowed": False}
+                    )
+                )
             )
-            if output.unanswerable or not output.sql.strip():
-                # Nothing was generated or executed; report only the category, never object names.
-                raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
-            ctx.generated_sql = output.sql
+        if output.unanswerable or not output.sql.strip():
+            # Nothing was generated or executed; report only the category, never object names.
+            raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+        ctx.generated_sql = output.sql
+        ctx.title = " ".join(output.title.split())[:20]
+        ctx.interpretation = output.interpretation.strip()[:500]
+        ctx.filters = [item.strip()[:200] for item in output.filters if item.strip()][:20]
+        assumption = " ".join(output.assumption.split())[:100]
+        # Shown to the user verbatim: drop it rather than show a column name or code.
+        ctx.assumption = "" if _IDENTIFIER.search(assumption) else assumption
+        ctx.chart_hint = output.chart
         return ctx
 
 
@@ -582,9 +908,21 @@ class GuardStage:
         if ctx.scope is None or ctx.datasource is None or ctx.generated_sql is None:
             raise AppError(ErrorCode.INTERNAL_ERROR)
         ctx.scope = await self.deps.permissions.visible_scope(ctx.user, ctx.datasource_id)
-        ctx.guarded_sql = self.deps.guard.check(
-            ctx.generated_sql, ctx.datasource.dialect, ctx.scope
-        )
+        ctx.guarded_sql = None
+        try:
+            ctx.guarded_sql = self.deps.guard.check(
+                ctx.generated_sql, ctx.datasource.dialect, ctx.scope
+            )
+        except UnresolvedReference as error:
+            ctx.rejected_sql = ctx.generated_sql
+            if ctx.manual_sql or len(ctx.retries) >= MAX_CORRECTIONS:
+                raise
+            # A field the model made up: let the correction round fix it. Nothing ran.
+            ctx.execution_error, ctx.error_detail = error.code, error.detail
+            return ctx
+        except SqlBlocked:
+            ctx.rejected_sql = ctx.generated_sql
+            raise
         await ctx.event(EventType.SQL, {"sql": ctx.guarded_sql.normalized_sql})
         return ctx
 
@@ -596,13 +934,16 @@ class ExecuteStage:
         self.deps = deps
 
     async def run(self, ctx: QueryContext) -> QueryContext:
+        if ctx.guarded_sql is None and ctx.execution_error is not None:
+            return ctx  # The guard asked for a correction; nothing to execute yet.
         if ctx.datasource is None or ctx.guarded_sql is None:
             raise AppError(ErrorCode.INTERNAL_ERROR)
-        ctx.execution_error = None
+        ctx.execution_error, ctx.error_detail = None, ""
         try:
-            ctx.result = await self.deps.executor.run(
-                ctx.datasource, ctx.guarded_sql, self.deps.limits_for(ctx.user.id)
-            )
+            limits = self.deps.limits_for(ctx.user.id)
+            if ctx.limit_overrides:
+                limits = limits.model_copy(update=ctx.limit_overrides)
+            ctx.result = await self.deps.executor.run(ctx.datasource, ctx.guarded_sql, limits)
         except AppError as error:
             if error.code != ErrorCode.SQL_EXECUTION_ERROR or ctx.manual_sql:
                 raise AppError(error.code, http_status=error.http_status) from None
@@ -617,32 +958,112 @@ class CorrectionStage:
         self.deps = deps
 
     async def run(self, ctx: QueryContext) -> QueryContext:
-        while ctx.execution_error and len(ctx.retries) < 3:
+        while ctx.execution_error and len(ctx.retries) < MAX_CORRECTIONS:
             error = ctx.execution_error
             ctx.retries.append({"attempt": len(ctx.retries) + 1, "code": error.value})
+            request = {
+                **self.deps.data(ctx),
+                "sql": ctx.generated_sql,
+                "error_category": error.value,
+            }
+            if ctx.error_detail:
+                request["error_detail"] = ctx.error_detail
             output = SqlOutput.model_validate_json(
-                extract_json_object(
-                    await self.deps.call(
-                        ctx,
-                        PromptId.CORRECT,
-                        {
-                            **self.deps.data(ctx),
-                            "sql": ctx.generated_sql,
-                            "error_category": error.value,
-                        },
-                    )
-                )
+                extract_json_object(await self.deps.call(ctx, PromptId.CORRECT, request))
             )
+            if output.unanswerable or not output.sql.strip():
+                raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
             ctx.generated_sql = output.sql
-            # Every correction uses the same guard. Its rejection exits immediately.
+            # Every correction passes the same guard; only unresolved fields get another round.
             await GuardStage(self.deps).run(ctx)
             await ExecuteStage(self.deps).run(ctx)
         if ctx.execution_error:
+            if ctx.execution_error == ErrorCode.SQL_OUT_OF_SCOPE:
+                raise SqlBlocked(ctx.execution_error)
             raise AppError(ctx.execution_error)
         return ctx
 
 
+def chart_from_hint(
+    hint: dict[str, Any] | None, columns: list[str], rows: list[dict[str, Any]]
+) -> tuple[ChartSpec, bool]:
+    """Validate the SQL call's chart proposal against the real result; fall back by shape.
+
+    Returns the chart and whether the fallback was used. Labels and formats proposed by the
+    model are kept for known columns even when its axes are unusable.
+    """
+    known = set(columns)
+    fields = set(ChartSpec.model_fields)
+    candidate = {key: value for key, value in (hint or {}).items() if key in fields}
+    labels: dict[str, str] = {}
+    formats: dict[str, Any] = {}
+    if isinstance(candidate.get("labels"), dict):
+        labels = {
+            str(key): " ".join(str(value).split())[:40]
+            for key, value in candidate["labels"].items()
+            if key in known and str(value).strip()
+        }
+    if isinstance(candidate.get("formats"), dict):
+        formats = {
+            str(key): value
+            for key, value in candidate["formats"].items()
+            if key in known and value in {"number", "integer", "percent", "currency"}
+        }
+    candidate.update(labels=labels, formats=formats)
+    try:
+        chart = ChartSpec.model_validate(candidate)
+    except ValidationError:
+        chart = None
+    if chart is not None and (
+        (chart.x is not None and chart.x not in known)
+        or any(column not in known for column in chart.y)
+        or (chart.series is not None and chart.series not in known)
+        or (chart.type != "table" and (chart.x is None or not chart.y))
+    ):
+        chart = None
+    if chart is None:
+        fallback = suggest_chart(columns, rows, title=str(candidate.get("title") or "")[:200])
+        return fallback.model_copy(update={"labels": labels, "formats": formats}), True
+    return chart.model_copy(update={"y_right": [c for c in chart.y_right if c in chart.y]}), False
+
+
+def used_definitions(ctx: QueryContext) -> list[UsedDefinition]:
+    """Only the semantic terms and metrics this answer relied on, not every retrieved item."""
+    columns = ctx.guarded_sql.columns if ctx.guarded_sql else {}
+
+    def used(item: ContextItem) -> bool:
+        if item.kind == "example":
+            return False
+        if item.key in ctx.retrieval.pinned or item.score > 0:
+            return True
+        if ctx.clarification_choice and ctx.clarification_choice in {item.name}:
+            return True
+        # A column-level semantic term counts when its column appears in the checked SQL.
+        return item.kind != "metric" and any(
+            len(item_columns) == 1 and item_columns <= set(columns.get(table, ()))
+            for table, item_columns in item.tables.items()
+        )
+
+    return [
+        UsedDefinition(
+            kind=item.kind,  # type: ignore[arg-type]
+            name=item.name,
+            scope=item.scope.value,
+            version=item.version,
+            # Plain-text definitions double as descriptions; JSON definitions never show.
+            description=(
+                item.description
+                or ("" if item.definition.lstrip().startswith(("{", "[")) else item.definition)
+            )[:300],
+        )
+        for item in ctx.retrieval.items
+        if used(item)
+    ][:12]
+
+
 class PresentationStage:
+    """Chart from the SQL call's hint, structured explanation, then the streamed answer."""
+
     name = "presentation"
 
     def __init__(self, deps: PipelineDependencies) -> None:
@@ -651,83 +1072,87 @@ class PresentationStage:
     async def run(self, ctx: QueryContext) -> QueryContext:
         if ctx.result is None:
             raise AppError(ErrorCode.INTERNAL_ERROR)
-        data = {
-            **self.deps.data(ctx),
-            "columns": ctx.result.columns,
-            "column_types": {
-                column: sorted({type(row.get(column)).__name__ for row in ctx.result.rows[:5]})
-                for column in ctx.result.columns
-            },
-            "row_count": ctx.result.row_count,
-            "preview": ctx.result.rows[:5],
-            "sql": ctx.guarded_sql.normalized_sql if ctx.guarded_sql else None,
-        }
-        try:
-            chart = ChartSpec.model_validate_json(
-                extract_json_object(await self.deps.call(ctx, PromptId.CHART, data))
-            )
-            if (
-                (chart.x and chart.x not in ctx.result.columns)
-                or any(column not in ctx.result.columns for column in chart.y)
-                or (chart.type != "table" and (chart.x is None or not chart.y))
-            ):
-                raise AppError(ErrorCode.VALIDATION_ERROR)
-            ctx.chart = chart
-        except (ValidationError, AppError) as error:
-            if isinstance(error, AppError) and error.code not in {
-                ErrorCode.LLM_UNAVAILABLE,
-                ErrorCode.VALIDATION_ERROR,
-            }:
-                raise AppError(error.code, http_status=error.http_status) from None
-            ctx.chart = ChartSpec(type="table")
+        result = ctx.result
+        preview = plain_rows(result.rows[:PREVIEW_ROWS])
+        ctx.chart, fallback = chart_from_hint(ctx.chart_hint, result.columns, preview)
+        if fallback:
             ctx.warnings.append("chart_fallback")
-        try:
-            output = Explanation.model_validate_json(
-                extract_json_object(await self.deps.call(ctx, PromptId.EXPLAIN, data))
-            )
-            ctx.explanation = output.summary
-        except (ValidationError, AppError) as error:
-            if isinstance(error, AppError) and error.code not in {
-                ErrorCode.LLM_UNAVAILABLE,
-                ErrorCode.VALIDATION_ERROR,
-            }:
-                raise AppError(error.code, http_status=error.http_status) from None
-            ctx.explanation = "查询完成。"
-            ctx.warnings.append("explanation_fallback")
-        definitions = [
-            f"{item.kind} {item.name}：{item.scope.value}级，版本{item.version}，"
-            f"定义：{item.definition}"
-            for item in ctx.retrieval.items
-        ]
-        ctx.explanation += "\n生效语义/指标：" + ("；".join(definitions) or "未命中")
-        ctx.explanation += "\n过滤条件与时间范围以已校验 SQL 为准：" + (
-            ctx.guarded_sql.normalized_sql if ctx.guarded_sql else ""
+        ctx.chart = with_series(ctx.chart, result.columns, result.rows)
+        notes = []
+        if not result.rows:
+            notes.append("结果为空，可能是条件过严或口径不符。")
+        if result.truncated:
+            notes.append(f"结果达到 {result.row_count:,} 行上限，已截断。")
+        ctx.meta = AnswerMeta(
+            interpretation=ctx.interpretation,
+            filters=ctx.filters,
+            definitions=used_definitions(ctx),
+            time_ranges={
+                key: value for key, value in ctx.time_ranges.items() if isinstance(value, dict)
+            },
+            notes=notes,
         )
-        ctx.explanation += "\n后端计算的时间范围：" + json.dumps(
-            ctx.time_ranges, ensure_ascii=False
-        )
-        if not ctx.result.rows:
-            ctx.explanation += "\n结果为空，可能是条件过严或口径不符。"
-        if ctx.result.truncated:
-            ctx.explanation += "\n结果达到行数上限，已截断。"
         await ctx.event(
             EventType.DATA,
             {
-                "columns": ctx.result.columns,
-                "rows": ctx.result.rows,
-                "truncated": ctx.result.truncated,
+                "columns": result.columns,
+                "rows": preview,
+                "row_count": result.row_count,
+                "truncated": result.truncated,
+                "preview_truncated": len(result.rows) > PREVIEW_ROWS,
             },
         )
         await ctx.event(EventType.CHART, ctx.chart.model_dump())
-        await ctx.event(EventType.EXPLANATION, {"text": ctx.explanation})
+        await ctx.event(EventType.EXPLANATION, {"meta": ctx.meta.model_dump()})
+        ctx.explanation = await self.answer(ctx, preview)
         return ctx
+
+    async def answer(self, ctx: QueryContext, preview: list[dict[str, Any]]) -> str:
+        result = ctx.result
+        if result is None or not result.rows:
+            # Nothing to summarize: a fixed sentence, no model call.
+            text = "没有查到符合条件的数据。"
+            await ctx.event(EventType.ANSWER, {"delta": text})
+            return text
+        data = {
+            "question": ctx.business_question,
+            "interpretation": ctx.interpretation,
+            "filters": ctx.filters,
+            "labels": ctx.chart.labels if ctx.chart else {},
+            "columns": result.columns,
+            **answer_rows(result),
+            "row_count": result.row_count,
+            "truncated": result.truncated,
+            "time_ranges": ctx.meta.time_ranges if ctx.meta else {},
+            "assumption": ctx.assumption,
+            "definition_levels": {
+                name: _SCOPE_LABEL.get(level, level).removesuffix("级") + "口径"
+                for name, level in ctx.retrieval.definition_levels.items()
+            },
+        }
+        try:
+            text = (
+                await self.deps.stream_call(
+                    ctx, PromptId.ANSWER, data, EventType.ANSWER, show_reasoning=False
+                )
+            ).strip()
+        except AppError as error:
+            if error.code != ErrorCode.LLM_UNAVAILABLE:
+                raise AppError(error.code, http_status=error.http_status) from None
+            text = ""
+        if not text:
+            ctx.warnings.append("answer_fallback")
+            text = f"共 {result.row_count:,} 行结果。"
+            await ctx.event(EventType.ANSWER, {"delta": text})
+        return text[:3000]
 
 
 class RecordStage:
     name = "record"
 
-    def __init__(self, deps: PipelineDependencies) -> None:
+    def __init__(self, deps: PipelineDependencies, writer: QueryLogWriter | None = None) -> None:
         self.deps = deps
+        self.writer = writer
 
     async def run(self, ctx: QueryContext) -> QueryContext:
         if ctx.status == "blocked":
@@ -739,7 +1164,7 @@ class RecordStage:
             ctx.retrieval = RetrievalBundle()
             ctx.history = []
             ctx.inherited_sql = None
-        ctx.query_run_id = await self.deps.querylog.write(
+        ctx.query_run_id = await (self.writer or self.deps.querylog).write(
             ctx.user,
             ctx.datasource_id,
             ctx.status,
@@ -811,14 +1236,18 @@ class QueryPipeline:
         except ValidationError:
             ctx.status, ctx.error_code = "failed", ErrorCode.VALIDATION_ERROR
             ctx.explanation = MESSAGES[ErrorCode.VALIDATION_ERROR]
-        except Exception:
+        except Exception as error:
+            # Only the exception type: messages may carry SQL, data or secrets.
+            logger.info(
+                LogEvent.FAILURE, code=ErrorCode.INTERNAL_ERROR, action=type(error).__name__
+            )
             ctx.status, ctx.error_code = "failed", ErrorCode.INTERNAL_ERROR
             ctx.explanation = MESSAGES[ErrorCode.INTERNAL_ERROR]
         finally:
             # RecordStage always runs, including failures, clarification and disconnect.
             ctx.timings["record"] = 0
             if cancelled:
-                await asyncio.shield(self.stages[-1].run(ctx))
+                await self._record_cancelled(ctx)
             else:
                 await ctx.event(EventType.STAGE, {"name": self.stages[-1].name})
                 await self.stages[-1].run(ctx)
@@ -830,6 +1259,22 @@ class QueryPipeline:
         if cancelled:
             raise AppError(ErrorCode.QUERY_CANCELLED, http_status=499)
         return ctx
+
+    async def _record_cancelled(self, ctx: QueryContext) -> None:
+        writer = self.deps.cancelled_querylog
+        if writer is None:
+            await asyncio.shield(self.stages[-1].run(ctx))
+            return
+        # The request session is being torn down; finish the log on its own session even if
+        # this coroutine is cancelled again, and keep a reference until the write completes.
+        task = asyncio.ensure_future(RecordStage(self.deps, writer).run(ctx))
+        _BACKGROUND.add(task)
+        task.add_done_callback(_BACKGROUND.discard)
+        with contextlib.suppress(Exception):
+            await asyncio.shield(task)
+
+
+_BACKGROUND: set[asyncio.Future[QueryContext]] = set()
 
 
 def encode_event(identifier: int, kind: EventType, data: dict[str, Any]) -> StreamEvent:

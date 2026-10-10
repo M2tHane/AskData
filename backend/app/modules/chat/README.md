@@ -58,7 +58,9 @@ correction rechecks current permission and passes SqlGuard. Guard failures,
 connection failures, timeouts, cost/limit denials and empty results do not retry.
 Manual SQL does not invoke generation/correction. ChartSpec is a strict Pydantic
 JSON schema with allowed types and result-column references; invalid chart JSON
-falls back to table. Explanations append effective definitions/levels/versions,
+falls back to a shape heuristic. A long-format result (x, one text column with 2-5 values,
+one measure) gets `series` set to that column and the front end pivots it into one series
+per value. Explanations append effective definitions/levels/versions,
 checked filters and backend time ranges.
 
 SSE uses a bounded queue and core registered events, monotonically increasing
@@ -76,3 +78,9 @@ uv run mypy app/modules/chat app/core/audit.py app/core/errors.py app/core/sql/e
 uv run lint-imports --config importlinter.ini
 uv run pytest tests/test_chat.py tests/test_chat_repository.py tests/test_gate1.py tests/test_sql_executor.py tests/test_db_audit_tasks_retention.py tests/test_foundation.py tests/test_architecture.py
 ```
+
+## 历史回放与追问上下文
+
+- 回答消息保存经守卫的 SQL 和图表配置（不含数据）。`GET /conversations/{id}/messages/{message_id}/replay` 按当前权限重新守卫并执行该 SQL，返回行预览、图表和解释；权限已被收回时只返回拦截类别，没有结果。
+- 追问最多带前 5 轮（`HISTORY_ROUNDS`）：用户问题、回答首行，以及每轮经当前权限复核仍通过守卫的 SQL；是否沿用前文由模型判断，当前问题本身不会进入 `history`。
+- 提示词覆盖：`PipelineDependencies.prompt_source` 在每次模型调用前读取管理员发布的版本；没有则用内置模板。

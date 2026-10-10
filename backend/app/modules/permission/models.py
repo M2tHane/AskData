@@ -1,6 +1,6 @@
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, ForeignKey, UniqueConstraint
+from sqlalchemy import JSON, Boolean, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import AuditFields, Base
@@ -24,3 +24,21 @@ class TeamColumnGrant(AuditFields, Base):
     valid: Mapped[bool] = mapped_column(Boolean, default=True)
     mask_rule: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     row_filter: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+
+
+class DatasourceTeamScope(AuditFields, Base):
+    """Teams a datasource is visible to; uncustomized tables and columns inherit it."""
+
+    __tablename__ = "datasource_team_scope"
+    __table_args__ = (UniqueConstraint("datasource_id", "team_id"),)
+    datasource_id: Mapped[int] = mapped_column(ForeignKey("datasource.id"), index=True)
+    team_id: Mapped[int] = mapped_column(ForeignKey("team.id"))
+
+
+class ScopeOverride(AuditFields, Base):
+    """Marks a table or column whose team set was customized instead of inherited."""
+
+    __tablename__ = "scope_override"
+    __table_args__ = (UniqueConstraint("object_type", "object_id"),)
+    object_type: Mapped[str] = mapped_column(String(10))
+    object_id: Mapped[int] = mapped_column()

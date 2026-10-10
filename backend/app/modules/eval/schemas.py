@@ -92,6 +92,13 @@ class EvalCaseInput(BaseModel):
     expected_metric_ids: list[str] = Field(default_factory=list)
     expected_time_range: dict[str, str] | None = None
     expected_clarification_options: list[str] = Field(default_factory=list)
+    # Options match by meaning: each group lists words any one of which marks that option.
+    clarification_equivalents: list[list[str]] = Field(default_factory=list)
+    # An open question may be answered with a stated assumption or clarified instead.
+    accept_clarify: bool = False
+    require_assumption: bool = False
+    # Live runs: a safe answer (nothing hidden executed or shown) is as good as a block.
+    accept_safe_answer: bool = False
     expect_empty: bool = False
     expected_values: list[list[Any]] | None = None
     expected_columns: list[str] | None = None
@@ -112,6 +119,8 @@ class PipelineOutcome(BaseModel):
     tokens_out: int = Field(default=0, ge=0)
     message: str = ""
     clarification_options: list[str] = Field(default_factory=list)
+    clarification_refs: list[str] = Field(default_factory=list)
+    assumption: str = ""
     chart_type: str | None = None
     chart_valid: bool = False
     semantic_ids: list[str] = Field(default_factory=list)
@@ -137,10 +146,67 @@ class Evaluation(BaseModel):
     # Clarify cases only: a clarification with at least two options was returned and
     # nothing was executed, whatever the option wording. Never replaces the strict verdict.
     clarification_asked: bool = True
+    # Why the verdict was reached, for reviewers: what actually came back.
+    actual_status: str | None = None
+    message: str = ""
+    clarification_options: list[str] = Field(default_factory=list)
+    assumption: str = ""
+    error: str | None = None
+    expected_rows: list[dict[str, Any]] = Field(default_factory=list, max_length=5)
+    actual_rows: list[dict[str, Any]] = Field(default_factory=list, max_length=5)
+    # How the two results lined up, so a reviewer sees why it passed or failed without
+    # rerunning either query. None on results scored before these were recorded.
+    expected_row_count: int | None = None
+    actual_row_count: int | None = None
+    matched_rows: int | None = None
+    columns_match: bool | None = None
+    order_only: bool = False
+    truncated: bool = False
+
+
+class EvalCaseView(BaseModel):
+    """A baseline question as reviewers see it; the reference SQL is for admins only."""
+
+    id: str
+    category: str
+    difficulty: str
+    question: str
+    as_user: str
+    expect_status: str
+    expect_code: str | None = None
+    expected_sql: str | None = None
+    history: list[dict[str, Any]] = Field(default_factory=list)
+    result_mode: Literal["unordered", "ordered", "scalar"] = "unordered"
+    expect_empty: bool = False
+    expected_clarification_options: list[str] = Field(default_factory=list)
+    accept_clarify: bool = False
+    require_assumption: bool = False
+    accept_safe_answer: bool = False
+
+
+class EvalResultView(Evaluation):
+    case: EvalCaseView | None = None
+
+
+class RunListItem(BaseModel):
+    id: int
+    model_id: str
+    note: str = ""
+    status: str
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    case_count: int
+    # Scored so far, live while running; equal to the summary once a run ends.
+    done: int = 0
+    passed: int = 0
+    # Sum of per-question answer time; unaffected by time spent stopped.
+    duration_ms: int = 0
 
 
 class RunRequest(BaseModel):
     model_id: str
+    note: str = Field(default="", max_length=200)
     prompt_versions: dict[str, str] = Field(default_factory=dict)
     config: dict[str, Any] = Field(default_factory=dict)
     case_ids: list[str] = Field(default_factory=list)
@@ -150,11 +216,20 @@ class RunView(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     model_id: str
+    note: str = ""
     prompt_versions: dict[str, str]
     config: dict[str, Any]
     status: str
     task_id: str | None
     summary: dict[str, Any]
+    created_at: datetime | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    # The questions this run asks, so it can be rerun as a new run.
+    case_ids: list[str] = Field(default_factory=list)
+    # Progress while running: questions in the run and how many are scored so far.
+    case_count: int = 0
+    done: int = 0
 
 
 class RunComparison(BaseModel):

@@ -4,7 +4,17 @@ from fastapi import APIRouter, Depends
 
 from app.core.deps import CurrentUser, current_user
 from app.core.response import Envelope, Page, PageParams
-from app.modules.org.schemas import TeamRead, TeamWrite, UserRead, UserUpdate, UserWrite
+from app.modules.org.schemas import (
+    PersonRead,
+    TeamCreate,
+    TeamLeaderWrite,
+    TeamMembersWrite,
+    TeamRead,
+    TeamWrite,
+    UserRead,
+    UserUpdate,
+    UserWrite,
+)
 from app.modules.org.service import OrgService, get_service
 
 router = APIRouter(prefix="/api/org", tags=["org"], dependencies=[Depends(current_user)])
@@ -19,7 +29,7 @@ async def teams(service: Service, actor: Actor, page: Pagination) -> Envelope[Pa
 
 
 @router.post("/teams", response_model=Envelope[TeamRead])
-async def create_team(data: TeamWrite, service: Service, actor: Actor) -> Envelope[TeamRead]:
+async def create_team(data: TeamCreate, service: Service, actor: Actor) -> Envelope[TeamRead]:
     return Envelope(data=await service.create_team(data, actor=actor))
 
 
@@ -30,9 +40,41 @@ async def update_team(
     return Envelope(data=await service.update_team(target_id, data, actor=actor))
 
 
+@router.put("/teams/{target_id}/leader", response_model=Envelope[TeamRead])
+async def change_leader(
+    target_id: int, data: TeamLeaderWrite, service: Service, actor: Actor
+) -> Envelope[TeamRead]:
+    return Envelope(data=await service.change_leader(target_id, data.user_id, actor=actor))
+
+
+@router.post("/teams/{target_id}/members", response_model=Envelope[TeamRead])
+async def add_members(
+    target_id: int, data: TeamMembersWrite, service: Service, actor: Actor
+) -> Envelope[TeamRead]:
+    return Envelope(data=await service.add_members(target_id, data.user_ids, actor=actor))
+
+
+@router.delete("/teams/{target_id}/members/{user_id}", response_model=Envelope[TeamRead])
+async def remove_member(
+    target_id: int, user_id: int, service: Service, actor: Actor
+) -> Envelope[TeamRead]:
+    return Envelope(data=await service.remove_member(target_id, user_id, actor=actor))
+
+
+@router.get("/people", response_model=Envelope[list[PersonRead]])
+async def people(service: Service, actor: Actor) -> Envelope[list[PersonRead]]:
+    return Envelope(data=await service.people(actor=actor))
+
+
 @router.get("/users", response_model=Envelope[Page[UserRead]])
-async def users(service: Service, actor: Actor, page: Pagination) -> Envelope[Page[UserRead]]:
-    return Envelope(data=await service.list_users(page, actor=actor))
+async def users(
+    service: Service,
+    actor: Actor,
+    page: Pagination,
+    free: bool = False,
+    team_id: int | None = None,
+) -> Envelope[Page[UserRead]]:
+    return Envelope(data=await service.list_users(page, actor=actor, free=free, team_id=team_id))
 
 
 @router.post("/users", response_model=Envelope[UserRead])

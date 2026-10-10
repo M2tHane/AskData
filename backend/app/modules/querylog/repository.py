@@ -3,11 +3,12 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import QueryLogRecord, QueryRun
 from app.core.deps import CurrentUser, Role
+from app.core.errors import ErrorCode
 from app.modules.querylog.schemas import QueryFilter
 
 
@@ -51,9 +52,19 @@ class QueryLogRepository:
         for key in ("user_id", "datasource_id"):
             if (value := getattr(filters, key)) is not None:
                 query = query.where(QueryRun.payload[key].as_integer() == value)
-        for key in ("status", "blocked_code"):
-            if (value := getattr(filters, key)) is not None:
-                query = query.where(QueryRun.payload[key].as_string() == value)
+        cancelled = QueryRun.payload["error"].as_string() == ErrorCode.QUERY_CANCELLED.value
+        if filters.status == "cancelled":
+            query = query.where(QueryRun.payload["status"].as_string() == "failed", cancelled)
+        elif filters.status is not None:
+            query = query.where(QueryRun.payload["status"].as_string() == filters.status)
+            if filters.status == "failed":
+                query = query.where(
+                    or_(QueryRun.payload["error"].as_string().is_(None), ~cancelled)
+                )
+        if filters.blocked_code is not None:
+            query = query.where(
+                QueryRun.payload["blocked_code"].as_string() == filters.blocked_code
+            )
         if filters.has_feedback is not None:
             query = query.where(
                 func.coalesce(QueryRun.payload["has_feedback"].as_boolean(), False)

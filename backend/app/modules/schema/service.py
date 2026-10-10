@@ -6,7 +6,7 @@ from app.core.audit import AuditService
 from app.core.crypto import SecretBox
 from app.core.datasource import DatasourceInspector, MetadataSnapshot, TableMetadata
 from app.core.db import AsyncSession, Database
-from app.core.deps import CurrentUser
+from app.core.deps import CurrentUser, Role
 from app.core.errors import AppError, ErrorCode
 from app.core.permission import PermissionService, ScopeCache
 from app.core.tasks import TaskContext, TaskHandler, TaskManager, TaskRecord
@@ -40,6 +40,10 @@ class SchemaService:
     async def browse(
         self, datasource_id: int, permissions: PermissionService, *, actor: CurrentUser
     ) -> list[TableRead]:
+        if actor.role == Role.ADMIN and actor.active:
+            # Admins see every column anyway; disabled sources stay manageable.
+            await self.datasource.require_managed(datasource_id)
+            return await self.catalog(datasource_id)
         scope = await permissions.visible_scope(actor, datasource_id)
         result = []
         for table in await self.catalog(datasource_id):
@@ -205,9 +209,12 @@ def sync_handler(
             actor = await build_org(session).identity(int(context.task.payload["actor_id"]))
             service = build_service(session, box, inspector)
             grants = build_permission(session, box, cache)
-            await service.synchronize(
+            result = await service.synchronize(
                 int(context.task.payload["datasource_id"]), grants, actor=actor
             )
+            # Newly discovered tables and columns start visible to every active team and
+            # its employees; administrators narrow them afterwards on the datasource page.
+            await grants.apply_inherited_defaults(result, actor=actor)
         await grants.permissions.invalidate(int(context.task.payload["datasource_id"]))
         await context.progress(100)
 

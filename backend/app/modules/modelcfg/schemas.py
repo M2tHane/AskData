@@ -41,6 +41,18 @@ class ModelRead(BaseModel):
     embedding_dimension: int | None
 
 
+class ModelChoice(BaseModel):
+    """What any signed-in user may know about a selectable model: no endpoint, no key."""
+
+    id: int
+    name: str
+    is_default: bool
+
+
+class EnabledWrite(BaseModel):
+    enabled: bool
+
+
 class PreferenceWrite(BaseModel):
     model_id: int = Field(ge=1)
 
@@ -48,7 +60,8 @@ class PreferenceWrite(BaseModel):
 class PreferenceRead(BaseModel):
     team_id: int
     type: ModelKind
-    model_id: int
+    # None when no enabled model of this kind exists yet; that is a setup state, not an outage.
+    model_id: int | None
 
 
 class ModelTestResult(BaseModel):

@@ -20,7 +20,12 @@ from app.core.errors import AppError, ErrorCode
 from app.core.response import PageParams
 from app.modules.chat.models import Message
 from app.modules.chat.repository import ChatRepository
-from app.modules.chat.schemas import ConversationCreate, QuestionRequest, RerunRequest
+from app.modules.chat.schemas import (
+    ConversationCreate,
+    ConversationRename,
+    QuestionRequest,
+    RerunRequest,
+)
 from app.modules.chat.service import ChatService
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,6 +108,42 @@ async def test_real_repository_commits_run_and_audit_even_when_query_is_blocked(
         assert len(audits) == 3
 
 
+async def test_conversations_order_by_activity_rename_and_search(chat_database, system, member):
+    pipeline = system[0].pipeline
+    async with chat_database.session() as session:
+        repository = ChatRepository(session)
+        pipeline.deps.history = repository.history
+        pipeline.deps.querylog = QueryLogWriter(DatabaseQueryLogStore(session))
+        service = ChatService(repository, pipeline, AuditService(DatabaseAuditStore(session)))
+        first = await service.create(ConversationCreate(datasource_id=1), actor=member)
+        second = await service.create(ConversationCreate(datasource_id=1), actor=member)
+
+        async def listed(query=""):
+            page = await service.list(PageParams(), actor=member, query=query)
+            return [item.id for item in page.items]
+
+        assert await listed() == [second.id, first.id]
+        # Asking in the older conversation moves it to the top.
+        await service.rerun(first.id, RerunRequest(sql="SELECT 1"), actor=member)
+        assert await listed() == [first.id, second.id]
+        renamed = await service.rename(
+            second.id, ConversationRename(title="  季度  复盘 "), actor=member
+        )
+        assert renamed.title == "季度 复盘"
+        assert await listed() == [second.id, first.id]
+        assert await listed("复盘") == [second.id]
+        # LIKE wildcards are matched literally.
+        assert await listed("%") == [] and await listed("_") == []
+        with pytest.raises(AppError):
+            ConversationRename(title="   ")
+        with pytest.raises(AppError) as caught:
+            await repository.rename(second.id, 99, "别人的")
+        assert caught.value.code == ErrorCode.NOT_FOUND
+    async with chat_database.session() as session:
+        actions = [row.payload.get("action") for row in await session.scalars(select(AuditLog))]
+        assert "chat.rename" in actions
+
+
 async def test_real_clarification_atomic_consumption_and_soft_delete(chat_database, system, member):
     pipeline = system[0].pipeline
     async with chat_database.session() as session:
@@ -175,8 +216,8 @@ async def test_persisted_query_view_keeps_effective_definitions_and_versions(
         assert query.context_snapshot["metrics"][0]["ref_id"] == 77
         assert query.context_snapshot["metrics"][0]["version"] == 3
         assert query.context_snapshot["metrics"][0]["scope"] == "platform"
-        assert query.model_id == "fixed" and query.tokens_in == 30
-        assert len(query.prompt_versions) == 3
+        assert query.model_id == "fixed" and query.tokens_in == 20
+        assert query.prompt_versions == {"sql_generation": "v8", "answer": "v3"}
         assert "rows" not in query.context_snapshot
 
 
@@ -282,8 +323,10 @@ async def test_zero_question_quota_denies_manual_sql_and_sse_before_any_model_or
         assert rerun.code == ErrorCode.QUOTA_EXCEEDED
         ctx = await service.prepare(conversation.id, QuestionRequest(question="订单"), actor=member)
         events = [event async for event in service.stream(ctx)]
-        assert [event.event for event in events[-2:]] == [EventType.ERROR, EventType.DONE]
-        assert events[-2].data["code"] == "QUOTA_EXCEEDED" and events[-2].data["message"]
+        kinds = [event.event for event in events]
+        assert kinds[-1] == EventType.DONE and kinds.count(EventType.ERROR) == 1
+        error = events[kinds.index(EventType.ERROR)]
+        assert error.data["code"] == "QUOTA_EXCEEDED" and error.data["message"]
         assert not system[1].calls_by_prompt and not system[2].executed
         assert not list(await session.scalars(select(UsageDaily)))
         assert not list(await session.scalars(select(UsageQuery)))

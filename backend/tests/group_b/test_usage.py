@@ -95,3 +95,26 @@ async def test_atomic_daily_reservation_allows_only_one_concurrent_call(b_databa
 
     results = await asyncio.gather(reserve(), reserve())
     assert results.count("allowed") == 1 and results.count(ErrorCode.QUOTA_EXCEEDED) == 1
+
+
+async def test_trend_by_team_and_model_and_quota_alert_levels(b_database, member, leader, admin):
+    async with b_database.transaction() as session:
+        await usage_service(b_database, session).set_quota(
+            member.team_id, QuotaInput(monthly_token_limit=10, daily_query_limit=5), actor=admin
+        )
+    async with b_database.session() as session:
+        service = usage_service(b_database, session)
+        await service.authorize(context(member))
+        await service.record(record(member, tokens=9))
+        points = await service.trend(admin, "model", None, None)
+        assert [(p.key, p.calls, p.tokens_in, p.tokens_out) for p in points] == [("fake", 1, 9, 1)]
+        by_team = await service.trend(leader, "team", None, None)
+        assert [p.key for p in by_team] == [str(member.team_id)]
+        with pytest.raises(AppError):
+            await service.trend(admin, "user", None, None)
+        alerts = {a.kind: a for a in await service.quota_usage(admin)}
+        assert alerts["monthly_tokens"].used == 10 and alerts["monthly_tokens"].level == "exceeded"
+        assert alerts["daily_queries"].level == "ok" and alerts["daily_queries"].used == 1
+        assert [a.team_id for a in await service.quota_usage(leader)] == [member.team_id] * 2
+        with pytest.raises(AppError):
+            await service.quota_usage(member)

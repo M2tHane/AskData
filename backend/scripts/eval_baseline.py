@@ -348,8 +348,14 @@ async def provision(
                 base_url=os.environ["ASKDATA_BASELINE_BASE_URL"],
                 model_name=os.environ["ASKDATA_BASELINE_MODEL"],
                 api_key=SecretStr(os.environ["ASKDATA_BASELINE_API_KEY"]),
-                params=ModelParameters(
-                    timeout_seconds=120, retries=1, api="responses", reasoning_effort="low"
+                # Match the deployed configuration; override to compare protocols or effort.
+                params=ModelParameters.model_validate(
+                    {
+                        "timeout_seconds": 120,
+                        "retries": 1,
+                        "api": os.environ.get("ASKDATA_BASELINE_API", "chat"),
+                        "reasoning_effort": os.environ.get("ASKDATA_BASELINE_EFFORT", "medium"),
+                    }
                 ),
                 is_default=True,
             ),

@@ -1,12 +1,12 @@
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request
 
 from app.core.deps import CurrentUser, current_user
 from app.core.errors import AppError, ErrorCode
 from app.core.response import Envelope, Page, PageParams
-from app.modules.usage.schemas import QuotaInput, QuotaView, UsageView
+from app.modules.usage.schemas import QuotaInput, QuotaUsage, QuotaView, TrendPoint, UsageView
 from app.modules.usage.service import UsageService
 
 router = APIRouter(prefix="/usage", tags=["usage"], dependencies=[Depends(current_user)])
@@ -32,6 +32,22 @@ async def list_items(
     until: date | None = None,
 ) -> Envelope[Page[UsageView]]:
     return Envelope(data=await service.list(user, page, since, until))
+
+
+@router.get("/trend", response_model=Envelope[list[TrendPoint]])
+async def trend(
+    service: Service,
+    user: User,
+    by: Literal["team", "model"] = "team",
+    since: date | None = None,
+    until: date | None = None,
+) -> Envelope[list[TrendPoint]]:
+    return Envelope(data=await service.trend(user, by, since, until))
+
+
+@router.get("/alerts", response_model=Envelope[list[QuotaUsage]])
+async def alerts(service: Service, user: User) -> Envelope[list[QuotaUsage]]:
+    return Envelope(data=await service.quota_usage(user))
 
 
 @router.get("/quota/{team_id}", response_model=Envelope[QuotaView])

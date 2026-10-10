@@ -61,6 +61,11 @@ async def test_litellm_adapter_options_responses_usage_and_stream_close(monkeypa
     assert calls[0]["api_key"] == "provider-key" and calls[0]["num_retries"] == 0
     chunks = [chunk async for chunk in adapter.stream(model, [])]
     assert chunks[0].text == "sql" and chunks[1].usage.tokens_out == 3 and stream.closed
+    # A prompt made of one system message goes out as the user turn: chat gateways reject
+    # requests without one.
+    stream.closed = False
+    _ = [chunk async for chunk in adapter.stream(model, [ChatMessage(role="system", content="p")])]
+    assert calls[-1]["messages"] == [{"role": "user", "content": "p"}]
     vectors, used = await adapter.embed(model, ["a", "b"])
     assert vectors == [[0.1], [0.2]] and used.tokens_in == 10
     assert await adapter.rerank(model, "q", ["a", "b"]) == [1, 0]

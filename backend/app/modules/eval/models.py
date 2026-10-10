@@ -24,6 +24,7 @@ class EvalCase(AuditFields, Base):
 class EvalRun(AuditFields, Base):
     __tablename__ = "eval_run"
     model_id: Mapped[str] = mapped_column(String(100))
+    note: Mapped[str] = mapped_column(String(200), default="", server_default="")
     prompt_versions: Mapped[dict[str, str]] = mapped_column(JSON)
     config: Mapped[dict[str, Any]] = mapped_column(JSON)
     status: Mapped[str] = mapped_column(String(20), default="queued")

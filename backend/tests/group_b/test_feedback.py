@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -54,11 +56,45 @@ async def test_feedback_snapshot_and_roles(b_services, member, leader, admin, ou
     assert feedback.snapshot["question"] == "orders"
     assert (await b_services.feedback.list(leader, PageParams())).total == 1
     assert (await b_services.feedback.list(outsider, PageParams())).total == 0
+    later = feedback.created_at + timedelta(seconds=1)
+    assert (await b_services.feedback.list(leader, PageParams(), user_id=member.id)).total == 1
+    assert (await b_services.feedback.list(leader, PageParams(), user_id=leader.id)).total == 0
+    assert (await b_services.feedback.list(leader, PageParams(), since=later)).total == 0
+    assert (await b_services.feedback.list(leader, PageParams(), until=later)).total == 1
+    # Filters only narrow: an outsider naming the member still sees nothing.
+    assert (await b_services.feedback.list(outsider, PageParams(), user_id=member.id)).total == 0
     for actor in (member, outsider):
         with pytest.raises(AppError):
             await b_services.feedback.handle(feedback.id, actor=actor)
     handled = await b_services.feedback.handle(feedback.id, actor=leader)
     assert handled.status == "handled" and handled.handled_by == leader.id
+
+
+async def test_one_feedback_per_answer_can_be_changed_and_read_back(
+    b_services, member, leader, outsider
+):
+    identifier = await answered(b_services, member)
+    first = await b_services.feedback.submit(
+        FeedbackInput(query_run_id=identifier, rating="up"), actor=member
+    )
+    await b_services.feedback.handle(first.id, actor=leader)
+    changed = await b_services.feedback.submit(
+        FeedbackInput(
+            query_run_id=identifier, rating="down", reason_code="other", comment="地区口径不对"
+        ),
+        actor=member,
+    )
+    # Same feedback, updated and back in the leader's queue: no duplicate rows.
+    assert changed.id == first.id and changed.rating == "down" and changed.status == "open"
+    assert changed.handled_by is None
+    assert (await b_services.feedback.list(leader, PageParams())).total == 1
+    [mine] = await b_services.feedback.mine([identifier, 999], actor=member)
+    assert (mine.query_run_id, mine.rating, mine.comment) == (identifier, "down", "地区口径不对")
+    # Only one's own ratings come back.
+    assert await b_services.feedback.mine([identifier], actor=outsider) == []
+    assert await b_services.feedback.mine([], actor=member) == []
+    with pytest.raises(AppError):
+        await b_services.feedback.mine(list(range(1, 202)), actor=member)
 
 
 async def test_conversion_requires_example_review_and_live_guard(b_services, member, leader):

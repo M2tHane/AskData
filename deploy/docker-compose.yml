@@ -1,5 +1,4 @@
 name: askdata
-# Backend-only phase: web/nginx remains commented until frontend delivery.
 # Infrastructure ports are published only by the explicit development override.
 x-runtime: &runtime
   image: askdata-backend:0.1.0
@@ -30,14 +29,6 @@ x-runtime: &runtime
     ASKDATA_EVAL_SEMANTIC_ALIASES: '${EVAL_SEMANTIC_ALIASES:-{}}'
     ASKDATA_EVAL_METRIC_ALIASES: '${EVAL_METRIC_ALIASES:-{}}'
 services:
-  # web:
-  #   image: nginx:1.28-alpine
-  #   restart: unless-stopped
-  #   networks: [internal]
-  #   ports: ['${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:80']
-  #   volumes: ['./nginx.conf:/etc/nginx/conf.d/default.conf:ro']
-  #   depends_on:
-  #     api: {condition: service_healthy}
   migrate:
     <<: *runtime
     restart: 'no'

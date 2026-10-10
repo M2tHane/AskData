@@ -50,4 +50,8 @@ class Message(AuditFields, Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     # Guarded SQL is retained for a repeat execution with fresh authorization, never raw results.
     normalized_sql: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Chart configuration only; rows are re-read under fresh authorization when history is opened.
+    chart_spec: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Structured explanation and model reasoning of an answer (JSON); never result rows.
+    answer_meta: Mapped[str | None] = mapped_column(Text, nullable=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))

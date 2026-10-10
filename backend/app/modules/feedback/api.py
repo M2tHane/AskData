@@ -1,6 +1,7 @@
+from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.core.deps import CurrentUser, current_user
 from app.core.errors import AppError, ErrorCode
@@ -12,6 +13,7 @@ from app.modules.feedback.schemas import (
     ExampleView,
     FeedbackInput,
     FeedbackView,
+    MyFeedback,
 )
 from app.modules.feedback.service import FeedbackService
 
@@ -31,9 +33,26 @@ User = Annotated[CurrentUser, Depends(current_user)]
 
 @router.get("", response_model=Envelope[Page[FeedbackView]])
 async def list_items(
-    page: Annotated[PageParams, Depends()], service: Service, user: User, status: str | None = None
+    page: Annotated[PageParams, Depends()],
+    service: Service,
+    user: User,
+    status: str | None = None,
+    user_id: Annotated[int | None, Query(ge=1)] = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
 ) -> Envelope[Page[FeedbackView]]:
-    return Envelope(data=await service.list(user, page, status))
+    return Envelope(
+        data=await service.list(user, page, status, user_id=user_id, since=since, until=until)
+    )
+
+
+@router.get("/mine", response_model=Envelope[list[MyFeedback]])
+async def mine(
+    service: Service,
+    user: User,
+    query_run_ids: Annotated[list[int], Query(max_length=200)],
+) -> Envelope[list[MyFeedback]]:
+    return Envelope(data=await service.mine(query_run_ids, actor=user))
 
 
 @router.post("", response_model=Envelope[FeedbackView])

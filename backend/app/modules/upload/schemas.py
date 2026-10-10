@@ -13,6 +13,8 @@ class ParseConfig(BaseModel):
     delimiter: str = Field(default=",", min_length=1, max_length=1)
     columns: list[ImportColumn] = Field(default_factory=list)
     table_name: str = "data"
+    # Original sheet or file label kept as the table comment (names are ASCII-only).
+    table_comment: str = Field(default="", max_length=200)
 
 
 class PreviewRequest(BaseModel):
@@ -48,7 +50,7 @@ class UploadHistoryRecord(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     datasource_id: int
-    owner_team_id: int
+    owner_team_id: int | None
     version: int
     filename: str
     file_key: str

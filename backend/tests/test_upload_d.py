@@ -35,12 +35,15 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.fixture
 async def d_database(tmp_path):
     database = Database(f"sqlite+aiosqlite:///{tmp_path / 'd.db'}")
-    spec = importlib.util.spec_from_file_location(
-        "d_migration",
-        ROOT / "backend/migrations/versions/0005_upload_eval.py",
-    )
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
+    migrations = []
+    # The D schema plus later migrations that only change D tables.
+    for name in ("0005_upload_eval.py", "0012_eval_run_note.py"):
+        spec = importlib.util.spec_from_file_location(
+            f"d_migration_{name[:4]}", ROOT / "backend/migrations/versions" / name
+        )
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        migrations.append(migration)
 
     def initialize(connection):
         # Only external FK targets are placeholders; D schema uses the actual migration.
@@ -49,7 +52,8 @@ async def d_database(tmp_path):
             Table(name, metadata, Column("id", Integer, primary_key=True))
         metadata.create_all(connection)
         with Operations.context(MigrationContext.configure(connection)):
-            migration.upgrade()
+            for migration in migrations:
+                migration.upgrade()
         AuditLog.__table__.create(connection)
 
     async with database.engine.begin() as connection:
@@ -425,3 +429,75 @@ def test_api_import_gateway_has_only_reader_credentials():
         gateway.transaction(
             ImportPlan(datasource_id=7, table_name="data", columns=[ImportColumn(name="id")])
         )
+
+
+async def test_each_sheet_of_a_workbook_becomes_its_own_table(upload_setup):
+    from io import BytesIO
+
+    from openpyxl import Workbook
+
+    from app.modules.upload.schemas import ParseConfig
+
+    service, tasks, storage, importer, registration, _ = upload_setup
+    actor = CurrentUser(id=2, role=Role.LEADER, team_id=1)
+    book = Workbook()
+    first_sheet = book.active
+    first_sheet.title = "Sales"
+    first_sheet.append(["id", "amount"])
+    first_sheet.append([1, 2.5])
+    second_sheet = book.create_sheet("Refunds")
+    second_sheet.append(["id", "reason"])
+    second_sheet.append([9, "late"])
+    buffer = BytesIO()
+    book.save(buffer)
+    data = base64.b64encode(buffer.getvalue()).decode()
+    first = await service.preview(
+        PreviewRequest(
+            filename="book.xlsx",
+            content_base64=data,
+            config=ParseConfig(sheet="Sales", table_name="sales", table_comment="Sales"),
+        ),
+        actor=actor,
+    )
+    assert first.sheets == ["Sales", "Refunds"]
+    second = await service.add_sheet(
+        first.id,
+        ParseConfig(sheet="Refunds", table_name="refunds", table_comment="Refunds"),
+        actor=actor,
+    )
+    assert second.id != first.id and second.datasource_id == first.datasource_id
+    assert [c.name for c in second.columns] == ["id", "reason"]
+    for preview in (first, second):
+        job = await service.confirm(preview.id, ConfirmRequest(config=preview.config), actor=actor)
+        await tasks.run(job.task_id)
+        assert (await service.get(job.id, actor=actor)).status == "success"
+    assert set(importer.tables) == {"sales", "refunds"}
+    assert {t[2].name: t[2].comment for t in registration.published} == {
+        "sales": "Sales",
+        "refunds": "Refunds",
+    }
+    # Every job owned its temporary object; none is left behind.
+    assert not any(key.startswith("tmp/") for key in storage.values)
+    foreign = CurrentUser(id=3, role=Role.LEADER, team_id=2)
+    with pytest.raises(AppError):
+        await service.add_sheet(first.id, ParseConfig(sheet="Sales"), actor=foreign)
+
+
+def test_confirming_requires_english_names_for_columns_with_no_ascii_header():
+    headers, rows = ["销售额", "region"], [["1", "east"]]
+    # Previews tolerate the generated placeholder name; confirming does not.
+    columns, _ = configured_columns(ParseConfig(), headers, rows)
+    assert [c.name for c in columns] == ["column_1", "region"]
+    with pytest.raises(AppError):
+        configured_columns(ParseConfig(), headers, rows, enforce=True)
+    named = ParseConfig(
+        columns=[
+            ImportColumn(name="column_1", data_type="integer"),
+            ImportColumn(name="region"),
+        ]
+    )
+    with pytest.raises(AppError):
+        configured_columns(named, headers, rows, enforce=True)
+    named.columns[0].name = "sales_amount"
+    result, _ = configured_columns(named, headers, rows, enforce=True)
+    assert [c.name for c in result] == ["sales_amount", "region"]

@@ -175,7 +175,8 @@ async def run_retention(runtime: Composition) -> None:
 async def test_retention_task_purges_expired_chat_feedback_and_upload_rows(
     runtime: Composition, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(runtime, "storage", MemoryRetentionStorage())
+    storage = MemoryRetentionStorage()
+    monkeypatch.setattr(runtime, "storage", storage)
     now = datetime.now(UTC)
     expired_at = now - timedelta(days=200)
     live_at = now + timedelta(days=30)
@@ -275,7 +276,7 @@ async def test_retention_task_purges_expired_chat_feedback_and_upload_rows(
                     updated_at=now - timedelta(days=age),
                 )
             )
-            await runtime.storage.put(keys[version], b"x\n1", "text/csv")
+            await storage.put(keys[version], b"x\n1", "text/csv")
 
     # Without a scheduler admin the upload cleaner stays off but the rest still runs.
     await run_retention(runtime)
@@ -285,14 +286,14 @@ async def test_retention_task_purges_expired_chat_feedback_and_upload_rows(
         messages = list(await services.session.scalars(select(Message)))
         assert [item.content for item in messages] == ["live"]
         assert len(list(await services.session.scalars(select(UploadJob)))) == 2
-        assert runtime.storage.deleted == []
+        assert storage.deleted == []
 
     runtime.settings = runtime.settings.model_copy(update={"scheduler_admin_id": 1})
     await run_retention(runtime)
     async with runtime.services() as services:
         jobs = list(await services.session.scalars(select(UploadJob)))
         assert [(item.datasource_id, item.version) for item in jobs] == [(7, 2)]
-        assert runtime.storage.deleted == [keys[1]]
+        assert storage.deleted == [keys[1]]
         audits = [
             record
             for record in await services.session.scalars(select(AuditLog))
@@ -304,7 +305,8 @@ async def test_retention_task_purges_expired_chat_feedback_and_upload_rows(
 async def test_retention_task_needs_a_live_admin_for_upload_history(
     runtime: Composition, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(runtime, "storage", MemoryRetentionStorage())
+    storage = MemoryRetentionStorage()
+    monkeypatch.setattr(runtime, "storage", storage)
     runtime.settings = runtime.settings.model_copy(update={"scheduler_admin_id": 999})
     async with runtime.services(transaction=True) as services:
         services.session.add(
@@ -328,4 +330,4 @@ async def test_retention_task_needs_a_live_admin_for_upload_history(
     await run_retention(runtime)
     async with runtime.services() as services:
         assert len(list(await services.session.scalars(select(UploadJob)))) == 1
-        assert runtime.storage.deleted == []
+        assert storage.deleted == []

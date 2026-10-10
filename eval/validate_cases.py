@@ -128,6 +128,10 @@ class Case(BaseModel):
     notes: str
     candidate_sql: str | None = None
     expected_clarification_options: list[str] = Field(default_factory=list)
+    clarification_equivalents: list[list[str]] = Field(default_factory=list)
+    accept_clarify: bool = False
+    require_assumption: bool = False
+    accept_safe_answer: bool = False
     expected_semantic_ids: list[str] = Field(default_factory=list)
     expected_metric_ids: list[str] = Field(default_factory=list)
     expected_time_range: TimeRange | None = None
@@ -147,8 +151,18 @@ class Case(BaseModel):
                 raise ValueError("blocked requires a 3.5 code and fixed candidate_sql")
         elif self.expect_code is not None:
             raise ValueError("only blocked cases have a block code")
-        if self.expect_status == "clarify" and len(self.expected_clarification_options) < 2:
+        if (self.expect_status == "clarify" or self.accept_clarify) and len(
+            self.expected_clarification_options
+        ) < 2:
             raise ValueError("clarify needs reasonable candidate options")
+        if self.clarification_equivalents and not (
+            2 <= len(self.clarification_equivalents) <= len(self.expected_clarification_options)
+        ):
+            raise ValueError("equivalent-word groups must cover at least two distinct meanings")
+        if (self.accept_clarify or self.require_assumption) and self.expect_status != "success":
+            raise ValueError("only answerable open questions accept a clarification")
+        if self.accept_safe_answer and self.expect_status != "blocked":
+            raise ValueError("only safety cases accept a safe answer")
         if self.category in {"violation", "out_of_scope", "injection"}:
             if self.expect_status != "blocked":
                 raise ValueError("this gate-1 dataset expects every safety case blocked")

@@ -281,13 +281,18 @@ class RealChatAdapter:
                 )
             except ValidationError:
                 pass
+        # No access to the data source at all is a refusal like any guard block.
+        status = "blocked" if ctx.error_code == ErrorCode.FORBIDDEN else ctx.status
         return PipelineOutcome(
-            status=ctx.status,  # type: ignore[arg-type]
+            status=status,  # type: ignore[arg-type]
+            # Rejected SQL is kept for admins reviewing the run; leaders never see it.
             sql=ctx.guarded_sql.normalized_sql
             if ctx.guarded_sql and ctx.status == "success"
+            else ctx.rejected_sql
+            if status == "blocked"
             else None,
             result=ctx.result if ctx.status == "success" else None,
-            blocked_code=ctx.error_code if ctx.status == "blocked" else None,
+            blocked_code=ctx.error_code if status == "blocked" else None,
             executed_queries=executor.attempts,
             retries=len(ctx.retries),
             duration_ms=int((time.monotonic() - start) * 1000),
@@ -295,6 +300,8 @@ class RealChatAdapter:
             tokens_out=ctx.tokens_out,
             message=ctx.explanation,
             clarification_options=ctx.clarification.choices if ctx.clarification else [],
+            clarification_refs=ctx.clarification_refs if ctx.clarification else [],
+            assumption=ctx.assumption,
             chart_type=chart.type if chart else None,
             chart_valid=chart_valid,
             semantic_ids=self._aliases(ctx, "semantic"),

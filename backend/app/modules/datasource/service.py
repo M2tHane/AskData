@@ -49,6 +49,11 @@ class DatasourceService:
 
             self.repository.session.info.setdefault("after_commit", []).append(committed)
 
+    async def require_managed(self, datasource_id: int) -> None:
+        """Admin metadata management works on disabled sources too; only queries need active."""
+        if await self.repository.get(datasource_id) is None:
+            raise AppError(ErrorCode.NOT_FOUND, http_status=404)
+
     async def connection(self, datasource_id: int) -> Datasource:
         row = await self.repository.get(datasource_id)
         if row is None or row.status != "active":
@@ -184,19 +189,21 @@ class DatasourceService:
         return result
 
     @staticmethod
-    def require_upload_owner(team_id: int, actor: CurrentUser) -> None:
+    def require_upload_owner(team_id: int | None, actor: CurrentUser) -> None:
         if not actor.active or (
-            actor.role != Role.ADMIN and (actor.role != Role.LEADER or actor.team_id != team_id)
+            actor.role != Role.ADMIN
+            and (team_id is None or actor.role != Role.LEADER or actor.team_id != team_id)
         ):
             raise PermissionDenied()
 
-    async def reserve_upload(self, name: str, team_id: int, *, actor: CurrentUser) -> int:
+    async def reserve_upload(self, name: str, team_id: int | None, *, actor: CurrentUser) -> int:
         from app.modules.org.service import build_service as build_org
 
         self.require_upload_owner(team_id, actor)
         if not name.strip() or len(name) > 100:
             raise AppError(ErrorCode.VALIDATION_ERROR)
-        await build_org(self.repository.session).ensure_team(team_id)
+        if team_id is not None:
+            await build_org(self.repository.session).ensure_team(team_id)
         row = await self.repository.create(
             {
                 "name": name,
@@ -218,9 +225,9 @@ class DatasourceService:
         await self.audit.record(actor, "datasource.upload.reserve", ("datasource", str(row.id)))
         return row.id
 
-    async def upload_owner(self, datasource_id: int) -> int:
+    async def upload_owner(self, datasource_id: int) -> int | None:
         row = await self.repository.get(datasource_id)
-        if row is None or row.type != "upload" or row.owner_team_id is None:
+        if row is None or row.type != "upload":
             raise AppError(ErrorCode.NOT_FOUND, http_status=404)
         return row.owner_team_id
 
@@ -236,7 +243,7 @@ class DatasourceService:
         )
 
     async def publish_upload_credentials(
-        self, job_id: int, datasource: Datasource, owner_team_id: int, *, actor: CurrentUser
+        self, job_id: int, datasource: Datasource, owner_team_id: int | None, *, actor: CurrentUser
     ) -> UploadPublication:
         self.require_upload_owner(owner_team_id, actor)
         row = await self.repository.locked(datasource.id)

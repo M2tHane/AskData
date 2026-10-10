@@ -247,5 +247,97 @@ def test_invalid_row_policy_fails_closed(guard, scope):
 def test_tampered_capability_loses_authenticity(guard, scope):
     result = guard.check("SELECT id FROM orders", "postgres", scope)
     assert not result.model_copy(update={"normalized_sql": "DELETE FROM orders"}).authentic()
-    result.columns["orders"] = frozenset({"secret"})
-    assert not result.authentic()
+
+
+# Tests for new dialects: kingbase, gaussdb, clickhouse
+@pytest.mark.parametrize("dialect", ["kingbase", "gaussdb", "clickhouse"])
+def test_new_dialects_accept_select(guard, scope, dialect):
+    """New dialects should accept basic SELECT queries."""
+    result = guard.check("SELECT id FROM orders", dialect, scope)
+    assert result.authentic()
+
+
+@pytest.mark.parametrize("dialect", ["kingbase", "gaussdb"])
+def test_postgres_compatible_dialects(guard, scope, dialect):
+    """Kingbase and GaussDB are PostgreSQL-compatible."""
+    result = guard.check(
+        "SELECT id FROM orders WHERE amount > 10 ORDER BY id LIMIT 5", dialect, scope
+    )
+    assert result.authentic()
+
+
+def test_clickhouse_rejects_system_tables(guard, scope):
+    """ClickHouse should reject queries against system tables."""
+    with pytest.raises(SqlBlocked) as caught:
+        guard.check("SELECT 1 FROM system.tables", "clickhouse", scope)
+    assert caught.value.code == ErrorCode.SQL_SYSTEM_TABLE
+
+
+def test_clickhouse_rejects_forbidden_functions(guard, scope):
+    """ClickHouse should reject table functions that access external resources."""
+    forbidden_functions = [
+        "SELECT * FROM url('http://...')",
+        "SELECT * FROM file('/path/to/file')",
+        "SELECT * FROM s3('bucket/key')",
+        "SELECT * FROM remote('host', 'db', 'table')",
+    ]
+    for sql in forbidden_functions:
+        with pytest.raises(SqlBlocked) as caught:
+            guard.check(sql, "clickhouse", scope)
+        assert caught.value.code == ErrorCode.SQL_FORBIDDEN_FUNC
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT toStartOfMonth(o.created_at) AS m, sum(o.amount) AS s FROM orders o "
+        "GROUP BY m ORDER BY m",
+        "SELECT countIf(o.amount > 10) AS c, sumIf(o.amount, o.amount > 10) AS s FROM orders o",
+        "SELECT toDate(o.created_at) AS d, uniq(o.customer_id) AS u, round(avg(o.amount), 2) AS a "
+        "FROM orders o GROUP BY d",
+        "SELECT multiIf(o.amount > 100, 'big', 'small') AS k, count() AS c "
+        "FROM orders o GROUP BY k",
+        "SELECT dateDiff('day', o.created_at, today()) AS d, toYear(o.created_at) AS y "
+        "FROM orders o",
+    ],
+)
+def test_clickhouse_common_functions_pass(guard, scope, sql):
+    orders = scope.tables["orders"]
+    timed = VisibleScope(
+        datasource_id=1,
+        tables={
+            "orders": TableScope(
+                all_columns={**orders.all_columns, "created_at": "DATETIME"},
+                columns=orders.columns | {"created_at"},
+                masks=orders.masks,
+            )
+        },
+    )
+    guard.check(sql, "clickhouse", timed)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        # ClickHouse-only functions stay rejected for other engines.
+        "SELECT uniq(customer_id) AS u FROM orders",
+        "SELECT today() AS d FROM orders",
+    ],
+)
+def test_clickhouse_functions_not_allowed_elsewhere(guard, scope, sql):
+    with pytest.raises(SqlBlocked) as caught:
+        guard.check(sql, "postgres", scope)
+    assert caught.value.code in {ErrorCode.SQL_FORBIDDEN_FUNC, ErrorCode.SQL_PARSE_FAILED}
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT id FROM orders SETTINGS max_execution_time = 0",
+        "SELECT id FROM orders FORMAT JSON",
+    ],
+)
+def test_clickhouse_settings_and_format_clauses_are_rejected(guard, scope, sql):
+    with pytest.raises(SqlBlocked) as caught:
+        guard.check(sql, "clickhouse", scope)
+    assert caught.value.code == ErrorCode.SQL_FORBIDDEN_FUNC

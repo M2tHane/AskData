@@ -68,6 +68,12 @@ class QueryLogService:
                     "time_range",
                     "retry_count",
                     "versions",
+                    # Why a run ended where it did, and what an edited-SQL rerun started from.
+                    "clarification",
+                    "rerun_of",
+                    "retries",
+                    "warnings",
+                    "interpretation",
                 }
             }
         )

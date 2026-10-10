@@ -98,7 +98,52 @@ def extract_json_object(text: str) -> str:
 
 class StreamChunk(BaseModel):
     text: str = Field(default="", repr=False)
+    # Model thinking (reasoning summary or reasoning text), kept apart from the answer text.
+    reasoning: str = Field(default="", repr=False)
     usage: Usage | None = None
+    model_id: str = ""
+
+
+class ThinkSplitter:
+    """Route inline <think>...</think> blocks (some gateways inline reasoning) to reasoning.
+
+    Streaming-safe: a tag split across chunks is held back until it can be decided.
+    """
+
+    _OPEN, _CLOSE = "<think>", "</think>"
+
+    def __init__(self) -> None:
+        self.thinking, self.pending = False, ""
+
+    def feed(self, text: str) -> tuple[str, str]:
+        content: list[str] = []
+        reasoning: list[str] = []
+        buffer = self.pending + text
+        self.pending = ""
+        while buffer:
+            tag = self._CLOSE if self.thinking else self._OPEN
+            index = buffer.find(tag)
+            if index == -1:
+                # Hold back a suffix that could be the start of the tag.
+                keep = next(
+                    (
+                        n
+                        for n in range(min(len(tag) - 1, len(buffer)), 0, -1)
+                        if tag.startswith(buffer[-n:])
+                    ),
+                    0,
+                )
+                emit, self.pending = buffer[: len(buffer) - keep], buffer[len(buffer) - keep :]
+                (reasoning if self.thinking else content).append(emit)
+                break
+            (reasoning if self.thinking else content).append(buffer[:index])
+            buffer = buffer[index + len(tag) :]
+            self.thinking = not self.thinking
+        return "".join(content), "".join(reasoning)
+
+    def flush(self) -> tuple[str, str]:
+        rest, self.pending = self.pending, ""
+        return ("", rest) if self.thinking else (rest, "")
 
 
 _query_id: ContextVar[str | None] = ContextVar("llm_query_id", default=None)
@@ -121,6 +166,8 @@ class CallContext(BaseModel):
     query_id: str | None = Field(
         default_factory=lambda: _query_id.get(), min_length=1, max_length=128
     )
+    # A caller-selected model; it must still be an enabled configuration of the right kind.
+    requested_model_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 def normalize_call_context(context: CallContext) -> CallContext:
@@ -169,6 +216,14 @@ class ModelTransport(Protocol):
 
 class LiteLLMTransport:
     @staticmethod
+    def _chat_messages(messages: list[ChatMessage]) -> list[dict[str, str]]:
+        # Prompts built from a single system message: chat gateways reject a request with
+        # no user turn (400), so the prompt itself becomes the user message.
+        if messages and all(message.role == "system" for message in messages):
+            return [{"role": "user", "content": "\n\n".join(m.content for m in messages)}]
+        return [message.model_dump() for message in messages]
+
+    @staticmethod
     def _options(model: ModelConfig) -> dict[str, Any]:
         options = {
             "model": model.model,
@@ -187,7 +242,7 @@ class LiteLLMTransport:
         from litellm import acompletion
 
         result: Any = await acompletion(
-            **self._options(model), messages=[message.model_dump() for message in messages]
+            **self._options(model), messages=self._chat_messages(messages)
         )
         return ChatResponse(
             text=result.choices[0].message.content or "",
@@ -203,25 +258,7 @@ class LiteLLMTransport:
         """Responses protocol: instructions carry the system role; reasoning stays separate."""
         import httpx
 
-        instructions = "\n\n".join(
-            message.content for message in messages if message.role == "system"
-        )
-        conversation = [
-            {"role": message.role, "content": message.content}
-            for message in messages
-            if message.role != "system"
-        ]
-        body: dict[str, Any] = {"model": model.model.removeprefix("openai/")}
-        if conversation:
-            body["input"] = conversation
-            if instructions:
-                body["instructions"] = instructions
-        else:
-            # Prompts built from a single system message: some gateways reject an empty
-            # `input` (405), so the prompt itself becomes the user input.
-            body["input"] = [{"role": "user", "content": instructions}]
-        if model.reasoning_effort:
-            body["reasoning"] = {"effort": model.reasoning_effort}
+        body = self._responses_body(model, messages)
         try:
             async with httpx.AsyncClient(timeout=model.timeout_seconds) as client:
                 response = await client.post(
@@ -256,27 +293,132 @@ class LiteLLMTransport:
             ),
         )
 
+    @staticmethod
+    def _responses_body(model: ModelConfig, messages: list[ChatMessage]) -> dict[str, Any]:
+        instructions = "\n\n".join(
+            message.content for message in messages if message.role == "system"
+        )
+        conversation = [
+            {"role": message.role, "content": message.content}
+            for message in messages
+            if message.role != "system"
+        ]
+        body: dict[str, Any] = {"model": model.model.removeprefix("openai/")}
+        if conversation:
+            body["input"] = conversation
+            if instructions:
+                body["instructions"] = instructions
+        else:
+            # Prompts built from a single system message: some gateways reject an empty
+            # `input` (405), so the prompt itself becomes the user input.
+            body["input"] = [{"role": "user", "content": instructions}]
+        if model.reasoning_effort:
+            body["reasoning"] = {"effort": model.reasoning_effort}
+        return body
+
+    async def _responses_stream(
+        self, model: ModelConfig, messages: list[ChatMessage]
+    ) -> AsyncIterator[StreamChunk]:
+        """Responses protocol over SSE: text and reasoning deltas arrive as typed events."""
+        import json
+
+        import httpx
+
+        body = {**self._responses_body(model, messages), "stream": True}
+        if model.reasoning_effort:
+            # Ask for a readable reasoning summary; gateways that reject it get a plain retry.
+            body["reasoning"] = {**body["reasoning"], "summary": "auto"}
+        url = f"{(model.base_url or '').rstrip('/')}/responses"
+        headers = {"Authorization": f"Bearer {model.api_key.get_secret_value()}"}
+        try:
+            async with httpx.AsyncClient(timeout=model.timeout_seconds) as client:
+                for attempt in range(2):
+                    async with client.stream("POST", url, headers=headers, json=body) as response:
+                        if response.status_code == 400 and attempt == 0 and model.reasoning_effort:
+                            body["reasoning"] = {"effort": model.reasoning_effort}
+                            continue
+                        if response.status_code != 200:
+                            raise RuntimeError(f"responses api status {response.status_code}")
+                        async for line in response.aiter_lines():
+                            if not line.startswith("data:"):
+                                continue
+                            payload = line[5:].strip()
+                            if not payload or payload == "[DONE]":
+                                continue
+                            try:
+                                event = json.loads(payload)
+                            except ValueError:
+                                continue
+                            kind = event.get("type", "")
+                            if kind == "response.output_text.delta":
+                                yield StreamChunk(text=event.get("delta") or "")
+                            elif kind in {
+                                "response.reasoning_summary_text.delta",
+                                "response.reasoning_text.delta",
+                            }:
+                                yield StreamChunk(reasoning=event.get("delta") or "")
+                            elif kind == "response.reasoning_summary_part.done":
+                                yield StreamChunk(reasoning="\n\n")
+                            elif kind == "response.completed":
+                                usage = (event.get("response") or {}).get("usage") or {}
+                                yield StreamChunk(
+                                    usage=Usage(
+                                        tokens_in=usage.get("input_tokens") or 0,
+                                        tokens_out=usage.get("output_tokens") or 0,
+                                    )
+                                )
+                            elif kind in {"response.failed", "error"}:
+                                raise RuntimeError("responses api stream failed")
+                    return
+        except httpx.HTTPError:
+            raise RuntimeError("responses transport unavailable") from None
+
     async def stream(
         self, model: ModelConfig, messages: list[ChatMessage]
     ) -> AsyncIterator[StreamChunk]:
+        splitter = ThinkSplitter()
         if model.api == "responses":
-            # No SSE parsing: one final chunk keeps the same contract for responses models.
-            response = await self.chat(model, messages)
-            yield StreamChunk(text=response.text, usage=response.usage)
-            return
+            source = self._responses_stream(model, messages)
+        else:
+            source = self._chat_stream(model, messages)
+        async for chunk in source:
+            if chunk.text:
+                text, thought = splitter.feed(chunk.text)
+                chunk = chunk.model_copy(
+                    update={"text": text, "reasoning": chunk.reasoning + thought}
+                )
+            yield chunk
+        text, thought = splitter.flush()
+        if text or thought:
+            yield StreamChunk(text=text, reasoning=thought)
+
+    async def _chat_stream(
+        self, model: ModelConfig, messages: list[ChatMessage]
+    ) -> AsyncIterator[StreamChunk]:
         from litellm import acompletion
 
         result: Any = await acompletion(
             **self._options(model),
             stream=True,
             stream_options={"include_usage": True},
-            messages=[message.model_dump() for message in messages],
+            messages=self._chat_messages(messages),
         )
         try:
             async for chunk in result:
                 usage = getattr(chunk, "usage", None)
+                delta = chunk.choices[0].delta if chunk.choices else None
+                # Providers name the thinking field differently; LiteLLM normalizes most.
+                reasoning = next(
+                    (
+                        value
+                        for name in ("reasoning_content", "reasoning", "thinking")
+                        if isinstance(value := getattr(delta, name, None), str) and value
+                    ),
+                    "",
+                )
                 yield StreamChunk(
-                    text=(chunk.choices[0].delta.content or "") if chunk.choices else "",
+                    text=(delta.content or "") if delta else "",
+                    reasoning=reasoning,
                     usage=Usage(tokens_in=usage.prompt_tokens, tokens_out=usage.completion_tokens)
                     if usage
                     else None,
@@ -321,6 +463,11 @@ class _Client:
         if isinstance(self.recorder, QueryQuotaRecorder):
             await self.recorder.authorize_query(context)
 
+    async def _choose(self, context: CallContext, kind: str) -> ModelConfig:
+        if context.requested_model_id:
+            return await self.registry.get(context.requested_model_id, kind)
+        return await self.registry.select(context.team_id, kind)
+
     async def _invoke(
         self,
         kind: str,
@@ -329,7 +476,7 @@ class _Client:
     ) -> T:
         context = normalize_call_context(context)
         await self.recorder.authorize(context)
-        model = await self.registry.select(context.team_id, kind)
+        model = await self._choose(context, kind)
         candidates = [model]
         if model.fallback_id:
             candidates.append(await self.registry.get(model.fallback_id, kind))
@@ -358,7 +505,7 @@ class _Client:
         self, model: ModelConfig, context: CallContext, usage: Usage, start: float, success: bool
     ) -> None:
         record = CallRecord(
-            **context.model_dump(),
+            **context.model_dump(exclude={"requested_model_id"}),
             model_id=model.id,
             usage=usage,
             duration_ms=int((time.monotonic() - start) * 1000),
@@ -390,7 +537,7 @@ class LLMClient(_Client):
     ) -> AsyncIterator[StreamChunk]:
         context = normalize_call_context(context)
         await self.recorder.authorize(context)
-        model = await self.registry.select(context.team_id, "llm")
+        model = await self._choose(context, "llm")
         candidates = [model]
         if model.fallback_id:
             candidates.append(await self.registry.get(model.fallback_id, "llm"))
@@ -403,13 +550,22 @@ class LLMClient(_Client):
                         async for chunk in self.transport.stream(candidate, messages):
                             if chunk.usage:
                                 usage = chunk.usage
-                            emitted = emitted or bool(chunk.text)
+                            # Once anything reached the caller, a retry would duplicate it.
+                            emitted = emitted or bool(chunk.text or chunk.reasoning)
+                            chunk.model_id = candidate.id
                             yield chunk
                     success = True
                     return
                 except (asyncio.CancelledError, AppError):
                     raise
-                except Exception:
+                except Exception as error:
+                    # Only the type: provider messages can echo prompts or credentials.
+                    logger.info(
+                        LogEvent.FAILURE,
+                        code=ErrorCode.LLM_UNAVAILABLE,
+                        model_id=candidate.id,
+                        action=type(error).__name__,
+                    )
                     if emitted:
                         raise AppError(ErrorCode.LLM_UNAVAILABLE, http_status=503) from None
                 finally:

@@ -52,7 +52,7 @@ async def test_org_role_team_validation_disabled_users_and_bootstrap(identity_db
             await org.create_team(TeamWrite(name="forbidden"), actor=world.leader)
         with pytest.raises(AppError):
             await org.create_user(
-                UserWrite(username="no-team", password=SecretStr("long-password"), role="member"),
+                UserWrite(username="no-team", password=SecretStr("long-password"), role="leader"),
                 actor=world.admin,
             )
         with pytest.raises(AppError):

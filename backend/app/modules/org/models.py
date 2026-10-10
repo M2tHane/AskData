@@ -14,7 +14,8 @@ class User(AuditFields, SoftDelete, Base):
     __tablename__ = "user"
     __table_args__ = (
         CheckConstraint("role IN ('admin','leader','member')", name="ck_user_role"),
-        CheckConstraint("role = 'admin' OR team_id IS NOT NULL", name="ck_user_team"),
+        # Members may be unassigned ("free employees"); leaders always belong to a team.
+        CheckConstraint("role <> 'leader' OR team_id IS NOT NULL", name="ck_user_team"),
     )
     username: Mapped[str] = mapped_column(String(100), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))

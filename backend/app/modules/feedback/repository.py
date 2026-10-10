@@ -21,13 +21,42 @@ class FeedbackRepository(BaseRepository[Feedback]):
         async with self.session.begin_nested():
             yield
 
+    async def own(self, query_run_id: int, user_id: int) -> Feedback | None:
+        """The user's feedback on one answer, locked: each user rates an answer once."""
+        return await self.session.scalar(
+            self._select()
+            .where(Feedback.query_run_id == query_run_id, Feedback.user_id == user_id)
+            .order_by(Feedback.id.desc())
+            .limit(1)
+            .with_for_update()
+        )
+
+    async def mine(self, query_run_ids: list[int], user_id: int) -> list[Feedback]:
+        rows = await self.session.scalars(
+            self._select()
+            .where(
+                Feedback.query_run_id.in_(query_run_ids),
+                Feedback.user_id == user_id,
+                Feedback.expires_at > datetime.now(UTC),
+            )
+            .order_by(Feedback.id)
+        )
+        return list(rows)
+
     async def locked(self, identifier: int) -> Feedback | None:
         return await self.session.scalar(
             self._select().where(Feedback.id == identifier).with_for_update()
         )
 
     async def search(
-        self, actor: CurrentUser, page: PageParams, status: str | None = None
+        self,
+        actor: CurrentUser,
+        page: PageParams,
+        status: str | None = None,
+        *,
+        user_id: int | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
     ) -> tuple[list[Feedback], int]:
         query = self._select().where(Feedback.expires_at > datetime.now(UTC))
         if actor.role == Role.MEMBER:
@@ -36,6 +65,13 @@ class FeedbackRepository(BaseRepository[Feedback]):
             query = query.where(Feedback.team_id == actor.team_id)
         if status is not None:
             query = query.where(Feedback.status == status)
+        # Narrowing filters only: the role scope above still bounds what anyone sees.
+        if user_id is not None:
+            query = query.where(Feedback.user_id == user_id)
+        if since is not None:
+            query = query.where(Feedback.created_at >= since)
+        if until is not None:
+            query = query.where(Feedback.created_at < until)
         total = await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0
         rows = list(
             await self.session.scalars(

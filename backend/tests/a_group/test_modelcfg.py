@@ -33,6 +33,9 @@ async def test_three_model_types_preferences_connection_and_secret_masks(identit
     transport, usage = ModelTestTransport(), FakeUsage()
     async with world.database.transaction() as session:
         service = build_service(session, world.box, transport, usage)
+        # No model of a kind yet reads as "not set", not as an outage.
+        empty = await service.get_preference(world.team, "rerank", actor=world.leader)
+        assert empty.model_id is None
         for kind in ("llm", "embedding", "rerank"):
             created = await service.create(config(kind), actor=world.admin)
             assert created.api_key == "********"
@@ -45,7 +48,7 @@ async def test_three_model_types_preferences_connection_and_secret_masks(identit
             assert (await service.test(created.id, actor=world.admin)).available
         assert len(usage.records) == 3
         assert {record.model_id for record in usage.records} == {"1", "2", "3"}
-        assert all(record.prompt_version == "explanation:v2" for record in usage.records)
+        assert all(record.prompt_version == "answer:v3" for record in usage.records)
         listing = await service.list(PageParams(), actor=world.leader)
         assert "model-secret" not in listing.model_dump_json()
         audits = list(await session.scalars(select(AuditLog)))
@@ -87,3 +90,35 @@ async def test_model_roles_disabled_selection_dimensions_and_sanitized_test_fail
         await service.set_preference(world.team, "llm", llm.id, actor=world.leader)
         with pytest.raises(AppError):
             await service.update(llm.id, config(enabled=False), actor=world.admin)
+        # The switch toggles without resending the key, under the same rules.
+        with pytest.raises(AppError):
+            await service.set_enabled(llm.id, False, actor=world.admin)
+        with pytest.raises(AppError):
+            await service.set_enabled(disabled.id, True, actor=world.leader)
+        assert (await service.set_enabled(disabled.id, True, actor=world.admin)).enabled
+
+
+async def test_unsaved_model_configuration_can_be_tested_without_storing_anything(identity_db):
+    world = identity_db
+    transport, usage = ModelTestTransport(), FakeUsage()
+    async with world.database.transaction() as session:
+        service = build_service(session, world.box, transport, usage)
+        assert (await service.test_draft(config("llm"), actor=world.admin)).available
+        assert (await service.list(PageParams(), actor=world.admin)).total == 0
+        with pytest.raises(AppError):
+            await service.test_draft(config("llm"), actor=world.leader)
+        audits = list(await session.scalars(select(AuditLog)))
+        assert "model-secret" not in " ".join(str(r.payload) for r in audits)
+
+
+async def test_every_user_can_list_enabled_llm_choices_without_endpoints_or_keys(identity_db):
+    world = identity_db
+    async with world.database.transaction() as session:
+        service = build_service(session, world.box, FakeTransport(), FakeUsage())
+        first = await service.create(config("llm"), actor=world.admin)
+        await service.create(config("llm", enabled=False), actor=world.admin)
+        await service.create(config("embedding"), actor=world.admin)
+        choices = await service.choices(actor=world.member)
+        assert [c.id for c in choices] == [first.id] and choices[0].is_default
+        dumped = choices[0].model_dump_json()
+        assert "model-secret" not in dumped and "base_url" not in dumped
