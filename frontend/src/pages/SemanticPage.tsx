@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useSemantics, useTables } from '../api/hooks'
-import type { Role, ScopeLevel, SemanticView, TableRead } from '../api/types'
+import type { Role, SemanticView, TableRead } from '../api/types'
 import { Badge, Button, ScopeTag, TextField } from '../components/basic'
 import { ConfirmDialog, UnsavedDialog } from '../components/Dialog'
 import { DatasourcePicker } from '../components/DatasourcePicker'
@@ -14,43 +14,10 @@ import { EmptyState, ListCard, ListStatus } from '../components/ListStates'
 import { useToast } from '../components/Toast'
 import { ApiError, describeError } from '../lib/errors'
 import { LEVEL_SHORT, OWN_SCOPE, SCOPE_NAME } from '../lib/scope'
-import { draftBody, levelView, planStep, sameDraft, sourceOf, splitAliases, toDraft, type EnumMap, type LevelView, type SemanticDraft } from '../lib/semanticLevels'
+import { draftBody, levelView, planStep, sameDraft, sourceOf, toDraft, type EnumMap, type LevelView, type SemanticDraft } from '../lib/semanticLevels'
 import { useSchemaChanges } from '../state/schemaChanges'
 import { useUnsavedGuard } from '../state/unsaved'
 
-export { splitAliases }
-
-/* 下面三项是旧的「批量编辑对话框」用的整理函数，保留导出以兼容现有测试；页面本身已改用 lib/semanticLevels。 */
-export interface Row {
-  key: string
-  targetType: 'table' | 'column'
-  targetId: number
-  name: string
-  type: string
-  alias: string
-  description: string
-  existing?: SemanticView
-  /** 其他级别（平台级、团队级等）已生效的定义；只读，提问时与本级定义按 个人 > 团队 > 平台 取用。 */
-  inherited: SemanticView[]
-}
-
-/** 选定表和级别后，把表本身与全部字段列成可填写的行；已有同级别语义会带入，其他级别的定义作为只读参考。 */
-export function buildRows(table: TableRead, scope: ScopeLevel, semantics: SemanticView[]): Row[] {
-  const of = (type: 'table' | 'column', id: number) => semantics.filter((s) => s.target_type === type && s.target_id === id)
-  const make = (type: 'table' | 'column', id: number, name: string, dataType: string): Row => {
-    const all = of(type, id)
-    const existing = all.find((s) => s.scope === scope)
-    const inherited = all.filter((s) => s.scope !== scope)
-    return { key: `${type}:${id}`, targetType: type, targetId: id, name, type: dataType, alias: (existing?.aliases ?? []).join('、'), description: existing?.description ?? '', existing, inherited }
-  }
-  return [make('table', table.id, `${table.name}（表）`, '表'), ...(table.columns ?? []).map((c) => make('column', c.id, c.name, c.data_type))]
-}
-
-/** 有内容的行写入（新建或更新），原来有内容现在清空的行删除，其余跳过。 */
-export function planChanges(rows: Row[]): { save: Row[]; remove: Row[] } {
-  const filled = (r: Row) => r.alias.trim() !== '' || r.description.trim() !== ''
-  return { save: rows.filter(filled), remove: rows.filter((r) => !filled(r) && r.existing) }
-}
 
 const keyOf = (type: 'table' | 'column', id: number) => `${type}:${id}`
 

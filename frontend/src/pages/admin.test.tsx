@@ -120,27 +120,10 @@ describe('datasource visibility toggles', () => {
   })
 })
 
-import { buildRows, planChanges, splitAliases } from './SemanticPage'
+import { splitAliases } from '../lib/semanticLevels'
 
-describe('semantic batch editing', () => {
-  const table = { id: 1, name: 'orders', columns: [{ id: 10, name: 'amount', data_type: 'numeric' }, { id: 11, name: 'phone', data_type: 'text' }] } as unknown as TableRead
-  const existing = [{ id: 5, target_type: 'column', target_id: 10, scope: 'team', aliases: ['销售额'], description: '金额', status: 'team' }] as never[]
-  it('lists the table and every column and prefills same-level entries only', () => {
-    const rows = buildRows(table, 'team', existing)
-    expect(rows.map((r) => r.name)).toEqual(['orders（表）', 'amount', 'phone'])
-    expect(rows[1]).toMatchObject({ alias: '销售额', description: '金额' })
-    const personal = buildRows(table, 'personal', existing)[1]
-    expect(personal).toMatchObject({ alias: '', existing: undefined })
-    // 其他级别的定义作为只读参考带出来。
-    expect(personal?.inherited.map((s) => s.id)).toEqual([5])
-  })
-  it('saves filled rows and removes existing rows that were cleared', () => {
-    const rows = buildRows(table, 'team', existing)
-    rows[1] = { ...rows[1]!, alias: '', description: '' }
-    rows[2] = { ...rows[2]!, alias: '手机号、电话' }
-    const plan = planChanges(rows)
-    expect(plan.save.map((r) => r.name)).toEqual(['phone'])
-    expect(plan.remove.map((r) => r.name)).toEqual(['amount'])
+describe('semantic aliases', () => {
+  it('splits aliases on Chinese and English separators', () => {
     expect(splitAliases('手机号、电话, 号码')).toEqual(['手机号', '电话', '号码'])
   })
 })
