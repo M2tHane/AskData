@@ -1,39 +1,31 @@
-import { useLayoutEffect, useRef } from 'react'
-import type { ReactNode } from 'react'
+import { useLayoutEffect, useMemo, useRef } from 'react'
 import { usedVariables } from '../lib/diff'
+import { FORMAT_LABEL, tokenize, type FormatIssue, type PromptFormat } from '../lib/promptFormat'
+import { Button } from './basic'
 import { Icon } from './Icon'
 
-const TOKEN = /(\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)|(<\/?untrusted_data>)|(^#{1,3} .*$|^[A-Z][A-Za-z /]{1,40}:$)/gm
-
-/** 背景层：变量、数据块标签和小节标题着色；文字与上层输入框逐字重合。 */
-function highlight(text: string, required: Set<string>): ReactNode[] {
-  const out: ReactNode[] = []
-  let last = 0
-  for (const m of text.matchAll(TOKEN)) {
-    const at = m.index ?? 0
-    if (at > last) out.push(text.slice(last, at))
-    if (m[1]) {
-      const name = m[1].replace(/^\$\{?|\}$/g, '')
-      out.push(<mark key={at} className={required.has(name) ? 'cb-pe-var' : 'cb-pe-var cb-pe-bad'}>{m[1]}</mark>)
-    } else if (m[2]) out.push(<mark key={at} className="cb-pe-tag">{m[2]}</mark>)
-    else out.push(<mark key={at} className="cb-pe-head">{m[3]}</mark>)
-    last = at + m[0].length
-  }
-  out.push(text.slice(last))
-  // 末尾换行需要一个占位字符，否则背景层比输入框少一行。
-  out.push('\u200b')
-  return out
-}
-
 /**
- * 提示词编辑器：高度随内容增长（超过视口后内部滚动），变量高亮，底部状态行逐个核对必须保留的变量。
+ * 提示词编辑器：背景层高亮 + 上层透明输入框，两层字体、内边距、换行完全一致。
+ * 高度随内容增长（超过视口后内部滚动）；顶部显示识别出的格式和「格式化」，底部状态栏是格式校验和必需变量检查。
  */
-export function PromptEditor(props: { value: string; onChange: (value: string) => void; variables: string[]; label: string }) {
+export function PromptEditor(props: {
+  value: string
+  onChange: (value: string) => void
+  variables: string[]
+  label: string
+  format: PromptFormat
+  /** YAML 解析错误；有值时状态栏显示行号。 */
+  issue: FormatIssue | null
+  /** 变量、数据块等内容问题；有值时状态栏显示第一条。 */
+  problems: string[]
+  onFormat: () => void
+}) {
   const area = useRef<HTMLTextAreaElement>(null)
   const back = useRef<HTMLPreElement>(null)
-  const required = new Set(props.variables)
+  const required = useMemo(() => new Set(props.variables), [props.variables])
   const used = new Set(usedVariables(props.value))
   const lines = props.value.split('\n').length
+  const tokens = useMemo(() => tokenize(props.value, props.format), [props.value, props.format])
 
   useLayoutEffect(() => {
     const el = area.current
@@ -42,15 +34,33 @@ export function PromptEditor(props: { value: string; onChange: (value: string) =
     el.style.height = `${el.scrollHeight + 2}px`
   }, [props.value])
 
+  const first = props.issue ? `第 ${props.issue.line} 行：${props.issue.message}` : props.problems[0]
+
   return (
-    <div className="cb-pe">
-      <div className="cb-pe-box">
-        <pre ref={back} className="cb-pe-back" aria-hidden="true">
-          {highlight(props.value, required)}
+    <div className="cb-pr-editor">
+      <div className="cb-pr-bar">
+        <span className="cb-pr-format">{FORMAT_LABEL[props.format]}</span>
+        <span className="cb-faint">按内容自动识别</span>
+        <span className="cb-spacer" />
+        <Button size="sm" variant="ghost" onClick={props.onFormat}>格式化</Button>
+      </div>
+      <div className="cb-pr-box">
+        <pre ref={back} className="cb-pr-back" aria-hidden="true">
+          {tokens.map((t, i) =>
+            t.kind === 'plain' ? (
+              t.text
+            ) : (
+              <mark key={i} className={`cb-tk cb-tk-${t.kind}${t.kind === 'var' && !required.has(t.name ?? '') ? ' cb-tk-bad' : ''}`}>
+                {t.text}
+              </mark>
+            ),
+          )}
+          {/* 末尾换行需要一个占位字符，否则背景层比输入框少一行。 */}
+          {'\u200b'}
         </pre>
         <textarea
           ref={area}
-          className="cb-pe-input"
+          className="cb-pr-input"
           aria-label={props.label}
           value={props.value}
           spellCheck={false}
@@ -60,13 +70,24 @@ export function PromptEditor(props: { value: string; onChange: (value: string) =
           }}
         />
       </div>
-      <div className="cb-pe-status">
-        <span>
+      <div className="cb-pr-status">
+        {first ? (
+          <span className="cb-pr-problem" role="alert">
+            <Icon name="alert" size="sm" />
+            {first}
+          </span>
+        ) : (
+          <span className="cb-pr-fine">
+            <Icon name="check" size="sm" />
+            格式正确
+          </span>
+        )}
+        <span className="cb-faint">
           {lines} 行 · {props.value.length.toLocaleString()} 字
         </span>
         <span className="cb-spacer" />
         {props.variables.map((v) => (
-          <span key={v} className={used.has(v) ? 'cb-pe-ok' : 'cb-pe-missing'}>
+          <span key={v} className={used.has(v) ? 'cb-pr-ok' : 'cb-pr-missing'}>
             <Icon name={used.has(v) ? 'check' : 'alert'} size="sm" />${v}
           </span>
         ))}

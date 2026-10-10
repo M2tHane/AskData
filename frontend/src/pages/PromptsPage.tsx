@@ -2,24 +2,30 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { fetchRevision, usePromptActions, usePromptDetail, usePrompts } from '../api/hooks'
 import type { PromptDetail, PromptSummary, RevisionMeta } from '../api/types'
-import { Badge, Button, Callout, Panel, TextField } from '../components/basic'
-import { Dialog, DialogFooter } from '../components/Dialog'
+import { Badge, Button, TextField } from '../components/basic'
+import { Dialog, DialogFooter, UnsavedDialog } from '../components/Dialog'
 import { Icon } from '../components/Icon'
 import { PromptEditor } from '../components/PromptEditor'
 import { useToast } from '../components/Toast'
 import { changed, lineDiff, templateProblems } from '../lib/diff'
 import { ApiError, describeError } from '../lib/errors'
 import { formatTime } from '../lib/format'
+import { detectFormat, formatPrompt, validateFormat } from '../lib/promptFormat'
+import { useUnsaved, useUnsavedGuard } from '../state/unsaved'
 
 const sel = (p: Pick<PromptSummary, 'kind' | 'key'>) => `${p.kind}:${p.key}`
 
-/** 卡片右上角的展开/收起按钮。 */
-function Fold(props: { open: boolean; onToggle: () => void }) {
+/** 可折叠的卡片：点标题折叠或展开。 */
+function FoldCard(props: { title: string; count?: string; open: boolean; onToggle: () => void; children: ReactNode }) {
   return (
-    <button type="button" className="cb-fold" aria-expanded={props.open} onClick={props.onToggle}>
-      {props.open ? '收起' : '展开'}
-      <Icon name="chevronDown" size="sm" className="cb-fold-chevron" />
-    </button>
+    <section className="cb-panel cb-pr-card">
+      <button type="button" className="cb-pr-fold" aria-expanded={props.open} onClick={props.onToggle}>
+        <Icon name="chevronDown" size="sm" />
+        <h3 className="cb-h">{props.title}</h3>
+        {props.count ? <span className="cb-faint">{props.count}</span> : null}
+      </button>
+      {props.open ? <div className="cb-pr-card-body">{props.children}</div> : null}
+    </section>
   )
 }
 
@@ -29,18 +35,26 @@ export function PromptsPage() {
   const [picked, setPicked] = useState<string | null>(null)
   const [listOpen, setListOpen] = useState(true)
   const [history, setHistory] = useState(true)
+  const [leaving, setLeaving] = useState<string | null>(null)
+  const [leavingSave, setLeavingSave] = useState(false)
+  const dirty = useUnsaved((s) => s.dirty)
   const items = prompts.data ?? []
   const current = items.find((p) => sel(p) === picked) ?? items[0]
+  const pick = (id: string) => {
+    if (current && id === sel(current)) return
+    if (dirty) setLeaving(id)
+    else setPicked(id)
+  }
   const group = (kind: 'system' | 'dialect') => (
-    <ul className="cb-prompt-list">
+    <ul className="cb-pr-list">
       {items.filter((p) => p.kind === kind).map((p) => {
         const custom = !p.active_label.includes('（内置）')
         return (
           <li key={sel(p)} aria-current={current ? sel(p) === sel(current) : undefined}>
-            <button type="button" onClick={() => setPicked(sel(p))} title={p.revision_count ? `共 ${p.revision_count} 个历史版本` : undefined}>
-              <span className="cb-prompt-name">{p.label}</span>
-              {custom ? <Badge tone="info">已修改</Badge> : null}
-              <span className="cb-prompt-ver">{p.active_label.replace('（内置）', '')}</span>
+            <button type="button" onClick={() => pick(sel(p))} title={p.revision_count ? `共 ${p.revision_count} 个历史版本` : undefined}>
+              <span className="cb-pr-name">{p.label}</span>
+              {custom ? <Badge tone="info">已修改</Badge> : <span className="cb-faint">内置</span>}
+              {custom ? <span className="cb-pr-ver">{p.active_label.replace('（内置）', '')}</span> : null}
             </button>
           </li>
         )
@@ -48,34 +62,41 @@ export function PromptsPage() {
     </ul>
   )
   const list = (
-    <Panel title="提示词" className={listOpen ? undefined : 'cb-panel-folded'} actions={<Fold open={listOpen} onToggle={() => setListOpen(!listOpen)} />}>
-      {listOpen ? (
-        <>
-          <div className="cb-prompt-group">
-            <div className="cb-eyebrow">系统提示词</div>
-            {group('system')}
-          </div>
-          <div className="cb-prompt-group">
-            <div className="cb-eyebrow">数据库方言规则</div>
-            {group('dialect')}
-          </div>
-        </>
-      ) : null}
-    </Panel>
+    <FoldCard title="提示词" count={items.length ? `${items.length} 个` : undefined} open={listOpen} onToggle={() => setListOpen(!listOpen)}>
+      <div className="cb-eyebrow">系统提示词</div>
+      {group('system')}
+      <div className="cb-eyebrow">数据库方言规则</div>
+      {group('dialect')}
+    </FoldCard>
   )
+  const leave = () => {
+    if (leaving) setPicked(leaving)
+    setLeaving(null)
+  }
   return (
     <div className="cb-page">
-      <Callout tone="warning" title="修改会立即影响所有人的查数结果">
-        提示词只能改文字，变量和数据块由系统固定；模型生成的 SQL 仍然要经过 SQL 守卫。建议启用新版本后到「评测」页跑一遍，结果不好可以在历史版本里一键切回。
-      </Callout>
       {current ? (
         <PromptWorkspace key={sel(current)} kind={current.kind} name={current.key} list={list} history={history} onHistory={() => setHistory(!history)} />
       ) : (
-        <div className="cb-prompt-layout">
+        <div className="cb-pr-layout">
           {list}
-          <Panel><div className="cb-muted">正在加载…</div></Panel>
+          <section className="cb-panel cb-pr-card"><div className="cb-pr-card-body cb-muted">{prompts.isError ? '加载失败，请稍后重试。' : '正在加载…'}</div></section>
         </div>
       )}
+      {leaving ? (
+        <UnsavedDialog
+          onStay={() => setLeaving(null)}
+          onDiscard={leave}
+          saving={leavingSave}
+          onSave={() => {
+            setLeavingSave(true)
+            void (useUnsaved.getState().save?.() ?? Promise.resolve(false)).then((ok) => {
+              setLeavingSave(false)
+              if (ok) leave()
+            })
+          }}
+        />
+      ) : null}
     </div>
   )
 }
@@ -92,9 +113,9 @@ function PromptWorkspace(props: WorkspaceProps) {
   const detail = usePromptDetail(props.kind, props.name)
   if (!detail.data) {
     return (
-      <div className="cb-prompt-layout">
+      <div className="cb-pr-layout">
         {props.list}
-        <Panel><div className="cb-muted">{detail.isError ? '加载失败，请稍后重试。' : '正在加载…'}</div></Panel>
+        <section className="cb-panel cb-pr-card"><div className="cb-pr-card-body cb-muted">{detail.isError ? '加载失败，请稍后重试。' : '正在加载…'}</div></section>
       </div>
     )
   }
@@ -110,10 +131,32 @@ function Workspace({ detail, list, history, onHistory }: WorkspaceProps & { deta
   const [note, setNote] = useState('')
   const [diff, setDiff] = useState<{ title: string; lines: ReturnType<typeof lineDiff> } | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
+  const format = detectFormat(draft)
+  const issue = validateFormat(draft, format)
   const problems = detail.kind === 'system' ? templateProblems(draft, detail.variables) : draft.trim() ? [] : ['内容不能为空']
+  const invalid = problems.length > 0 || issue != null
   const dirty = draft !== detail.active_content
   const busy = actions.publish.isPending || actions.activate.isPending || actions.reset.isPending
   const fail = (e: unknown) => toast({ tone: 'danger', title: '操作失败', message: e instanceof ApiError ? describeError(e.code) : undefined })
+
+  // 离开页面或切换提示词时的「保存并离开」：存为新版本但不启用，避免未经确认就影响所有人的查数结果。
+  useUnsavedGuard(
+    dirty,
+    async () => {
+      if (invalid) {
+        toast({ tone: 'danger', title: '无法保存', message: first(issue, problems) })
+        return false
+      }
+      try {
+        const r = await actions.publish.mutateAsync({ content: draft, note: '离开页面时保存', activate: false })
+        toast({ tone: 'success', title: `已保存为 r${r.revision}`, message: '未启用，可在历史版本里启用。' })
+        return true
+      } catch (e) {
+        fail(e)
+        return false
+      }
+    },
+  )
 
   const publish = (activate: boolean) =>
     actions.publish.mutate(
@@ -126,72 +169,71 @@ function Workspace({ detail, list, history, onHistory }: WorkspaceProps & { deta
         onError: fail,
       },
     )
+  const reformat = () => {
+    const out = formatPrompt(draft, format)
+    if (out == null) toast({ tone: 'warning', title: '无法格式化', message: issue ? `先修好第 ${issue.line} 行的语法错误。` : undefined })
+    else if (out === draft) toast({ tone: 'info', title: '格式已经是整齐的' })
+    else setDraft(out)
+  }
   const load = async (r: RevisionMeta) => setDraft((await fetchRevision(detail.kind, detail.key, r.id)).content)
   const compare = async (r: RevisionMeta) => setDiff({ title: `r${r.revision} 与当前生效版本（${detail.active_label}）`, lines: lineDiff((await fetchRevision(detail.kind, detail.key, r.id)).content, detail.active_content) })
   const seedActive = detail.revisions.every((r) => !r.is_active)
 
   return (
-    <div className="cb-prompt-layout">
-      <div className="cb-col">
+    <div className="cb-pr-layout">
+      <div className="cb-pr-side">
         {list}
-        <Panel title="历史版本" className={history ? undefined : 'cb-panel-folded'} actions={<Fold open={history} onToggle={onHistory} />}>
-          {history ? (
-            <ul className="cb-rev-list">
-              {detail.revisions.map((r) => (
-                <li key={r.id} data-active={r.is_active || undefined}>
-                  <div className="cb-rev-head">
-                    <span className="cb-mono">r{r.revision}</span>
-                    {r.is_active ? <Badge tone="success" icon="check">生效中</Badge> : null}
-                    <span className="cb-spacer" />
-                    <span className="cb-muted">{formatTime(r.created_at)}</span>
-                  </div>
-                  <div className="cb-rev-note">{r.note || '未填写说明'}</div>
-                  <div className="cb-rev-foot">
-                    <span className="cb-muted">{r.author || '—'}</span>
-                    <span className="cb-spacer" />
-                    <Button size="sm" variant="ghost" onClick={() => void load(r)}>载入编辑</Button>
-                    {r.is_active ? null : <Button size="sm" variant="ghost" onClick={() => void compare(r)}>对比</Button>}
-                    {r.is_active ? null : <Button size="sm" variant="ghost" disabled={busy} onClick={() => actions.activate.mutate(r.id, { onSuccess: () => toast({ tone: 'success', title: `已切换到 r${r.revision}` }), onError: fail })}>启用</Button>}
-                  </div>
-                </li>
-              ))}
-              <li data-active={seedActive || undefined}>
-                <div className="cb-rev-head">
-                  <span className="cb-mono">{detail.seed_version}</span>
-                  <Badge>内置</Badge>
-                  {seedActive ? <Badge tone="success" icon="check">生效中</Badge> : null}
-                </div>
-                <div className="cb-rev-note">随程序发布，不可修改</div>
-                <div className="cb-rev-foot">
+        <FoldCard title="历史版本" count={`${detail.revisions.length + 1} 个版本`} open={history} onToggle={onHistory}>
+          <ul className="cb-pr-revs">
+            {detail.revisions.map((r) => (
+              <li key={r.id} data-active={r.is_active || undefined}>
+                <div className="cb-pr-rev-head">
+                  <span className="cb-m">r{r.revision}</span>
+                  {r.is_active ? <Badge tone="success">生效中</Badge> : null}
                   <span className="cb-spacer" />
-                  <Button size="sm" variant="ghost" onClick={() => setDraft(detail.seed_content)}>载入编辑</Button>
-                  {seedActive ? null : <Button size="sm" variant="ghost" onClick={() => setDiff({ title: `内置 ${detail.seed_version} 与当前生效版本（${detail.active_label}）`, lines: lineDiff(detail.seed_content, detail.active_content) })}>对比</Button>}
-                  {seedActive ? null : <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmReset(true)}>启用</Button>}
+                  <span className="cb-faint">{formatTime(r.created_at)}</span>
+                </div>
+                <div className="cb-pr-rev-note">{r.note || '未填写说明'}</div>
+                <div className="cb-pr-rev-foot">
+                  <span className="cb-faint">{r.author || '—'}</span>
+                  <span className="cb-spacer" />
+                  <Button size="sm" variant="ghost" onClick={() => void load(r)}>载入编辑</Button>
+                  {r.is_active ? null : <Button size="sm" variant="ghost" onClick={() => void compare(r)}>对比</Button>}
+                  {r.is_active ? null : <Button size="sm" variant="ghost" disabled={busy} onClick={() => actions.activate.mutate(r.id, { onSuccess: () => toast({ tone: 'success', title: `已切换到 r${r.revision}` }), onError: fail })}>启用</Button>}
                 </div>
               </li>
-            </ul>
-          ) : null}
-        </Panel>
+            ))}
+            <li data-active={seedActive || undefined}>
+              <div className="cb-pr-rev-head">
+                <span className="cb-m">{detail.seed_version}</span>
+                <Badge>内置</Badge>
+                {seedActive ? <Badge tone="success">生效中</Badge> : null}
+              </div>
+              <div className="cb-pr-rev-note">随程序发布，不可修改</div>
+              <div className="cb-pr-rev-foot">
+                <span className="cb-spacer" />
+                <Button size="sm" variant="ghost" onClick={() => setDraft(detail.seed_content)}>载入编辑</Button>
+                {seedActive ? null : <Button size="sm" variant="ghost" onClick={() => setDiff({ title: `内置 ${detail.seed_version} 与当前生效版本（${detail.active_label}）`, lines: lineDiff(detail.seed_content, detail.active_content) })}>对比</Button>}
+                {seedActive ? null : <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmReset(true)}>启用</Button>}
+              </div>
+            </li>
+          </ul>
+        </FoldCard>
       </div>
 
-      <Panel
-        title={detail.label}
-        actions={
-          <div className="cb-row">
-            {dirty ? <Badge tone="warning">有未保存的修改</Badge> : null}
-            <span className="cb-muted cb-nowrap">当前生效 <span className="cb-mono">{detail.active_label}</span></span>
-            <Button variant="ghost" disabled={!dirty} onClick={() => setDiff({ title: `未保存的修改（对比 ${detail.active_label}）`, lines: lineDiff(detail.active_content, draft) })}>查看修改</Button>
-            <Button variant="ghost" disabled={!dirty} onClick={() => setDraft(detail.active_content)}>放弃修改</Button>
-            <Button variant="primary" disabled={busy || problems.length > 0 || !dirty} onClick={() => setSaving(true)}>保存</Button>
-          </div>
-        }
-      >
-        <div className="cb-col">
-          <p className="cb-muted">{detail.description}</p>
-          {problems.length ? <Callout tone="danger">{problems.join('；')}。</Callout> : null}
-          <PromptEditor label="提示词内容" value={draft} onChange={setDraft} variables={detail.variables} />
+      <section className="cb-panel cb-pr-main">
+        <div className="cb-pr-main-head">
+          <h3 className="cb-h">{detail.label}</h3>
+          <span className="cb-spacer" />
+          {dirty ? <Badge tone="warning">有未保存的修改</Badge> : null}
+          <span className="cb-faint cb-pr-nowrap">当前生效 <span className="cb-m">{detail.active_label}</span></span>
+          <Button variant="ghost" disabled={!dirty} onClick={() => setDiff({ title: `未保存的修改（对比 ${detail.active_label}）`, lines: lineDiff(detail.active_content, draft) })}>查看修改</Button>
+          <Button variant="ghost" disabled={!dirty} onClick={() => setDraft(detail.active_content)}>放弃修改</Button>
+          <Button variant="primary" disabled={busy || invalid || !dirty} onClick={() => setSaving(true)}>保存</Button>
         </div>
-      </Panel>
+        <p className="cb-muted">{detail.description}</p>
+        <PromptEditor label="提示词内容" value={draft} onChange={setDraft} variables={detail.variables} format={format} issue={issue} problems={problems} onFormat={reformat} />
+      </section>
 
       {saving ? (
         <Dialog title={`保存「${detail.label}」的新版本`} onClose={() => setSaving(false)}>
@@ -206,7 +248,7 @@ function Workspace({ detail, list, history, onHistory }: WorkspaceProps & { deta
       {diff ? (
         <Dialog title={diff.title} size="xl" onClose={() => setDiff(null)}>
           {changed(diff.lines) === 0 ? <div className="cb-muted">没有差异。</div> : (
-            <div className="cb-diff" aria-label="差异">
+            <div className="cb-pr-diff" aria-label="差异">
               {diff.lines.map((l, i) => <div key={i} data-kind={l.kind}>{l.kind === 'add' ? '+ ' : l.kind === 'del' ? '- ' : '  '}{l.text}</div>)}
             </div>
           )}
@@ -224,4 +266,8 @@ function Workspace({ detail, list, history, onHistory }: WorkspaceProps & { deta
       ) : null}
     </div>
   )
+}
+
+function first(issue: { line: number; message: string } | null, problems: string[]) {
+  return issue ? `第 ${issue.line} 行：${issue.message}` : problems[0]
 }
