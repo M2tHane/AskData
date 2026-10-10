@@ -1,3 +1,4 @@
+import { StatCard, Stats } from '../components/StatCard'
 import { useCallback, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { runSync, testDatasource, testDatasourceDraft, useDatasources, useSaveDatasource, useSetDatasourceStatus } from '../api/hooks'
@@ -113,10 +114,10 @@ export function DatasourcesPage() {
 
   return (
     <div className="cb-page">
-      <div className="cb-grid-stats">
-        <Panel><div className="cb-stat"><b>{list.data?.total ?? 0}</b><span>数据源</span></div></Panel>
-        <Panel><div className="cb-stat"><b>{items.filter((d) => d.status === 'active').length}</b><span>启用中</span></div></Panel>
-      </div>
+      <Stats>
+        <StatCard label="数据源" value={list.data?.total ?? 0} />
+        <StatCard label="启用中" value={items.filter((d) => d.status === 'active').length} />
+      </Stats>
       <Panel title="数据源" actions={<Button variant="primary" icon="plus" onClick={() => setDialog({ kind: 'pick' })}>新建数据源</Button>}>
         <table className="cb-data cb-data-fixed">
           <thead>

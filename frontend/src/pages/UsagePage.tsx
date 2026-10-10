@@ -1,3 +1,4 @@
+import { StatCard, Stats } from '../components/StatCard'
 import { useState } from 'react'
 import { useAudit, useModels, useQuota, useQuotaAlerts, useSaveQuota, useTeams, useUsage, useUsageTrend } from '../api/hooks'
 import { ChartCard } from '../components/charts'
@@ -33,10 +34,10 @@ function UsageTab() {
     <>
       <AlertsPanel />
       <TrendPanel />
-      <div className="cb-grid-stats">
-        <Panel><div className="cb-stat"><b>{formatInt(calls)}</b><span>本页调用次数</span></div></Panel>
-        <Panel><div className="cb-stat"><b>{formatInt(tokens)}</b><span>本页 Token</span></div></Panel>
-      </div>
+      <Stats>
+        <StatCard label="本页调用次数" value={formatInt(calls)} />
+        <StatCard label="本页 Token" value={formatInt(tokens)} />
+      </Stats>
       <Panel title="按日用量">
         <table className="cb-data">
           <thead><tr><th>日期</th><th>团队</th><th>用户</th><th>模型</th><th className="cb-r">调用</th><th className="cb-r">输入 Token</th><th className="cb-r">输出 Token</th></tr></thead>

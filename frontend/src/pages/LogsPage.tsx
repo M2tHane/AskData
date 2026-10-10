@@ -1,3 +1,4 @@
+import { StatCard, Stats } from '../components/StatCard'
 import { useState } from 'react'
 import { fetchQuery, useModels, useQueryLog } from '../api/hooks'
 import type { QueryView } from '../api/types'
@@ -76,11 +77,11 @@ export function LogsPage() {
 
   return (
     <div className="cb-page">
-      <div className="cb-grid-stats">
-        <Panel><div className="cb-stat"><b>{formatInt(data?.total ?? 0)}</b><span>查询总数（当前筛选）</span></div></Panel>
-        <Panel><div className="cb-stat"><b>{blocked}</b><span>本页已拦截</span></div></Panel>
-        <Panel><div className="cb-stat"><b>{items.filter((q) => q.retry_count > 0).length}</b><span>本页纠错后成功</span></div></Panel>
-      </div>
+      <Stats>
+        <StatCard label="查询总数（当前筛选）" value={formatInt(data?.total ?? 0)} />
+        <StatCard label="本页已拦截" value={blocked} />
+        <StatCard label="本页纠错后成功" value={items.filter((q) => q.retry_count > 0).length} />
+      </Stats>
       <Panel title="查询日志">
         <div className="cb-toolbar">
           <Tabs label="状态筛选" items={FILTERS} value={status} onChange={(id) => { setStatus(id); setPage(1) }} />

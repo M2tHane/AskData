@@ -91,6 +91,12 @@ describe('navigation by role', () => {
     expect(ids('leader')).not.toContain('datasources')
     expect(ids('admin')).toContain('datasources')
   })
+  it('keeps business entries grouped on top and governance entries flat at the bottom', () => {
+    const admin = navFor('admin')
+    expect(admin.groups.map((g) => g.label)).toEqual(['查数', '数据'])
+    expect(admin.bottom.map((r) => r.id)).toEqual(['feedback', 'logs', 'eval', 'org', 'models', 'prompts', 'usage'])
+    expect(navFor('member').bottom).toEqual([])
+  })
 })
 
 describe('formatting', () => {

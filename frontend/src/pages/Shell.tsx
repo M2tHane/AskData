@@ -1,74 +1,92 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { Sidebar } from '../components/basic'
+import { UnsavedDialog } from '../components/Dialog'
 import { Icon } from '../components/Icon'
+import { PageHeader } from '../components/PageHeader'
 import { QueryErrors } from '../components/QueryErrors'
+import { Sidebar } from '../components/Sidebar'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { navFor, ROLE_LABEL, type Route } from '../lib/nav'
 import type { CurrentUser } from '../api/types'
 import { useAuth } from '../state/auth'
+import { useUnsaved } from '../state/unsaved'
 
-/** 左下角的用户入口：显示用户名与角色，点开后可以退出登录。 */
-function UserMenu(props: { user: CurrentUser; onLogout: () => void }) {
+/** 侧栏底部的账号行：头像 + 名字 + 角色 + 深浅色切换 + 退出。 */
+function Account(props: { user: CurrentUser; onLogout: () => void }) {
   const username = useAuth((s) => s.username)
-  const [open, setOpen] = useState(false)
-  const root = useRef<HTMLDivElement>(null)
   const name = username ?? ROLE_LABEL[props.user.role]
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
   return (
-    <div ref={root} className="cb-user">
-      {open ? (
-        <div className="cb-user-menu" role="menu">
-          <button type="button" role="menuitem" onClick={props.onLogout}>
-            <Icon name="logout" size="sm" />
-            退出登录
-          </button>
-        </div>
-      ) : null}
-      <button type="button" className="cb-user-btn" aria-haspopup="menu" aria-expanded={open} aria-label={`账号 ${name}`} onClick={() => setOpen((v) => !v)}>
-        <span className="cb-avatar" aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
-        <span className="cb-user-text">
-          <span className="cb-user-name">{name}</span>
-          <span className="cb-muted">{ROLE_LABEL[props.user.role]}</span>
-        </span>
-        <Icon name="chevronDown" size="sm" />
-      </button>
+    <>
+      <span className="cb-avatar" aria-hidden="true" title={`${name} · ${ROLE_LABEL[props.user.role]}`}>
+        {name.slice(0, 1).toUpperCase()}
+      </span>
+      <div className="cb-user">
+        <b>{name}</b>
+        <span>{ROLE_LABEL[props.user.role]}</span>
+      </div>
       <ThemeToggle />
-    </div>
+      <button type="button" className="cb-icon-btn" aria-label="退出登录" title="退出登录" onClick={props.onLogout}>
+        <Icon name="logout" />
+      </button>
+    </>
   )
 }
 
 export function Shell(props: { user: CurrentUser; active: Route; onNavigate: (path: string) => void; onLogout: () => void; children: ReactNode }) {
-  const { groups, routes } = navFor(props.user.role)
+  const { groups, bottom } = navFor(props.user.role)
+  const { dirty, save, pending, ask } = useUnsaved()
+  const [saving, setSaving] = useState(false)
+  // 有未保存的修改时，先问再走。
+  const go = (path: string) => {
+    if (dirty && path !== window.location.pathname) ask(path)
+    else props.onNavigate(path)
+  }
+  const leave = () => {
+    const to = pending
+    useUnsaved.getState().set(false, null)
+    ask(null)
+    if (to) props.onNavigate(to)
+  }
   return (
     <div className="cb-app">
       <QueryErrors />
       <Sidebar
         groups={groups}
+        bottom={bottom}
         active={props.active.id}
-        onNavigate={(id) => {
-          const r = routes.find((x) => x.id === id)
-          if (r) props.onNavigate(r.path)
-        }}
-        footer={<UserMenu user={props.user} onLogout={props.onLogout} />}
+        onNavigate={(r) => go(r.path)}
+        footer={<Account user={props.user} onLogout={() => (dirty ? ask('__logout__') : props.onLogout())} />}
       />
-      <div className="cb-main">
-        {props.children}
-      </div>
+      <main className="cb-main">
+        {props.active.id === 'chat' ? (
+          props.children
+        ) : (
+          <PageHeader key={props.active.id} icon={props.active.icon} title={props.active.label}>
+            {props.children}
+          </PageHeader>
+        )}
+      </main>
+      {pending ? (
+        <UnsavedDialog
+          saving={saving}
+          onStay={() => ask(null)}
+          onDiscard={() => (pending === '__logout__' ? (ask(null), props.onLogout()) : leave())}
+          onSave={
+            save
+              ? async () => {
+                  setSaving(true)
+                  const ok = await save().catch(() => false)
+                  setSaving(false)
+                  if (!ok) return ask(null)
+                  if (pending === '__logout__') {
+                    ask(null)
+                    props.onLogout()
+                  } else leave()
+                }
+              : undefined
+          }
+        />
+      ) : null}
     </div>
   )
 }

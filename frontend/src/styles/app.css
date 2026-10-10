@@ -1,6 +1,5 @@
 /* Page-level layout. Only tokens.css variables are used for color, spacing, radius and type. */
-.cb-grid-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-4); }
-.cb-page { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-4); min-height: 0; }
+.cb-page { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-5) var(--space-6) var(--space-8); min-height: 0; }
 .cb-toolbar { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-3); }
 .cb-textarea { width: 100%; box-sizing: border-box; min-height: 96px; padding: var(--space-2) var(--space-3); border: 1px solid var(--line-control); border-radius: var(--radius-md); background: var(--surface); color: var(--ink); font: inherit; resize: vertical; }
 .cb-textarea.cb-mono { font-family: var(--font-mono); font-size: 13px; }
@@ -86,15 +85,6 @@
 /* Floating inspector toggle, header icon button, sidebar user menu */
 .cb-float-toggle { position: absolute; top: var(--space-6); right: var(--space-6); z-index: 5; display: inline-flex; align-items: center; justify-content: center; width: var(--control-md); height: var(--control-md); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); color: var(--ink-muted); box-shadow: var(--shadow-panel); cursor: pointer; }
 .cb-float-toggle:hover { background: var(--surface-hover); color: var(--ink); }
-.cb-user { position: relative; }
-.cb-user-btn { display: flex; align-items: center; gap: var(--space-3); width: 100%; padding: var(--space-2); border: 0; border-radius: var(--radius-md); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
-.cb-user-btn:hover { background: var(--surface-hover); }
-.cb-user-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-.cb-user-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cb-user-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + var(--space-2)); padding: var(--space-1); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); box-shadow: var(--shadow-pop); }
-.cb-user-menu button { display: flex; align-items: center; gap: var(--space-2); width: 100%; padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
-.cb-user-menu button:hover { background: var(--surface-hover); }
-.cb-float-left { right: auto; left: var(--space-6); }
 .cb-model-select { flex: 0 1 auto; min-width: 0; max-width: 260px; }
 .cb-model-select .cb-sel-trigger { min-width: 0; white-space: nowrap; }
 .cb-model-select .cb-sel-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -150,7 +140,6 @@
 .cb-diff [data-kind='del'] { background: var(--danger-soft); }
 
 /* 侧栏随页面滚动保持在视口内，左下角的账号入口始终可见 */
-.cb-app > .cb-side { position: sticky; top: 0; align-self: flex-start; height: 100vh; overflow-y: auto; }
 /* 复选框与表头左对齐 */
 .cb-tree-row > input[type="checkbox"] { justify-self: start; margin: 0; }
 
@@ -248,8 +237,6 @@
 .cb-eval-question { font-size: 15px; line-height: 24px; font-weight: 500; }
 .cb-eval-answer { padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--surface-sunken); line-height: 22px; }
 .cb-eval-dialog .cb-table-wrap { max-height: 240px; overflow: auto; }
-.cb-stat-success b { color: var(--success); }
-.cb-stat-danger b { color: var(--danger); }
 .cb-eval-table th, .cb-eval-table td { white-space: nowrap; vertical-align: top; }
 .cb-eval-table td.cb-wrap, .cb-eval-detail > td { white-space: normal; }
 .cb-eval-history th, .cb-eval-history td { white-space: nowrap; }

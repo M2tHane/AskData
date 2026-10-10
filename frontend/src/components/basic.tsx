@@ -112,40 +112,6 @@ export function Segmented<T extends string>(props: {
   )
 }
 
-export interface NavGroup {
-  label: string
-  items: { id: string; label: string; icon?: IconName; count?: number }[]
-}
-
-export function Sidebar(props: { groups: NavGroup[]; active: string; onNavigate: (id: string) => void; footer?: ReactNode }) {
-  return (
-    <nav className="cb-side" aria-label="主导航">
-      <div className="cb-brand">
-        <span className="cb-brand-mark">BI</span>ChatBI
-      </div>
-      {props.groups.map((g) => (
-        <div className="cb-nav-group" key={g.label}>
-          <div className="cb-eyebrow">{g.label}</div>
-          {g.items.map((it) => (
-            <button
-              key={it.id}
-              type="button"
-              className="cb-nav"
-              aria-current={props.active === it.id ? 'page' : undefined}
-              onClick={() => props.onNavigate(it.id)}
-            >
-              <Icon name={it.icon ?? 'info'} />
-              <span>{it.label}</span>
-              {it.count ? <span className="cb-badge cb-count">{it.count}</span> : null}
-            </button>
-          ))}
-        </div>
-      ))}
-      {props.footer ? <div className="cb-side-foot">{props.footer}</div> : null}
-    </nav>
-  )
-}
-
 export function Panel(props: {
   title?: string
   eyebrow?: string
