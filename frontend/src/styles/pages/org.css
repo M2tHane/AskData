@@ -1,1 +1,11 @@
 /* org page — page-specific rules only; shared rules live in components.css. */
+.cb-org-manage { max-width: none; }
+.cb-org-inline { display: flex; align-items: center; gap: var(--space-2); }
+.cb-org-inline > .cb-field { flex: 1; min-width: 0; }
+.cb-org-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.cb-org-bar .cb-select, .cb-org-bar > :last-child { min-width: 200px; }
+.cb-org-members { border: 1px solid var(--border); border-radius: var(--radius-panel); max-height: 280px; overflow: auto; }
+.cb-org-members .cb-data th:first-child, .cb-org-members .cb-data td:first-child { padding-left: var(--space-3); }
+.cb-org-members .cb-data th:last-child, .cb-org-members .cb-data td:last-child { padding-right: var(--space-3); }
+.cb-org-members .cb-data tbody tr:last-child td { border-bottom: 0; }
+.cb-org-members .cb-actions { gap: var(--space-2); }
