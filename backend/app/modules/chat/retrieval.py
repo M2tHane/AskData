@@ -1,6 +1,7 @@
 """Business-service adapter for the query pipeline's retrieval protocol."""
 
 import json
+import re
 from typing import Any
 
 from app.core.deps import CurrentUser
@@ -14,6 +15,9 @@ from app.modules.feedback.service import FeedbackService
 from app.modules.metric.service import MetricService, render_template
 from app.modules.schema.service import SchemaService
 from app.modules.semantic.service import SemanticService
+
+# One table or column description in the prompt; longer comments are cut.
+NOTE_LIMIT = 200
 
 
 class ServiceRetrievalIndex:
@@ -182,6 +186,60 @@ class ServiceRetrievalIndex:
         return (
             1.0 if any(name and name.casefold() in question.casefold() for name in names) else 0.0
         )
+
+    async def notes(
+        self, user: CurrentUser, scope: VisibleScope, tables: list[str]
+    ) -> dict[str, str]:
+        """Descriptions of the given visible tables and their visible columns.
+
+        A description that names a hidden table or column is left out, so comments written for
+        the whole schema cannot reveal what this user may not see.
+        """
+        visible = {
+            table.qualified_name: table for table in await self._tables(user, scope.datasource_id)
+        }
+        catalog = await self.schema.catalog(scope.datasource_id)
+        seen = {
+            name.casefold()
+            for table in visible.values()
+            for name in (table.name, *(c.name for c in table.columns))
+        }
+        hidden: set[str] = set()
+        for table in catalog:
+            shown = visible.get(table.qualified_name)
+            if shown is None:
+                hidden.update({table.name.casefold(), table.qualified_name.casefold()})
+            names = {c.name for c in shown.columns} if shown else set()
+            hidden.update(c.name.casefold() for c in table.columns if c.name not in names)
+        hidden -= seen
+        # ASCII boundaries: Chinese text runs straight into a name ("cost为采购成本").
+        leaks = (
+            re.compile(
+                "|".join(
+                    rf"(?<![A-Za-z0-9_.]){re.escape(name)}(?![A-Za-z0-9_])"
+                    for name in sorted(hidden)
+                ),
+                re.IGNORECASE,
+            )
+            if hidden
+            else None
+        )
+
+        def keep(text: str) -> str | None:
+            text = " ".join(text.split())[:NOTE_LIMIT]
+            return text if text and not (leaks and leaks.search(text)) else None
+
+        notes: dict[str, str] = {}
+        for name in tables:
+            described = visible.get(name)
+            if described is None:
+                continue
+            if note := keep(described.description or described.comment):
+                notes[name] = note
+            for column in described.columns:
+                if note := keep(column.description or column.comment):
+                    notes[f"{name}.{column.name}"] = note
+        return notes
 
     async def expand_relations(
         self, user: CurrentUser, scope: VisibleScope, bundle: RetrievalBundle

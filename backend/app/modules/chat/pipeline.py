@@ -304,9 +304,13 @@ class ContextBuilder:
             if pinned_keys:
                 # An explicit @mention settles which metric is meant: no metric ambiguity remains.
                 ambiguities = [a for a in ambiguities if a.question != "请选择指标"]
+        # Indexes without schema descriptions (tests, bootstrap) simply give none.
+        describe = getattr(self.index, "notes", None)
+        notes = await describe(user, scope, list(tables)) if describe else {}
         # Example SQL is still only prompt data; every resulting SQL passes the guard.
         return RetrievalBundle(
             tables=tables,
+            notes=notes,
             items=merged,
             required_conditions=bundle.required_conditions,
             ambiguities=ambiguities,

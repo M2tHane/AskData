@@ -102,10 +102,20 @@ async def test_full_retrieval_uses_live_services_versions_enums_and_approved_exa
         async def browse(self, datasource_id, permissions, *, actor):
             return [
                 SimpleNamespace(
+                    name="orders",
                     qualified_name="orders",
-                    columns=[SimpleNamespace(id=1, name="id", data_type="BIGINT")],
+                    comment="",
+                    description="",
+                    columns=[
+                        SimpleNamespace(
+                            id=1, name="id", data_type="BIGINT", comment="", description=""
+                        )
+                    ],
                 )
             ]
+
+        async def catalog(self, datasource_id):
+            return await self.browse(datasource_id, None, actor=None)
 
         async def relations(self, datasource_id, permissions, *, actor):
             return []

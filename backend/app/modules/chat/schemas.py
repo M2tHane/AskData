@@ -185,6 +185,9 @@ class RetrievalBundle(BaseModel):
     pinned: list[str] = Field(default_factory=list)
     # Terms defined at several levels: name -> the level (platform/team/personal) in effect.
     definition_levels: dict[str, str] = Field(default_factory=dict)
+    # What the database (or an admin) says a visible table or column means, keyed "schema.table"
+    # or "schema.table.column". Untrusted text: it never names a hidden table or column.
+    notes: dict[str, str] = Field(default_factory=dict)
 
 
 class QueryReply(BaseModel):
