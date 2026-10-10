@@ -34,9 +34,9 @@ export async function chartToPng(svg: SVGSVGElement, title: string, scale = 2): 
     const ctx = canvas.getContext('2d')
     if (!ctx) throw new Error('当前浏览器不支持导出图片')
     ctx.scale(scale, scale)
-    ctx.fillStyle = root.getPropertyValue('--surface').trim() || 'white'
+    ctx.fillStyle = root.getPropertyValue('--bg-card').trim() || 'white'
     ctx.fillRect(0, 0, width, height + HEADER_HEIGHT)
-    ctx.fillStyle = root.getPropertyValue('--ink').trim() || 'black'
+    ctx.fillStyle = root.getPropertyValue('--text-1').trim() || 'black'
     ctx.font = `600 14px ${getComputedStyle(document.body).fontFamily}`
     ctx.textBaseline = 'middle'
     ctx.fillText(title, 12, HEADER_HEIGHT / 2)

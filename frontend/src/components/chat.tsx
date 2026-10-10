@@ -7,8 +7,6 @@ import { Icon } from './Icon'
 import { Select } from './Select'
 import type { FeedbackInput } from '../api/types'
 
-const cx = (...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(' ')
-
 /* ---------- Composer ---------- */
 export interface MentionMetric {
   id: number
@@ -691,7 +689,7 @@ export function FeedbackBar(props: {
   )
 }
 
-/* ---------- RunList (query log rows) ---------- */
+/* ---------- Run status ---------- */
 export type RunStatus = 'ok' | 'blocked' | 'error' | 'fixed' | 'clarify' | 'cancelled'
 const RUN_TONE: Record<RunStatus, ['success' | 'danger' | 'warning' | 'info' | 'neutral', string, 'check' | 'shield' | 'x' | 'refresh' | 'help']> = {
   ok: ['success', '成功', 'check'],
@@ -708,47 +706,6 @@ export function RunStatusBadge({ status }: { status: RunStatus }) {
     <Badge tone={tone} icon={icon}>
       {label}
     </Badge>
-  )
-}
-
-export function RunList(props: {
-  rows: { key: number; status: RunStatus; question: string; reason?: string; detail?: string; user?: string; id: string; time: string }[]
-  onOpen?: (key: number) => void
-}) {
-  return (
-    <table className="cb-runs">
-      <thead>
-        <tr>
-          <th>状态</th>
-          <th>问题</th>
-          {props.rows.some((r) => r.user != null) ? <th>用户</th> : null}
-          <th>编号</th>
-          <th>时间</th>
-          <th />
-        </tr>
-      </thead>
-      <tbody>
-        {props.rows.map((r) => (
-          <tr key={r.key}>
-            <td style={{ width: 1 }}>
-              <RunStatusBadge status={r.status} />
-            </td>
-            <td>
-              <div className="q">{r.question}</div>
-              {r.reason ? <div className="reason">{r.reason}</div> : <div className={cx('cb-muted')}>{r.detail}</div>}
-            </td>
-            {r.user != null ? <td className="t">{r.user}</td> : null}
-            <td className="t cb-mono">{r.id}</td>
-            <td className="t">{r.time}</td>
-            <td style={{ textAlign: 'right', width: 1, whiteSpace: 'nowrap' }}>
-              <button type="button" className="cb-link" onClick={() => props.onOpen?.(r.key)}>
-                查看
-              </button>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
   )
 }
 
