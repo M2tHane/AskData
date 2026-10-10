@@ -52,7 +52,7 @@ description: 把一个模块或功能做"完整"的工作方法：先推演用�
 
 - 后端：schema、service、api、权限检查、审计；数据库变化要有 migration（并同步测试夹具）。
 - 接口类型：重新生成 `backend/openapi.json` 和 `frontend/src/api/schema.d.ts`。
-- 前端：所有入口、所有状态的展示、错误提示、加载态；遵守 `chatbi-design-system` 技能（先读它）。
+- 前端：所有入口、所有状态的展示、错误提示、加载态；遵守 `docs/ui-kit/`（先读 `DESIGN.md`）。
 - 测试：后端为新的状态转换、并发/中断、权限写测试；前端纯函数写单测。
 - 部署：后端代码打包在镜像里，改了必须重建容器（见 [askdata.md](askdata.md)），否则浏览器里看到的是旧行为。
 

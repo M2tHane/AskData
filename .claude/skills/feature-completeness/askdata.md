@@ -38,7 +38,7 @@
   cd ../frontend && pnpm -s gen:api
   ```
 
-- 前端：先读 `chatbi-design-system` 技能；组件在 `frontend/src/components/`（`basic.tsx` 的 Button/Badge/Tabs/Panel/TextField/Callout，`Dialog`/`DialogFooter`、`Select`、`MultiSelect`、`Pager`、`useToast`）；样式用 token 变量，写在 `frontend/src/styles/app.css`；时长用 `lib/format.ts` 的 `formatSpan`/`formatMs`。
+- 前端：先读 `docs/ui-kit/DESIGN.md`；组件在 `frontend/src/components/`（`basic.tsx` 的 Button/Badge/Tabs/Segmented/Panel/TextField/Callout/ScopeTag，`Dialog`/`Drawer`/`ConfirmDialog`/`UnsavedDialog`、`Select`、`MultiSelect`、`Pager`、`ListStates`、`useToast`）；样式只用 `styles/tokens.css` 的变量，页面样式写在 `frontend/src/styles/pages/<页面>.css`；时长用 `lib/format.ts` 的 `formatSpan`/`formatMs`。
 - 进行中的数据用 react-query `refetchInterval` 轮询，结束后返回 `false` 停止。
 
 ## 检查命令
