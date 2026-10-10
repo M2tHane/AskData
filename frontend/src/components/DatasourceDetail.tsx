@@ -17,7 +17,7 @@ import {
   type VState,
 } from '../lib/visibility'
 import { Badge, Button, Callout, TextField } from './basic'
-import { Dialog, DialogFooter } from './Dialog'
+import { Drawer, UnsavedDialog } from './Dialog'
 import { Icon } from './Icon'
 import { MultiSelect } from './MultiSelect'
 import { ScopeChips } from './ScopeChips'
@@ -34,6 +34,8 @@ export function DatasourceDetail(props: { datasource: DatasourceRead; onClose: (
   const loadError = tables.error ?? vis.error
   const [open, setOpen] = useState<Set<number>>(new Set())
   const [q, setQ] = useState('')
+  const [onlyCustom, setOnlyCustom] = useState(false)
+  const [leaving, setLeaving] = useState(false)
 
   const base = useMemo(() => (vis.data ? fromRead(vis.data) : null), [vis.data])
   const [draft, setDraft] = useState<{ key: number; state: VState } | null>(null)
@@ -53,18 +55,37 @@ export function DatasourceDetail(props: { datasource: DatasourceRead; onClose: (
       if (!next.delete(id)) next.add(id)
       return next
     })
-  const list = (tables.data ?? []).filter((t) => t.name.toLowerCase().includes(q.trim().toLowerCase()))
+  const list = (tables.data ?? []).filter(
+    (t) => t.name.toLowerCase().includes(q.trim().toLowerCase()) && (!onlyCustom || (state?.tables[t.id] && (state.tables[t.id]?.custom || Object.values(state.tables[t.id]?.columns ?? {}).some((c) => c.custom)))),
+  )
+  const allOpen = list.length > 0 && list.every((t) => open.has(t.id))
   const submit = () =>
     state &&
     save.mutate(toWrite(state), {
       onSuccess: () => {
-        toast({ tone: 'success', title: '可见范围已保存' })
+        toast({ tone: 'success', title: '可见范围已保存', message: ds.name })
         props.onClose()
       },
     })
+  // 有未保存的修改时，关闭前先问。
+  const close = () => (dirty ? setLeaving(true) : props.onClose())
 
   return (
-    <Dialog title={`${ds.name} · 可见范围`} size="xl" onClose={props.onClose}>
+    <Drawer
+      title={`${ds.name} · 可见范围`}
+      wide
+      onClose={close}
+      footer={
+        <>
+          {dirty ? <Badge tone="warning">有未保存的修改</Badge> : null}
+          <span className="cb-spacer" />
+          <Button onClick={close}>取消</Button>
+          <Button variant="primary" disabled={!dirty || save.isPending} onClick={submit}>
+            保存
+          </Button>
+        </>
+      }
+    >
       <div className="cb-scope-bar">
         <span className="cb-scope-label">可见范围</span>
         <ScopeChips label="数据源可见范围" pool={pool} value={state?.teams ?? []} disabled={!state} onChange={(ids) => edit((s) => setDatasourceTeams(s, ids))} />
@@ -73,15 +94,23 @@ export function DatasourceDetail(props: { datasource: DatasourceRead; onClose: (
           <Button size="sm" variant="ghost" onClick={() => edit(resetAll)}>全部恢复继承</Button>
         ) : null}
       </div>
-      <Callout tone="info">
-        表和字段默认继承这里的可见范围，新同步或新上传的表和字段也一样。展开表后可以单独调整某张表或某个字段，调整后数据源会显示为「自定义」。团队负责人在各自团队的范围内，再决定哪些对员工可见。修改在点「保存」后生效。
-      </Callout>
+      <p className="cb-muted">表和字段默认继承这里的可见范围，新同步或新上传的也一样。展开表后可以单独调整某张表或某个字段。团队负责人在各自团队的范围内，再决定哪些对员工可见。修改在点「保存」后生效。</p>
       {ds.status === 'disabled' ? <Callout tone="warning">这个数据源已停用，暂时没人能查。可以先调整字段的可见范围，重新启用后生效。</Callout> : null}
       {!pool.length && teams.data ? <Callout tone="warning">还没有启用的团队，先到「团队与成员」添加团队。</Callout> : null}
       {loadError ? <Callout tone="danger" title="表结构加载失败">{describeError(loadError instanceof ApiError ? loadError.code : undefined)}</Callout> : null}
       {save.error instanceof ApiError ? <Callout tone="danger">{describeError(save.error.code)}</Callout> : null}
-      <div className="cb-toolbar">
-        <TextField aria-label="筛选表" placeholder="按表名筛选" icon="search" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="cb-filters">
+        <div className="cb-search">
+          <TextField aria-label="筛选表" placeholder="按表名筛选" icon="search" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <span className="cb-spacer" />
+        <label>
+          <input type="checkbox" checked={onlyCustom} onChange={(e) => setOnlyCustom(e.target.checked)} />
+          只看自定义
+        </label>
+        <Button size="sm" variant="ghost" onClick={() => setOpen(allOpen ? new Set() : new Set(list.map((t) => t.id)))}>
+          {allOpen ? '全部收起' : '全部展开'}
+        </Button>
       </div>
       <div className="cb-tree-scroll">
         <div className="cb-tree-head" role="row">
@@ -156,12 +185,19 @@ export function DatasourceDetail(props: { datasource: DatasourceRead; onClose: (
               )
             })
           : null}
-        {tables.data && !list.length ? <div className="cb-muted" style={{ padding: 'var(--space-4)' }}>{q ? '没有匹配的表。' : '还没有元数据，关闭后点「同步」获取表结构。'}</div> : null}
+        {tables.data && !list.length ? <div className="cb-muted cb-tree-empty">{q || onlyCustom ? '没有符合条件的表。' : '还没有元数据，关闭后点「同步」获取表结构。'}</div> : null}
       </div>
-      <DialogFooter left={dirty ? <Badge tone="warning" icon="alert">有未保存的修改</Badge> : null}>
-        <Button variant="ghost" onClick={props.onClose}>取消</Button>
-        <Button variant="primary" disabled={!dirty || save.isPending} onClick={submit}>保存</Button>
-      </DialogFooter>
-    </Dialog>
+      {leaving ? (
+        <UnsavedDialog
+          onStay={() => setLeaving(false)}
+          onDiscard={props.onClose}
+          saving={save.isPending}
+          onSave={() => {
+            setLeaving(false)
+            submit()
+          }}
+        />
+      ) : null}
+    </Drawer>
   )
 }

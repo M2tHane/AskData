@@ -10,6 +10,16 @@ import './styles/legacy-aliases.css'
 import './styles/components.css'
 import './styles/app.css'
 import './styles/chat.css'
+import './styles/pages/semantic.css'
+import './styles/pages/metrics.css'
+import './styles/pages/feedback.css'
+import './styles/pages/logs.css'
+import './styles/pages/eval.css'
+import './styles/pages/org.css'
+import './styles/pages/models.css'
+import './styles/pages/usage.css'
+import './styles/pages/prompts.css'
+import './styles/pages/permissions.css'
 
 initTheme()
 

@@ -107,3 +107,23 @@ export function ListStatus(props: {
   if (props.count === 0) return props.filtered ? <NoResults query={props.query} onClear={props.onClear} /> : <>{props.empty}</>
   return <>{props.children}</>
 }
+
+/**
+ * 列表卡片：高度不随行数变化，撑到距窗口底边 120px 处，各页底边对齐；
+ * 内容多时在卡片内滚动、表头吸顶，分页条贴在卡片底部。
+ */
+export function ListCard(props: { title?: ReactNode; actions?: ReactNode; toolbar?: ReactNode; pager?: ReactNode; className?: string; label?: string; children: ReactNode }) {
+  return (
+    <section className={['cb-panel cb-listcard', props.className].filter(Boolean).join(' ')} aria-label={props.label}>
+      {props.title || props.actions ? (
+        <div className="cb-panel-head">
+          {props.title ? <h3 className="cb-h">{props.title}</h3> : <span />}
+          {props.actions}
+        </div>
+      ) : null}
+      {props.toolbar ? <div className="cb-listcard-tools">{props.toolbar}</div> : null}
+      <div className="cb-listcard-scroll">{props.children}</div>
+      {props.pager}
+    </section>
+  )
+}

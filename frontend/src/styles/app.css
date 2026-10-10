@@ -26,8 +26,6 @@
 .cb-kind:hover { background: var(--surface-hover); }
 .cb-kind img { width: var(--space-10); height: var(--space-10); object-fit: contain; }
 .cb-kind-sm img { width: var(--space-6); height: var(--space-6); }
-.cb-kindtag { display: inline-flex; align-items: center; gap: var(--space-2); }
-.cb-kindtag img { width: var(--space-5); height: var(--space-5); object-fit: contain; }
 .cb-tree-head, .cb-tree-row { display: grid; grid-template-columns: minmax(0, 1fr) 160px minmax(0, 1.2fr); align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--line); }
 .cb-tree-head { color: var(--ink-muted); font-weight: 500; background: var(--surface-sunken); position: sticky; top: 0; }
 .cb-tree-table { background: var(--surface); }
@@ -121,10 +119,7 @@
 .cb-upload-cols td { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cb-upload-cols .cb-input { min-width: 140px; }
 /* 启用/停用开关：放在行内操作的最后 */
-.cb-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: var(--space-1); }
 /* 停用的行：名称等文字变灰，操作仍可用 */
-.cb-row-off > td:not(:last-child) { color: var(--ink-muted); }
-.cb-row-off > td:not(:last-child) img { opacity: .55; }
 .cb-nowrap { white-space: nowrap; }
 .cb-nowrap .cb-badge { margin-left: var(--space-2); }
 .cb-meter-row { display: flex; align-items: center; gap: var(--space-3); }
