@@ -21,3 +21,9 @@ export function canEdit(item: { scope: ScopeLevel; status: string }, role: Role)
 }
 
 export const STATUS_LABEL: Record<string, string> = { private: '私有', pending: '待审核', team: '团队', active: '已生效' }
+
+/** 本级之上的继承链，按优先级从高到低：员工 → 团队 → 平台；管理员改的是最上一级。 */
+export const UPPER_LEVELS: Record<ScopeLevel, ScopeLevel[]> = { personal: ['team', 'platform'], team: ['platform'], platform: [] }
+
+/** 「沿用团队」「恢复为平台」里的级别简称。 */
+export const LEVEL_SHORT: Record<ScopeLevel, string> = { platform: '平台', team: '团队', personal: '我的' }
