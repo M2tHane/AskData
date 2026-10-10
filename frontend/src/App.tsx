@@ -5,6 +5,7 @@ import { fetchMe, logout } from './api/hooks'
 import { navFor, ROUTES } from './lib/nav'
 import { useAuth } from './state/auth'
 import { ChatPage } from './pages/ChatPage'
+import { DashboardPage } from './pages/DashboardPage'
 import { DatasourcesPage } from './pages/DatasourcesPage'
 import { EvalPage } from './pages/EvalPage'
 import { FeedbackPage } from './pages/FeedbackPage'
@@ -43,6 +44,7 @@ export function App() {
   if (!active) return null
 
   const pages: Record<string, JSX.Element> = {
+    dashboard: <DashboardPage />,
     datasources: <DatasourcesPage />,
     permissions: <PermissionsPage teamId={user.team_id ?? null} />,
     org: <OrgPage />,

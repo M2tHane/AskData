@@ -509,3 +509,13 @@ label.cb-full { display: flex; align-items: center; gap: var(--space-2); font: 5
 .cb-row-off > td:not(:last-child) img { opacity: .55; }
 .cb-tree-empty { padding: var(--space-4); }
 .cb-drawer-foot > .cb-spacer { flex: 1; }
+
+/* Dashboard */
+.cb-dash { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.cb-dcard { display: flex; flex-direction: column; min-height: 300px; }
+.cb-dcard-head { display: flex; align-items: flex-start; gap: var(--space-1); padding: var(--space-3) 10px 0 var(--space-4); }
+.cb-dcard-head > div { flex: 1; min-width: 0; }
+.cb-dcard-head b { display: block; font: 600 14px/20px var(--font-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-dcard-body { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; padding: var(--space-2) var(--space-4) var(--space-3-5); }
+.cb-kpi b.cb-dcard-kpi { font-size: 36px; line-height: 44px; }
+@media (max-width: 1100px) { .cb-dash { grid-template-columns: 1fr; } }
