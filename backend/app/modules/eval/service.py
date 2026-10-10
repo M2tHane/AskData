@@ -525,6 +525,17 @@ class EvalService:
                         exact_code=False,
                     )
                 except AppError as error:
+                    current = asyncio.current_task()
+                    if (
+                        error.code == ErrorCode.QUERY_CANCELLED
+                        and current is not None
+                        and current.cancelling()
+                    ):
+                        # The worker itself is being stopped (job timeout, shutdown) mid-question.
+                        # The pipeline reports that as an error; scoring it would record a failure
+                        # the model never made, and a resume would skip it. Stop the run here and
+                        # leave the question unanswered.
+                        raise
                     result = Evaluation(
                         case_id=case.id,
                         category=case.category,

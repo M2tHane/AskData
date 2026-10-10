@@ -82,5 +82,7 @@ class WorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url.get_secret_value())
-    job_timeout = 600
+    # One eval run is one job: 100 questions at 15-30 s each is 25-50 minutes. Each model call,
+    # query and sync step has its own timeout; this only backstops a job that hangs outright.
+    job_timeout = 3 * 3600
     max_jobs = 10

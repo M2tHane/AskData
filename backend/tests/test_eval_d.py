@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -410,6 +411,63 @@ async def test_stop_resume_and_delete_run(d_database):  # noqa: F811
         with pytest.raises(AppError) as gone:
             await service.results(run.id, actor=admin)
         assert gone.value.code == ErrorCode.NOT_FOUND
+
+
+async def test_worker_cancellation_mid_question_leaves_it_for_resume(d_database):  # noqa: F811
+    assets = EvalAssets(ROOT / "eval")
+    store = MemoryTaskStore()
+    tasks = TaskManager(store, MemoryQueue(), {})
+    admin = CurrentUser(id=1, role=Role.ADMIN)
+    data = result(["count"], [[3]])
+
+    class Reference:
+        async def result(self, question):
+            return data
+
+    async with d_database.session() as session:
+
+        class Pipeline:
+            asked: list[str] = []
+            job: asyncio.Task[None] | None = None
+
+            async def run(self, question, config):
+                self.asked.append(question.case_id)
+                if question.case_id == "b" and self.job is not None:
+                    # The queue cancels the job; like the chat pipeline, report it as an error.
+                    self.job.cancel()
+                    try:
+                        await asyncio.sleep(1)
+                    except asyncio.CancelledError:
+                        raise AppError(ErrorCode.QUERY_CANCELLED) from None
+                return PipelineOutcome(
+                    status="success", executed_queries=1, result=data, duration_ms=5
+                )
+
+        pipeline = Pipeline()
+        service = EvalService(
+            EvalRepository(session),
+            assets,
+            pipeline,
+            Reference(),
+            AuditService(DatabaseAuditStore(session)),
+            tasks,
+        )
+        tasks.handlers["eval.run"] = service.run
+        for name in ("a", "b", "c"):
+            await service.save_case(case(id=name), actor=admin)
+        run = await service.start(RunRequest(model_id="fixed"), actor=admin)
+        pipeline.job = asyncio.create_task(tasks.run(run.task_id))
+        await asyncio.gather(pipeline.job, return_exceptions=True)
+        stopped = await service.get(run.id, actor=admin)
+        # "b" was interrupted, not failed: nothing is recorded for it.
+        assert stopped.status == "failed" and stopped.done == 1
+        assert [r.case_id for r in await service.results(run.id, actor=admin)] == ["a"]
+        pipeline.job = None
+        resumed = await service.resume(run.id, actor=admin)
+        await tasks.run(resumed.task_id)
+        assert pipeline.asked == ["a", "b", "b", "c"]
+        finished = await service.get(run.id, actor=admin)
+        assert finished.status == "success" and finished.summary["passed"] == 3
 
 
 def test_module_routers_generate_openapi_without_binding_chat():
