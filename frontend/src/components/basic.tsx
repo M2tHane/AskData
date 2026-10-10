@@ -1,5 +1,5 @@
-import { useId, useState } from 'react'
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, CSSProperties } from 'react'
+import { useId, useRef, useState } from 'react'
+import type { ButtonHTMLAttributes, InputHTMLAttributes, KeyboardEvent, ReactNode, CSSProperties } from 'react'
 import { Icon, type IconName } from './Icon'
 
 const cx = (...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(' ')
@@ -9,17 +9,19 @@ export type Tone = 'neutral' | 'success' | 'danger' | 'warning' | 'info' | 'acce
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger'
-  size?: 'md' | 'sm'
+  /** sm：表格行内；lg：只在登录页用。 */
+  size?: 'md' | 'sm' | 'lg'
+  block?: boolean
   icon?: IconName
 }
 
-export function Button({ variant = 'secondary', size, icon, className, children, ...rest }: ButtonProps) {
+export function Button({ variant = 'secondary', size, block, icon, className, children, ...rest }: ButtonProps) {
   const iconOnly = !children && icon
   return (
     <button
       type="button"
       {...rest}
-      className={cx('cb-btn', `cb-btn-${variant}`, size === 'sm' && 'cb-btn-sm', iconOnly && 'cb-btn-icon', className)}
+      className={cx('cb-btn', `cb-btn-${variant}`, size === 'sm' && 'cb-btn-sm', size === 'lg' && 'cb-btn-lg', block && 'cb-btn-block', iconOnly && 'cb-btn-icon', className)}
     >
       {icon ? <Icon name={icon} size={size === 'sm' ? 'sm' : undefined} /> : null}
       {children}
@@ -30,7 +32,7 @@ export function Button({ variant = 'secondary', size, icon, className, children,
 export function Badge(props: { tone?: Tone; icon?: IconName; mono?: boolean; outline?: boolean; children?: ReactNode }) {
   const { tone = 'neutral', icon, mono, outline, children } = props
   return (
-    <span className={cx('cb-badge', `cb-badge-${tone}`, mono && 'cb-badge-mono', outline && 'cb-badge-outline')}>
+    <span className={cx('cb-badge', `cb-badge-${tone}`, mono && 'cb-badge-mono', outline && 'cb-badge-outline', icon && 'cb-badge-icon')}>
       {icon ? <Icon name={icon} size="sm" /> : null}
       {children}
     </span>
@@ -55,20 +57,55 @@ export interface TabItem {
 }
 
 export function Tabs(props: { items: TabItem[]; value: string; onChange: (id: string) => void; label?: string }) {
+  const refs = useRef<Array<HTMLButtonElement | null>>([])
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const i = props.items.findIndex((it) => it.id === props.value)
+    const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
+    const to = e.key === 'Home' ? 0 : e.key === 'End' ? props.items.length - 1 : step ? (i + step + props.items.length) % props.items.length : -1
+    const next = props.items[to]
+    if (!next) return
+    e.preventDefault()
+    props.onChange(next.id)
+    refs.current[to]?.focus()
+  }
   return (
-    <div className="cb-tabs" role="tablist" aria-label={props.label}>
-      {props.items.map((it) => (
+    <div className="cb-tabs" role="tablist" aria-label={props.label} onKeyDown={onKeyDown}>
+      {props.items.map((it, i) => (
         <button
           key={it.id}
+          ref={(el) => {
+            refs.current[i] = el
+          }}
           type="button"
           role="tab"
           className="cb-tab"
           aria-selected={props.value === it.id}
+          tabIndex={props.value === it.id ? 0 : -1}
           onClick={() => props.onChange(it.id)}
         >
           {it.icon ? <Icon name={it.icon} size="sm" /> : null}
           {it.label}
           {it.count != null ? <span className="cb-num">{it.count}</span> : null}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** 分段控件：同一份数据的几个视角（2–6 个，每个不超过 6 个字）。 */
+export function Segmented<T extends string>(props: {
+  items: { id: T; label: ReactNode; icon?: IconName; title?: string }[]
+  value: T
+  onChange: (id: T) => void
+  label: string
+  className?: string
+}) {
+  return (
+    <div className={cx('cb-seg', props.className)} role="group" aria-label={props.label}>
+      {props.items.map((it) => (
+        <button key={it.id} type="button" aria-pressed={props.value === it.id} title={it.title} onClick={() => props.onChange(it.id)}>
+          {it.icon ? <Icon name={it.icon} size="sm" /> : null}
+          {it.label}
         </button>
       ))}
     </div>
@@ -144,15 +181,20 @@ export interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
 export function TextField({ label, hint, error, icon, suffix, id, ...rest }: TextFieldProps) {
   const auto = useId()
   const fieldId = id ?? auto
+  const hintId = `${fieldId}-hint`
   return (
-    <div className={cx('cb-field', error && 'cb-field-error')}>
+    <div className="cb-field" data-state={error ? 'error' : undefined}>
       {label ? <label htmlFor={fieldId}>{label}</label> : null}
       <div className="cb-input">
         {icon ? <Icon name={icon} /> : null}
-        <input id={fieldId} aria-invalid={error ? true : undefined} {...rest} />
+        <input id={fieldId} aria-invalid={error ? true : undefined} aria-describedby={error || hint ? hintId : undefined} {...rest} />
         {suffix}
       </div>
-      {error || hint ? <div className="cb-field-hint">{error ?? hint}</div> : null}
+      {error || hint ? (
+        <div className="cb-field-hint" id={hintId}>
+          {error ?? hint}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -214,7 +256,7 @@ export function Trace({ steps }: { steps: { status?: 'ok' | 'fail' | 'retry' | '
   )
 }
 
-/** 启用/停用开关：绿色为启用，灰色为停用。label 是读屏用的对象名，如「销售团队」。 */
+/** 启用/停用开关：打开为品牌橙，关闭为灰。label 是读屏用的对象名，如「销售团队」。 */
 export function Switch(props: { checked: boolean; onChange: (next: boolean) => void; label: string; disabled?: boolean; title?: string }) {
   return (
     <button

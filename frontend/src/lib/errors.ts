@@ -84,9 +84,12 @@ export function codeFromMessage(content: string): ErrorCode | undefined {
 export class ApiError extends Error {
   readonly code: ErrorCode | string
   readonly status: number
-  constructor(code: ErrorCode | string, status: number) {
+  /** 后端回的 X-Request-ID，方便对照查询日志排查。 */
+  readonly requestId?: string
+  constructor(code: ErrorCode | string, status: number, requestId?: string) {
     super(describeError(code))
     this.code = code
     this.status = status
+    this.requestId = requestId ?? undefined
   }
 }

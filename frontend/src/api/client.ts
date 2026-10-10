@@ -80,7 +80,7 @@ export async function api<T>(
   }
   if (!res.ok || !body || body.code !== 'OK') {
     if (res.status === 401) useAuth.getState().clear()
-    throw new ApiError(body?.code ?? 'INTERNAL_ERROR', res.status)
+    throw new ApiError(body?.code ?? 'INTERNAL_ERROR', res.status, res.headers?.get?.('X-Request-ID') ?? undefined)
   }
   return body.data as T
 }

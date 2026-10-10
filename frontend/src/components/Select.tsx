@@ -17,22 +17,30 @@ interface Props<T extends string | number> {
   placeholder?: string
   disabled?: boolean
   size?: 'md' | 'sm'
+  /** quiet：无框，用于页头里的设置类下拉。 */
+  variant?: 'default' | 'quiet'
+  /** 选项多时在面板顶部放搜索框；默认超过 8 项自动出现。 */
+  searchable?: boolean
   className?: string
   id?: string
 }
 
 /** 平台统一的下拉框：不使用浏览器原生样式，支持键盘（上下键、回车、Esc、Home/End）。 */
 export function Select<T extends string | number>(props: Props<T>) {
-  const { value, onChange, options, placeholder = '请选择', disabled, size = 'md' } = props
+  const { value, onChange, placeholder = '请选择', disabled, size = 'md' } = props
   const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
   const [active, setActive] = useState(0)
+  const searchable = props.searchable ?? props.options.length > 8
+  const needle = q.trim().toLowerCase()
+  const options = needle ? props.options.filter((o) => `${o.label} ${o.hint ?? ''}`.toLowerCase().includes(needle)) : props.options
   const [rect, setRect] = useState<{ left: number; top: number; width: number; above: boolean } | null>(null)
   const root = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
-  const menu = useRef<HTMLUListElement>(null)
+  const menu = useRef<HTMLDivElement>(null)
   const listId = useId()
-  const selectedIndex = options.findIndex((o) => o.value === value)
-  const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined
+  const selectedIndex = props.options.findIndex((o) => o.value === value)
+  const selected = selectedIndex >= 0 ? props.options[selectedIndex] : undefined
 
   const show = () => {
     if (disabled) return
@@ -41,6 +49,7 @@ export function Select<T extends string | number>(props: Props<T>) {
       const room = window.innerHeight - r.bottom
       setRect({ left: r.left, top: room < 260 && r.top > room ? r.top : r.bottom, width: r.width, above: room < 260 && r.top > room })
     }
+    setQ('')
     setActive(Math.max(selectedIndex, 0))
     setOpen(true)
   }
@@ -106,7 +115,7 @@ export function Select<T extends string | number>(props: Props<T>) {
   }
 
   return (
-    <div ref={root} className={['cb-sel', props.className].filter(Boolean).join(' ')}>
+    <div ref={root} className={['cb-sel', props.variant === 'quiet' && 'cb-sel-quiet', props.className].filter(Boolean).join(' ')}>
       <button
         ref={trigger}
         id={props.id}
@@ -126,35 +135,55 @@ export function Select<T extends string | number>(props: Props<T>) {
       </button>
       {open && rect
         ? createPortal(
-        <ul
-          ref={menu}
-          id={listId}
-          role="listbox"
-          className="cb-sel-list"
-          style={{ left: rect.left, minWidth: rect.width, ...(rect.above ? { bottom: window.innerHeight - rect.top + 4 } : { top: rect.top + 4 }) }}
-        >
-          {options.length === 0 ? <li className="cb-sel-empty">没有可选项</li> : null}
-          {options.map((o, i) => (
-            <li
-              key={String(o.value)}
-              role="option"
-              aria-selected={o.value === value}
-              aria-disabled={o.disabled || undefined}
-              data-active={i === active || undefined}
-              onMouseEnter={() => setActive(i)}
-              onMouseDown={(e) => {
-                e.preventDefault()
-                pick(o)
-              }}
+            <div
+              ref={menu}
+              className="cb-sel-pop"
+              style={{ left: rect.left, minWidth: rect.width, ...(rect.above ? { bottom: window.innerHeight - rect.top + 4 } : { top: rect.top + 4 }) }}
             >
-              <span>{o.label}</span>
-              {o.hint ? <small className="cb-muted">{o.hint}</small> : null}
-              {o.value === value ? <Icon name="check" size="sm" /> : null}
-            </li>
-          ))}
-        </ul>,
-          document.body,
-        )
+              {searchable ? (
+                <div className="cb-menu-search">
+                  <Icon name="search" />
+                  <input
+                    type="search"
+                    aria-label="搜索选项"
+                    placeholder="搜索"
+                    value={q}
+                    autoFocus
+                    onChange={(e) => {
+                      setQ(e.target.value)
+                      setActive(0)
+                    }}
+                    onKeyDown={(e) => {
+                      onKeyDown(e)
+                      if (e.key === 'Escape') trigger.current?.focus()
+                    }}
+                  />
+                </div>
+              ) : null}
+              <ul id={listId} role="listbox" aria-label={props.ariaLabel} className="cb-sel-list">
+                {options.length === 0 ? <li className="cb-sel-empty">{needle ? '没有匹配的选项' : '没有可选项'}</li> : null}
+                {options.map((o, i) => (
+                  <li
+                    key={String(o.value)}
+                    role="option"
+                    aria-selected={o.value === value}
+                    aria-disabled={o.disabled || undefined}
+                    data-active={i === active || undefined}
+                    onMouseEnter={() => setActive(i)}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      pick(o)
+                    }}
+                  >
+                    <span>{o.label}</span>
+                    {o.hint ? <small>{o.hint}</small> : null}
+                    {o.value === value ? <Icon name="check" size="sm" /> : null}
+                  </li>
+                ))}
+              </ul>
+            </div>,
+            document.body,
+          )
         : null}
     </div>
   )

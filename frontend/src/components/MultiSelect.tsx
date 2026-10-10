@@ -106,11 +106,14 @@ export function MultiSelect(props: Props) {
         <div
           ref={list}
           id={listId}
-          className="cb-multi-pop"
+          className="cb-sel-pop cb-multi-pop"
           style={{ left: rect.left, minWidth: Math.max(rect.width, 200), ...(rect.above ? { bottom: window.innerHeight - rect.top + 4 } : { top: rect.top + 4 }) }}
         >
           {options.length > 6 ? (
-            <input className="cb-multi-search" aria-label="搜索" placeholder="搜索" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+            <div className="cb-menu-search">
+              <Icon name="search" />
+              <input type="search" aria-label="搜索" placeholder="搜索" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+            </div>
           ) : null}
           <ul role="listbox" aria-multiselectable="true" aria-label={props.ariaLabel}>
             {shown.length === 0 ? <li className="cb-sel-empty">{props.emptyText ?? '没有可选项'}</li> : null}
@@ -119,7 +122,7 @@ export function MultiSelect(props: Props) {
                 <label>
                   <input type="checkbox" checked={chosen.has(o.value)} onChange={() => toggle(o.value)} />
                   <span>{o.label}</span>
-                  {o.hint ? <small className="cb-muted">{o.hint}</small> : null}
+                  {o.hint ? <small className="cb-faint">{o.hint}</small> : null}
                 </label>
               </li>
             ))}

@@ -2,6 +2,8 @@ import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
+import { Tabs } from './components/basic'
+import { Pager, pageItems } from './components/Pager'
 import { Resizer } from './components/Resizer'
 import { Select } from './components/Select'
 import { ToastProvider, useToast } from './components/Toast'
@@ -61,11 +63,12 @@ describe('Toast', () => {
       </ToastProvider>,
     )
     await userEvent.click(screen.getByText('fire'))
-    expect(screen.getByRole('alert')).toHaveTextContent('连接失败')
+    // Toasts live in one polite status region; each card is a .cb-toast.
+    expect(screen.getByRole('status').querySelector('.cb-toast')).toHaveTextContent('连接失败')
     await act(async () => {
       await userEvent.click(screen.getByRole('button', { name: '关闭提示' }))
     })
-    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('status').querySelector('.cb-toast')).toBeNull()
   })
 })
 
@@ -146,6 +149,39 @@ describe('dropdown lists escape transformed dialogs', () => {
     await userEvent.click(screen.getByRole('combobox'))
     const list = screen.getByRole('listbox')
     expect(container.contains(list)).toBe(false)
-    expect(list.parentElement).toBe(document.body)
+    expect(list.closest('.cb-sel-pop')?.parentElement).toBe(document.body)
+  })
+})
+
+describe('Pager', () => {
+  it('lists every page up to 7 and folds the middle with gaps beyond that', () => {
+    expect(pageItems(1, 3)).toEqual([1, 2, 3])
+    expect(pageItems(1, 7)).toEqual([1, 2, 3, 4, 5, 6, 7])
+    expect(pageItems(2, 12)).toEqual([1, 2, 3, 4, 5, null, 12])
+    expect(pageItems(6, 12)).toEqual([1, null, 5, 6, 7, null, 12])
+    expect(pageItems(11, 12)).toEqual([1, null, 8, 9, 10, 11, 12])
+  })
+  it('stays hidden for a single page and jumps on Enter', async () => {
+    const onPage = vi.fn()
+    const { container, rerender } = render(<Pager page={1} total={10} onPage={onPage} />)
+    expect(container).toBeEmptyDOMElement()
+    rerender(<Pager page={1} total={45} onPage={onPage} />)
+    expect(screen.getByText('共 45 条 · 每页 10 条')).toBeInTheDocument()
+    await userEvent.type(screen.getByRole('textbox', { name: /跳至/ }), '9{Enter}')
+    expect(onPage).toHaveBeenLastCalledWith(5)
+    await userEvent.click(screen.getByRole('button', { name: '第 3 页' }))
+    expect(onPage).toHaveBeenLastCalledWith(3)
+  })
+})
+
+describe('Tabs', () => {
+  it('moves between tabs with the arrow keys', async () => {
+    const onChange = vi.fn()
+    render(<Tabs items={[{ id: 'a', label: '甲' }, { id: 'b', label: '乙' }]} value="a" onChange={onChange} />)
+    screen.getByRole('tab', { name: '甲' }).focus()
+    await userEvent.keyboard('{ArrowRight}')
+    expect(onChange).toHaveBeenLastCalledWith('b')
+    await userEvent.keyboard('{ArrowLeft}')
+    expect(onChange).toHaveBeenLastCalledWith('b')
   })
 })
