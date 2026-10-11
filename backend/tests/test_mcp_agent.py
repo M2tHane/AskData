@@ -311,3 +311,80 @@ async def test_a_conversation_goes_on_after_a_turn_timed_out(agent):
     assert again.result.status == "success" and again.result.conversation_id == conversation
     # The follow-up still builds on the answered turn, not on the one that never finished.
     assert logs.records[-1].details["inherited_sql"]
+
+
+async def test_a_choice_outside_the_options_is_refused_and_the_question_stays_open(agent):
+    service, *_ = agent
+    asked = await service.ask(PRINCIPAL, "最近订单", 1, CallRef())
+    conversation = asked.result.conversation_id
+    with pytest.raises(AppError) as invalid:
+        await service.ask(
+            PRINCIPAL, "最近订单", 1, CallRef(), conversation_id=conversation, choice="近一年"
+        )
+    assert invalid.value.code == ErrorCode.VALIDATION_ERROR
+    answered = await service.ask(
+        PRINCIPAL, "最近订单", 1, CallRef(), conversation_id=conversation, choice="近7天"
+    )
+    assert answered.result.status == "success"
+
+
+async def test_a_choice_with_no_open_question_is_a_new_question(agent):
+    service, transport, *_ = agent
+    asked = await service.ask(PRINCIPAL, "最近订单", 1, CallRef())
+    conversation = asked.result.conversation_id
+    await service.ask(
+        PRINCIPAL, "最近订单", 1, CallRef(), conversation_id=conversation, choice="近7天"
+    )
+    # Replaying the same choice cannot answer the clarification twice.
+    again = await service.ask(
+        PRINCIPAL, "上个月订单", 1, CallRef(), conversation_id=conversation, choice="近7天"
+    )
+    assert again.result.status == "success"
+
+
+async def test_run_sql_refuses_several_statements_caps_rows_and_counts(agent):
+    service, _, connector, _, _, access = agent
+    allowed = replace(PRINCIPAL, allow_run_sql=True)
+    stacked = await service.run_sql(
+        allowed, "SELECT id FROM orders; SELECT id FROM orders", 1, CallRef()
+    )
+    assert stacked.is_error and not connector.executed
+    connector.rows = [{"id": n} for n in range(500)]
+    capped = await service.run_sql(allowed, "SELECT id FROM orders", 1, CallRef(), max_rows=20)
+    assert (capped.result.data.returned_rows, capped.result.data.truncated_by) == (20, "rows")
+    assert access.calls == 2
+    access.limit = 2
+    limited = await service.run_sql(allowed, "SELECT id FROM orders", 1, CallRef())
+    assert limited.result.code == "QUOTA_EXCEEDED"
+
+
+async def test_an_admin_test_ask_runs_as_the_connection_and_is_logged_apart(agent):
+    from app.core.deps import CurrentUser as User
+    from app.modules.mcpaccess.schemas import TestAskRequest
+
+    service, _, _, logs, _, access = agent
+
+    async def test_principal(client_id, *, actor):
+        assert actor.role == Role.ADMIN
+        return PRINCIPAL
+
+    access.test_principal = test_principal
+    reply = await service.test(
+        1,
+        TestAskRequest(question="上个月订单", datasource_id=1),
+        actor=User(id=1, role=Role.ADMIN),
+    )
+    assert not reply.is_error and reply.agent["status"] == "success"
+    record = logs.records[-1]
+    assert (record.source, record.mcp_client_id) == ("mcp_test", 1)
+    # Testing spends the connection's daily calls like a real agent would.
+    assert access.calls == 1
+    assert reply.diagnostics.guard == "passed" and reply.diagnostics.tables
+    # What the agent would get carries none of the admin's diagnostics.
+    assert not {"guard", "tables", "columns", "principal"} & set(reply.agent)
+    unknown = await service.test(
+        1,
+        TestAskRequest(question="那呢", datasource_id=1, conversation_id="conv_none"),
+        actor=User(id=1, role=Role.ADMIN),
+    )
+    assert unknown.is_error and unknown.agent["code"] == "INVALID_PARAMS"

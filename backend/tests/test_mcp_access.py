@@ -510,3 +510,110 @@ async def test_an_override_sleeps_while_its_column_is_revoked_and_wakes_with_it(
             if i.kind == "semantic" and i.item_id == 1
         ]
         assert restored[0].state == "edited"
+
+
+async def test_a_graced_key_works_until_its_last_second(database):
+    from app.modules.mcpaccess.models import McpApiKey
+
+    client_id, key = await _create(database)
+    async with access(database) as service:
+        await service.rotate_key(client_id, 1, actor=ADMIN)
+
+    async def expire_old_in(delta):
+        async with database.transaction() as session:
+            old = await session.scalar(select(McpApiKey).where(McpApiKey.prefix == key[:10]))
+            old.expires_at = datetime.now(UTC) + delta
+
+    await expire_old_in(timedelta(seconds=30))
+    async with access(database) as service:
+        assert (await service.authenticate(key)).client_id == client_id
+    await expire_old_in(timedelta(seconds=-1))
+    async with access(database) as service:
+        with pytest.raises(AppError) as expired:
+            await service.authenticate(key)
+        assert expired.value.http_status == 401
+
+
+async def test_admins_can_test_a_disabled_connection_and_nobody_else_can(database):
+    client_id, key = await _create(database)
+    async with access(database) as service:
+        await service.set_status(client_id, False, actor=ADMIN)
+    async with access(database) as service:
+        with pytest.raises(AppError):
+            await service.authenticate(key)
+        # Testing before switching a connection on is the point of the test tab.
+        principal = await service.test_principal(client_id, actor=ADMIN)
+        assert principal.client_id == client_id
+        for someone in (
+            CurrentUser(id=2, role=Role.MEMBER, team_id=1),
+            CurrentUser(id=3, role=Role.LEADER, team_id=1),
+        ):
+            with pytest.raises(AppError) as refused:
+                await service.test_principal(client_id, actor=someone)
+            assert refused.value.code == ErrorCode.FORBIDDEN
+
+
+async def test_runs_logged_before_sources_existed_count_as_web(database):
+    from app.core.audit import QueryRun
+    from app.modules.querylog.schemas import QueryFilter
+    from app.modules.querylog.service import build_service as build_querylog
+
+    later = datetime.now(UTC) + timedelta(days=30)
+    base = {"user_id": 2, "team_id": 1, "datasource_id": 1, "status": "success"}
+    async with database.transaction() as session:
+        session.add_all(
+            [
+                QueryRun(payload=base, expires_at=later),
+                QueryRun(payload={**base, "source": "web"}, expires_at=later),
+                QueryRun(
+                    payload={**base, "source": "mcp", "mcp_client_id": 4, "request_id": "rq_a"},
+                    expires_at=later,
+                ),
+                QueryRun(
+                    payload={**base, "source": "mcp_test", "mcp_client_id": 4}, expires_at=later
+                ),
+            ]
+        )
+    async with database.transaction() as session:
+        logs = build_querylog(session)
+
+        async def total(**filters):
+            return (await logs.list(ADMIN, QueryFilter(**filters))).total
+
+        assert await total() == 4
+        assert await total(source="web") == 2
+        assert await total(source="mcp") == 1 and await total(source="mcp_test") == 1
+        assert await total(mcp_client_id=4) == 2
+        assert await total(request_id="rq_a") == 1
+
+
+async def test_migration_0014_downgrades_and_upgrades_cleanly(database):
+    from sqlalchemy import inspect
+
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(ROOT / "migrations"))
+    mcp_tables = {
+        "mcp_client",
+        "mcp_api_key",
+        "mcp_item_override",
+        "mcp_conversation",
+        "mcp_column_grant",
+    }
+
+    async def shape():
+        async with database.engine.connect() as connection:
+            return await connection.run_sync(
+                lambda sync: (
+                    set(inspect(sync).get_table_names()),
+                    {c["name"] for c in inspect(sync).get_columns("user")},
+                )
+            )
+
+    tables, user_columns = await shape()
+    assert mcp_tables <= tables and "kind" in user_columns
+    await asyncio.to_thread(command.downgrade, config, "0013")
+    tables, user_columns = await shape()
+    assert not mcp_tables & tables and "kind" not in user_columns
+    await asyncio.to_thread(command.upgrade, config, "head")
+    tables, user_columns = await shape()
+    assert mcp_tables <= tables and "kind" in user_columns

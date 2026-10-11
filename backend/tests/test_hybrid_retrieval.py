@@ -255,3 +255,64 @@ async def test_notes_follow_the_selected_columns():
     index = Described(Schema(), Semantic([]), Empty(), Empty())
     bundle = await _build(index, "宽表里零售单价最高的是哪个")
     assert bundle.notes == {"shop.wide": "宽表", "shop.wide.price": "单价"}
+
+
+# --- edges of ranking and join paths ------------------------------------------------------
+
+
+def test_join_paths_reach_three_hops_and_no_further():
+    chain = [("a", "b"), ("b", "c"), ("c", "d"), ("d", "e")]
+    assert join_paths({"a", "d"}, chain) == {"b", "c"}
+    # Four hops apart: nothing is bridged rather than dragging in half the schema.
+    assert join_paths({"a", "e"}, chain) == set()
+    assert join_paths({"a", "e"}, chain, max_hops=4) == {"b", "c", "d"}
+
+
+def test_join_paths_through_cycles_are_short_and_deterministic():
+    triangle = [("a", "b"), ("b", "c"), ("c", "a")]
+    assert join_paths({"a", "c"}, triangle) == set()
+    square = [("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]
+    # Two equal paths: the same one every time.
+    assert {frozenset(join_paths({"a", "c"}, square)) for _ in range(5)} == {frozenset({"b"})}
+    assert join_paths({"a", "c"}, list(reversed(square))) == {"b"}
+
+
+def test_join_paths_bridge_several_tables_and_ignore_odd_edges():
+    star = [("hub", "a"), ("hub", "b"), ("hub", "c"), ("a", "a")]
+    assert join_paths({"a", "b", "c"}, star) == {"hub"}
+    assert join_paths({"a", "missing"}, star) == set()
+    assert join_paths({"a", "b"}, []) == set()
+
+
+def test_scores_for_questions_with_nothing_to_match():
+    docs = [Doc("table", 1, names=("orders",), text="订单")]
+    for question in ("", "？！。", "   ", "a"):
+        assert keyword_scores(question, docs) == {}
+    assert keyword_scores("订单", []) == {}
+    assert ranked({}) == [] and fuse([]) == {}
+
+
+def test_literal_names_match_case_insensitively_but_not_single_letters():
+    docs = [Doc("table", 1, names=("Orders",), text=""), Doc("column", 2, names=("x",), text="")]
+    scores = keyword_scores("how many ORDERS by x", docs)
+    assert scores[("table", 1)] > 1 and ("column", 2) not in scores
+
+
+def test_ties_rank_in_key_order():
+    tied = {("t", 3): 0.5, ("t", 1): 0.5, ("c", 9): 0.5}
+    assert ranked(tied) == [("c", 9), ("t", 1), ("t", 3)]
+
+
+async def test_an_empty_question_uses_the_whole_schema():
+    bundle = await _build(_index(), "")
+    assert bundle.mode == "full" and len(bundle.tables) == len(TABLES)
+
+
+async def test_a_bridge_the_user_cannot_see_is_not_added():
+    scope = _scope()
+    del scope.tables["shop.customer"]
+    bundle = await ContextBuilder(_index(), threshold=0).build(
+        USER, scope, "各大区的实付金额是多少"
+    )
+    assert "shop.customer" not in bundle.tables
+    assert {"shop.orders", "shop.region"} <= set(bundle.tables)
