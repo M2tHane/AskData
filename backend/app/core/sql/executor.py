@@ -9,9 +9,19 @@ from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 
 from app.core.datasource import ConnectorRegistry, Datasource
-from app.core.errors import AppError, BlockRule, DatasourceUnavailable, ErrorCode, SqlBlocked
+from app.core.errors import (
+    AppError,
+    BlockRule,
+    DatasourceUnavailable,
+    ErrorCode,
+    SqlBlocked,
+    SqlExecutionFailed,
+)
 from app.core.masking import mask_rows
 from app.core.sql.guard import GuardedSql
+
+# MySQL errors in the SQL itself: ambiguous/unknown column, grouping, syntax, mixed aggregates.
+_MYSQL_SQL_ERRORS = {1052, 1054, 1055, 1064, 1111, 1140}
 
 
 class QueryLimits(BaseModel):
@@ -143,20 +153,20 @@ class SqlExecutor:
             # Propagate cancellation so request/worker cancellation can tear down connections.
             raise
         except Exception as error:
-            # Only SQL syntax/undefined-column errors may enter the correction loop.
-            # Driver messages can contain secrets and invisible object names; discard them.
+            # SQL errors (class 42 syntax/rule violations except missing privilege, class 22
+            # data exceptions) may enter the correction loop; anything else is the source.
+            # Driver messages can contain secrets and invisible object names; only the
+            # standard error code is kept.
             sqlstate = getattr(error, "sqlstate", None)
             args = getattr(error, "args", ())
-            # PostgreSQL (postgres/kingbase/gaussdb): sqlstate 42601 (syntax), 42703
-            # (undefined column); MySQL: error code 1054 (unknown column), 1064
-            # (syntax error); ClickHouse: DatabaseError with message containing error code
-            if sqlstate in {"42601", "42703"} or (
-                datasource.dialect == "mysql" and args and args[0] in {1054, 1064}
-            ):
-                raise AppError(ErrorCode.SQL_EXECUTION_ERROR) from None
+            code = args[0] if args and isinstance(args[0], int) else None
+            if isinstance(sqlstate, str) and sqlstate[:2] in {"42", "22"} and sqlstate != "42501":
+                raise SqlExecutionFailed(sqlstate) from None
+            if datasource.dialect == "mysql" and code in _MYSQL_SQL_ERRORS:
+                raise SqlExecutionFailed(code) from None
             # ClickHouse DatabaseError treated as SQL_EXECUTION_ERROR for auto-correction
             if datasource.dialect == "clickhouse" and error.__class__.__name__ == "DatabaseError":
-                raise AppError(ErrorCode.SQL_EXECUTION_ERROR) from None
-            raise DatasourceUnavailable() from None
+                raise SqlExecutionFailed() from None
+            raise DatasourceUnavailable(sqlstate if sqlstate is not None else code) from None
         finally:
             await asyncio.shield(self.limiter.release(limits.user_id, lease))

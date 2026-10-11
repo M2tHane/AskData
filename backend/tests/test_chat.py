@@ -446,6 +446,48 @@ async def test_made_up_column_goes_back_to_the_model_with_the_field_named(system
     ]
 
 
+async def test_grouping_error_goes_back_with_a_fixed_hint_never_the_driver_message(system, member):
+    service, transport, _, logs, _, _ = system
+    connector = SyntaxErrorConnector(1)
+    original = connector.fetch
+
+    async def grouping_error(sql, max_rows):
+        if connector.attempts == 0:
+            connector.attempts += 1
+
+            class DriverGroupingError(Exception):
+                sqlstate = "42803"
+
+            raise DriverGroupingError("column secret_col must appear in the GROUP BY clause")
+        return await original(sql, max_rows)
+
+    connector.fetch = grouping_error
+    service.pipeline.deps.executor = SqlExecutor(ConnectorRegistry({Dialect.POSTGRES: connector}))
+    conversation = await create_conversation(system, member)
+    reply = await service.ask(conversation.id, QuestionRequest(question="订单"), actor=member)
+    assert reply.status == "success"
+    correction = next(m for m in transport.messages if m.startswith("Correct"))
+    assert json.dumps("SUM(SUM(x)) OVER ()")[1:-1] in correction
+    assert "secret_col" not in " ".join(transport.messages)
+    assert logs.records[0].details["retries"] == [
+        {"attempt": 1, "code": "SQL_EXECUTION_ERROR", "subject": "sqlstate_42803"}
+    ]
+
+
+async def test_an_answer_that_breaks_the_schema_names_the_error_kind_and_field(system, member):
+    service, transport, _, logs, _, _ = system
+    transport.sql_extra = {"unanswerable": "maybe"}
+    conversation = await create_conversation(system, member)
+    reply = await service.ask(conversation.id, QuestionRequest(question="订单"), actor=member)
+    assert reply.status == "failed"
+    assert logs.records[0].details["diagnostic"] == {
+        "stage": "generate_sql",
+        "error_type": "ValidationError",
+        "subject": "bool_parsing",
+        "field": "unanswerable",
+    }
+
+
 async def test_made_up_column_without_a_fix_is_refused_and_withheld_column_never_retried(
     system, member
 ):

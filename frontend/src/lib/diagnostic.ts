@@ -6,8 +6,10 @@ export interface Diagnostic {
   stage?: string
   code?: string
   rule?: string
-  /** 被拦下的 SQL 函数名（只有已知函数才记），或解析错误的类型。 */
+  /** 被拦下的 SQL 函数名（只有已知函数才记）、数据库错误码（sqlstate_42803），或模型回答不合格式的错误类型。 */
   subject?: string
+  /** 模型回答里不合格式的字段名。 */
+  field?: string
   error_type?: string
   retries?: number
   /** 每次纠错前撞到的规则（没有规则时是错误码），按先后顺序。 */
@@ -70,6 +72,28 @@ export const RULE_NAME: Record<string, string> = {
   correction_out_of_scope: '纠错后仍越权',
 }
 
+/** 数据库标准错误码和模型回答格式错误的说明；没有列出的原样显示。 */
+export const SUBJECT_NAME: Record<string, string> = {
+  sqlstate_42601: 'SQL 语法错误',
+  sqlstate_42703: '字段不存在',
+  sqlstate_42803: '分组错误',
+  sqlstate_42702: '字段名有歧义',
+  sqlstate_42883: '函数参数类型不匹配',
+  sqlstate_42804: '类型不匹配',
+  sqlstate_22012: '除以零',
+  sqlstate_22p02: '字面量格式无效',
+  sqlstate_42501: '数据库账号没有权限',
+  json_invalid: '模型回答不是合法 JSON',
+  json_type: '模型回答不是 JSON 对象',
+  missing: '模型回答缺少字段',
+}
+
+export const subjectText = (subject: string) => {
+  const name = SUBJECT_NAME[subject]
+  const code = subject.startsWith('sqlstate_') ? subject.slice(9).toUpperCase() : subject.startsWith('mysql_') ? `MySQL ${subject.slice(6)}` : ''
+  return name ? (code ? `${name}（${code}）` : name) : code || subject
+}
+
 export function diagnosticOf(value: unknown): Diagnostic | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Diagnostic) : null
 }
@@ -78,10 +102,11 @@ export function diagnosticOf(value: unknown): Diagnostic | null {
 export function diagnosticText(d: Diagnostic): string {
   const parts: string[] = []
   if (d.rule) parts.push(`规则：${RULE_NAME[d.rule] ?? d.rule}${d.subject ? `（${d.subject}）` : ''}`)
+  else if (d.subject) parts.push(`原因：${subjectText(d.subject)}${d.field ? `，字段 ${d.field}` : ''}`)
   if (d.stage) parts.push(`环节：${STAGE_NAME[d.stage] ?? d.stage}`)
   if (d.error_type) parts.push(`错误类型：${d.error_type}`)
   if (d.retries) {
-    const before = (d.retry_rules ?? []).map((r) => RULE_NAME[r] ?? r)
+    const before = (d.retry_rules ?? []).map((r) => RULE_NAME[r] ?? (SUBJECT_NAME[r] || r.startsWith('sqlstate_') ? subjectText(r) : r))
     parts.push(`纠错 ${d.retries} 次后${before.length ? `（此前：${before.join('、')}）` : ''}`)
   }
   return parts.join(' · ')

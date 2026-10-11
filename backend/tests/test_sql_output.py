@@ -46,3 +46,4 @@ def test_sql_prompt_names_hierarchy_levels_and_length_limits():
     assert "never write date arithmetic" in text and "do not switch the date column" in text
     assert "按下单日期" in text
     assert "LEFT JOIN's ON clause removes no rows" in text
+    assert "must sit at different levels" in text and "generate_series" in text

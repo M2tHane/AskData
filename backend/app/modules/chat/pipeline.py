@@ -415,6 +415,8 @@ class QueryContext:
     execution_error: ErrorCode | None = None
     # What could not be resolved in the last rejected SQL; only ever sent back to the model.
     error_detail: str = field(default="", repr=False)
+    # Standard database error code of the last execution failure (sqlstate_42803).
+    execution_subject: str | None = None
     # SQL the guard rejected. Never persisted or returned; evaluation shows it to admins.
     rejected_sql: str | None = field(default=None, repr=False)
     # The guard rule behind execution_error, for the correction log.
@@ -991,6 +993,7 @@ class ExecuteStage:
         if ctx.datasource is None or ctx.guarded_sql is None:
             raise AppError(ErrorCode.INTERNAL_ERROR)
         ctx.execution_error, ctx.error_detail, ctx.execution_rule = None, "", None
+        ctx.execution_subject = None
         try:
             limits = self.deps.limits_for(ctx.user.id)
             if ctx.limit_overrides:
@@ -1000,10 +1003,14 @@ class ExecuteStage:
             if isinstance(error, SqlBlocked):
                 raise  # Keeps the rule (cost, mismatch) for diagnostics.
             if error.code != ErrorCode.SQL_EXECUTION_ERROR or ctx.manual_sql:
+                if getattr(error, "subject", None):
+                    raise  # Core errors carry only a standard code; keep it for diagnostics.
                 raise AppError(error.code, http_status=error.http_status) from None
             ctx.execution_error = error.code
             rule = getattr(error, "rule", None)
             ctx.execution_rule = rule.value if rule else None
+            ctx.execution_subject = getattr(error, "subject", None)
+            ctx.error_detail = getattr(error, "detail", "") or ""
         return ctx
 
 
@@ -1019,6 +1026,7 @@ class CorrectionStage:
             ctx.retries.append(
                 {"attempt": len(ctx.retries) + 1, "code": error.value}
                 | ({"rule": ctx.execution_rule} if ctx.execution_rule else {})
+                | ({"subject": ctx.execution_subject} if ctx.execution_subject else {})
             )
             request = {
                 **self.deps.data(ctx),
@@ -1252,11 +1260,23 @@ def diagnose(ctx: QueryContext, error: BaseException) -> dict[str, Any]:
         facts["rule"] = error.rule.value
         if error.subject:
             facts["subject"] = error.subject
+    elif isinstance(error, AppError) and (code := getattr(error, "subject", None)):
+        facts["subject"] = code  # A standard database error code.
+    elif isinstance(error, ValidationError) and error.errors():
+        # The model's answer did not fit the schema: keep pydantic's error kind and the
+        # schema field, both fixed names, never the model's text.
+        first = error.errors()[0]
+        facts["subject"] = str(first["type"])[:64]
+        location = first["loc"]
+        if location and location[0] in SqlOutput.model_fields:
+            facts["field"] = location[0]
     if ctx.retries:
         facts["retries"] = len(ctx.retries)
         # What each earlier attempt hit, so a refusal after correction still shows the
         # first rule (a blocked log keeps only this diagnosis, not the retries list).
-        facts["retry_rules"] = [entry.get("rule") or entry["code"] for entry in ctx.retries]
+        facts["retry_rules"] = [
+            entry.get("rule") or entry.get("subject") or entry["code"] for entry in ctx.retries
+        ]
     if ctx.eval_ref:
         facts["eval_run_id"] = ctx.eval_ref.get("run_id")
         facts["eval_case_id"] = ctx.eval_ref.get("case_id")
@@ -1274,6 +1294,7 @@ def log_diagnostic(ctx: QueryContext) -> None:
         stage=facts.get("stage"),
         rule=facts.get("rule"),
         subject=facts.get("subject"),
+        field=facts.get("field"),
         error_type=facts.get("error_type"),
         retries=facts.get("retries", 0),
         retry_rules="/".join(facts.get("retry_rules", [])) or None,

@@ -16,7 +16,7 @@ import { Select } from '../components/Select'
 import { StatCard, Stats } from '../components/StatCard'
 import { Tabs } from '../components/basic'
 import { useToast } from '../components/Toast'
-import { diagnosticOf, diagnosticText, evalRefText, inRunOrder, RULE_NAME, STAGE_NAME } from '../lib/diagnostic'
+import { diagnosticOf, diagnosticText, evalRefText, inRunOrder, RULE_NAME, STAGE_NAME, subjectText } from '../lib/diagnostic'
 import { ApiError, describeError, friendlyError } from '../lib/errors'
 import { formatInt, formatMs, formatTime } from '../lib/format'
 import { logStats, stageBars, toCsv } from '../lib/logsStats'
@@ -223,7 +223,7 @@ function QueryDetail(props: { query: QueryView; personName: (id: number) => stri
   const snap = snapshotOf(q)
   const clarification = snap.clarification as { question?: string; choices?: string[] } | null | undefined
   const interpretation = snap.interpretation as string | undefined
-  const retries = (snap.retries ?? []) as { attempt?: number; code?: string; rule?: string }[]
+  const retries = (snap.retries ?? []) as { attempt?: number; code?: string; rule?: string; subject?: string }[]
   const diagnostic = diagnosticOf(snap.diagnostic)
   const evalRef = evalRefText(diagnostic, snap.eval)
   const code = q.status === 'blocked' ? q.blocked_code : q.error
@@ -303,7 +303,7 @@ function QueryDetail(props: { query: QueryView; personName: (id: number) => stri
           {diagnostic && diagnosticText({ ...diagnostic, stage: undefined }) ? <div className="cb-muted">{diagnosticText({ ...diagnostic, stage: undefined })}</div> : null}
           {retries.length && !diagnostic?.retry_rules ? (
             <div className="cb-muted">
-              自动纠错 {retries.length} 次：{retries.map((r) => (r.rule ? `${r.code}（${RULE_NAME[r.rule] ?? r.rule}）` : r.code)).join('、')}
+              自动纠错 {retries.length} 次：{retries.map((r) => (r.rule ? `${r.code}（${RULE_NAME[r.rule] ?? r.rule}）` : r.subject ? `${r.code}（${subjectText(r.subject)}）` : r.code)).join('、')}
             </div>
           ) : null}
         </Callout>

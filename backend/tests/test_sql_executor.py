@@ -126,3 +126,39 @@ async def test_concurrency_and_frequency_limits():
     with pytest.raises(AppError):
         await limiter.acquire(3)
     assert await limiter.acquire(4)
+
+
+@pytest.mark.parametrize(
+    ("sqlstate", "code", "subject", "hint"),
+    [
+        ("42803", ErrorCode.SQL_EXECUTION_ERROR, "sqlstate_42803", "GROUP BY"),
+        ("22012", ErrorCode.SQL_EXECUTION_ERROR, "sqlstate_22012", "NULLIF"),
+        ("42P10", ErrorCode.SQL_EXECUTION_ERROR, "sqlstate_42p10", ""),
+        # Missing privilege and connection failures are the source, not the SQL.
+        ("42501", ErrorCode.DATASOURCE_UNAVAILABLE, "sqlstate_42501", None),
+        ("08006", ErrorCode.DATASOURCE_UNAVAILABLE, "sqlstate_08006", None),
+        (None, ErrorCode.DATASOURCE_UNAVAILABLE, None, None),
+    ],
+)
+async def test_database_errors_keep_only_the_standard_code(
+    guard, scope, datasource, sqlstate, code, subject, hint
+):
+    class DriverError(Exception):
+        pass
+
+    connector = FakeConnector()
+    connector.error = DriverError("password=secret hidden_table unknown_column")
+    connector.error.sqlstate = sqlstate  # type: ignore[attr-defined]
+    executor = SqlExecutor(ConnectorRegistry({Dialect.POSTGRES: connector}))
+    with pytest.raises(AppError) as caught:
+        await executor.run(
+            datasource,
+            guard.check("SELECT id FROM orders", "postgres", scope),
+            QueryLimits(user_id=3),
+        )
+    error = caught.value
+    assert error.code == code and getattr(error, "subject", None) == subject
+    if hint is not None:
+        assert hint in getattr(error, "detail", "")
+    assert "secret" not in error.message and "hidden_table" not in error.message
+    assert "hidden_table" not in getattr(error, "detail", "")

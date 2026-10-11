@@ -409,6 +409,9 @@ describe('query diagnostics', () => {
     expect(evalRefText(null)).toBe('')
     expect(diagnosticOf([])).toBeNull()
     expect(diagnosticText({ rule: 'new_rule' })).toBe('规则：new_rule')
+    expect(diagnosticText({ stage: 'execute', code: 'DATASOURCE_UNAVAILABLE', subject: 'sqlstate_08006', error_type: 'DatasourceUnavailable' })).toBe('原因：08006 · 环节：执行查询 · 错误类型：DatasourceUnavailable')
+    expect(diagnosticText({ subject: 'bool_parsing', field: 'unanswerable' })).toBe('原因：bool_parsing，字段 unanswerable')
+    expect(diagnosticText({ rule: 'unanswerable', retries: 1, retry_rules: ['sqlstate_42803'] })).toBe('规则：可见范围内无法回答 · 纠错 1 次后（此前：分组错误（42803））')
     expect(diagnosticText({ rule: 'unanswerable', retries: 2, retry_rules: ['system_table', 'SQL_EXECUTION_ERROR'] })).toBe(
       '规则：可见范围内无法回答 · 纠错 2 次后（此前：访问系统表、SQL_EXECUTION_ERROR）',
     )
