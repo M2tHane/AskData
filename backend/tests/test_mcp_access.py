@@ -2,6 +2,7 @@
 column allowlist, daily limits, conversation ownership and inherited definitions."""
 
 import asyncio
+import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -372,3 +373,140 @@ def test_service_is_constructible_without_database():
     assert McpAccessService.principal_user(
         McpClient(id=3, user_id=9, public_id="mc_x", name="n")
     ) == CurrentUser(id=9, role=Role.MEMBER, client_id=3)
+
+
+@pytest.mark.external
+async def test_concurrent_calls_never_exceed_the_daily_limit_on_postgres(monkeypatch):
+    import asyncpg
+
+    from tests.test_external_services import container, ready
+
+    password = secrets.token_urlsafe(24)
+    with container(
+        "pgvector/pgvector:pg16", [5432], {"POSTGRES_PASSWORD": password, "POSTGRES_DB": "askdata"}
+    ) as ports:
+        dsn = f"postgres:{password}@127.0.0.1:{ports[5432]}/askdata"
+        await (await ready(lambda: asyncpg.connect(f"postgresql://{dsn}"))).close()
+        url = f"postgresql+asyncpg://{dsn}"
+        monkeypatch.setenv("ASKDATA_DATABASE_URL", url)
+        get_settings.cache_clear()
+        config = Config(str(ROOT / "alembic.ini"))
+        config.set_main_option("script_location", str(ROOT / "migrations"))
+        await asyncio.to_thread(command.upgrade, config, "head")
+        database = Database(url)
+        try:
+            async with database.transaction() as session:
+                session.add(User(username="admin", password_hash="x", role="admin"))
+            client_id, key = await _create(database, daily_call_limit=5)
+            async with access(database, transaction=False) as service:
+                principal = await service.authenticate(key)
+
+            async def call():
+                # Each call has its own session, as concurrent MCP requests do.
+                async with access(database, transaction=False) as service:
+                    try:
+                        await service.admit(principal)
+                        return True
+                    except AppError:
+                        return False
+
+            assert sum(await asyncio.gather(*(call() for _ in range(20)))) == 5
+            async with database.transaction() as session:
+                row = await session.get(McpClient, client_id)
+                assert row.daily_calls == 5
+                # Yesterday's exhausted count: the first calls of a new day race to reset it.
+                row.daily_date = datetime.now(UTC).date() - timedelta(days=1)
+            assert sum(await asyncio.gather(*(call() for _ in range(20)))) == 5
+            async with database.transaction() as session:
+                assert (await session.get(McpClient, client_id)).daily_calls == 5
+        finally:
+            await database.close()
+            get_settings.cache_clear()
+
+
+async def _context(database, user, question="销售额 实付金额"):
+    """What retrieval hands the model for this user: the bundle a prompt is built from."""
+    from types import SimpleNamespace
+
+    from app.modules.chat.pipeline import ContextBuilder
+    from app.modules.chat.retrieval import ServiceRetrievalIndex
+
+    async with access(database) as service:
+
+        async def no_examples(user, datasource_id):
+            return []
+
+        index = ServiceRetrievalIndex(
+            service.grants.schema,
+            service.semantic,
+            service.metric,
+            SimpleNamespace(examples=no_examples),
+            overlay=service,
+        )
+        scope = await service.grants.permissions.visible_scope(user, 1)
+        bundle = await ContextBuilder(index, threshold=0).build(user, scope, question, full=True)
+    return {(item.kind, item.name): item for item in bundle.items}, bundle
+
+
+async def test_connection_overrides_reach_the_model_and_only_for_that_connection(database):
+    client_id, _ = await _create(database)
+    other_id, _ = await _create(database)
+    await _grant(database, client_id, [11, 12])
+    await _grant(database, other_id, [11, 12])
+    async with access(database) as service:
+        await service.set_override(
+            client_id,
+            1,
+            OverrideWrite(
+                kind="semantic", item_id=1, action="edit", payload={"description": "含运费"}
+            ),
+            actor=ADMIN,
+        )
+        await service.set_override(
+            client_id, 1, OverrideWrite(kind="metric", item_id=1, action="hide"), actor=ADMIN
+        )
+        user = service.principal_user(await service.repository.clients.get(client_id))
+        other = service.principal_user(await service.repository.clients.get(other_id))
+    items, bundle = await _context(database, user)
+    assert ("metric", "销售额") not in items
+    assert items[("semantic", "实付金额")].description == "含运费"
+    assert "salary" not in str(bundle.model_dump())
+    # Another connection and the platform's own users keep the platform definitions.
+    for someone in (other, ADMIN):
+        theirs, _ = await _context(database, someone)
+        assert ("metric", "销售额") in theirs
+        assert theirs[("semantic", "实付金额")].description == "订单实付"
+
+
+async def test_an_override_sleeps_while_its_column_is_revoked_and_wakes_with_it(database):
+    client_id, _ = await _create(database)
+    await _grant(database, client_id, [11, 12])
+    async with access(database) as service:
+        await service.set_override(
+            client_id,
+            1,
+            OverrideWrite(
+                kind="semantic", item_id=1, action="edit", payload={"description": "含运费"}
+            ),
+            actor=ADMIN,
+        )
+        user = service.principal_user(await service.repository.clients.get(client_id))
+    await _grant(database, client_id, [11])
+    items, _ = await _context(database, user)
+    assert ("semantic", "实付金额") not in items
+    async with access(database) as service:
+        assert not [
+            i
+            for i in await service.overlay_items(client_id, 1, actor=ADMIN)
+            if i.item_id == 1 and i.kind == "semantic"
+        ]
+    await _grant(database, client_id, [11, 12])
+    items, _ = await _context(database, user)
+    assert items[("semantic", "实付金额")].description == "含运费"
+    async with access(database) as service:
+        restored = [
+            i
+            for i in await service.overlay_items(client_id, 1, actor=ADMIN)
+            if i.kind == "semantic" and i.item_id == 1
+        ]
+        assert restored[0].state == "edited"

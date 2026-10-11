@@ -282,3 +282,32 @@ async def test_progress_only_moves_forward(agent):
 
     await service.ask(PRINCIPAL, "上个月订单", 1, CallRef(), progress=progress)
     assert steps == sorted(set(steps)) and len(steps) >= 4
+
+
+async def test_a_question_the_caller_abandons_is_logged_as_cancelled(agent):
+    import anyio
+
+    service, _, connector, logs, _, access = agent
+    connector.wait = asyncio.Event()
+    with anyio.move_on_after(0.05) as scope:
+        await service.ask(PRINCIPAL, "上个月订单", 1, CallRef(rpc_id="9"))
+    assert scope.cancelled_caught
+    record = logs.records[-1]
+    assert record.error == ErrorCode.QUERY_CANCELLED and record.source == "mcp"
+    # It was admitted, so it counts against the day's calls.
+    assert access.calls == 1
+
+
+async def test_a_conversation_goes_on_after_a_turn_timed_out(agent):
+    service, _, connector, logs, _, _ = agent
+    first = await service.ask(PRINCIPAL, "上个月订单", 1, CallRef())
+    conversation = first.result.conversation_id
+    connector.wait = asyncio.Event()
+    slow = replace(PRINCIPAL, ask_timeout_seconds=0.05)
+    timed_out = await service.ask(slow, "那去年同期呢", 1, CallRef(), conversation_id=conversation)
+    assert timed_out.result.code == "TIMEOUT"
+    connector.wait = None
+    again = await service.ask(PRINCIPAL, "那去年同期呢", 1, CallRef(), conversation_id=conversation)
+    assert again.result.status == "success" and again.result.conversation_id == conversation
+    # The follow-up still builds on the answered turn, not on the one that never finished.
+    assert logs.records[-1].details["inherited_sql"]

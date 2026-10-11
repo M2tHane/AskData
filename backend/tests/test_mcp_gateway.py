@@ -211,3 +211,64 @@ async def test_concurrent_connections_each_act_as_themselves():
         outcomes = await asyncio.gather(run("ak_alpha", "alpha"), run("ak_beta", "beta"))
         for names, name in outcomes:
             assert names == {name}
+
+
+class Abandoned:
+    """An ask that never finishes on its own; records how it ended."""
+
+    def __init__(self):
+        self.started, self.ended = asyncio.Event(), None
+
+    async def ask(self, who, question, datasource_id, ref, **options):
+        self.started.set()
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            self.ended = "cancelled"
+            raise
+
+
+@asynccontextmanager
+async def over_a_socket():
+    """The endpoint behind uvicorn on a free port: disconnects behave as in production."""
+    import uvicorn
+
+    async with serving() as host:
+        server = uvicorn.Server(
+            uvicorn.Config(host, host="127.0.0.1", port=0, log_level="error", lifespan="off")
+        )
+        task = asyncio.create_task(server.serve())
+        for _ in range(500):
+            if server.started:
+                break
+            await asyncio.sleep(0.01)
+        port = server.servers[0].sockets[0].getsockname()[1]
+        try:
+            yield f"http://localhost:{port}/mcp"
+        finally:
+            server.should_exit = True
+            await task
+
+
+@pytest.mark.parametrize("mode", ["legacy", "auto"])
+async def test_an_abandoned_ask_stops_when_the_client_goes(monkeypatch, mode):
+    # Best effort: the current protocol cancels the call itself; a legacy client on this
+    # stateless endpoint stops it by closing its connection (the ask timeout bounds the rest).
+    import anyio
+
+    abandoned = Abandoned()
+    monkeypatch.setattr(Agent, "ask", abandoned.ask)
+    async with over_a_socket() as url:
+        http = httpx2.AsyncClient(headers={"Authorization": "Bearer ak_alpha"})
+        async with Client(streamable_http_client(url, http_client=http), mode=mode) as session:
+            with anyio.move_on_after(0.3):
+                await session.call_tool("ask", {"question": "q", "datasource_id": 1})
+            assert abandoned.started.is_set()
+            await asyncio.sleep(0.3)
+            if mode == "auto":
+                assert abandoned.ended == "cancelled"
+        for _ in range(50):
+            if abandoned.ended:
+                break
+            await asyncio.sleep(0.02)
+        assert abandoned.ended == "cancelled"
