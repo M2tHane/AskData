@@ -16,6 +16,7 @@ import { Select } from '../components/Select'
 import { StatCard, Stats } from '../components/StatCard'
 import { Tabs } from '../components/basic'
 import { useToast } from '../components/Toast'
+import { diagnosticOf, diagnosticText, evalRefText, inRunOrder, RULE_NAME, STAGE_NAME } from '../lib/diagnostic'
 import { ApiError, describeError, friendlyError } from '../lib/errors'
 import { formatInt, formatMs, formatTime } from '../lib/format'
 import { logStats, stageBars, toCsv } from '../lib/logsStats'
@@ -30,22 +31,11 @@ const STATUS: Record<string, { label: string; tone: 'success' | 'danger' | 'warn
   cancelled: { label: '已取消', tone: 'neutral' },
 }
 
-const STAGE: Record<string, string> = {
-  load_context: '读取对话上下文',
-  visible_scope: '计算可见范围',
-  retrieval: '检索语义与指标',
-  clarification: '澄清判断',
-  generate_sql: '生成 SQL',
-  guard: 'SQL 安全校验',
-  execute: '执行查询',
-  correction: '自动纠错',
-  presentation: '生成图表与回答',
-  record: '写入日志',
-}
 
 /** 最后一个开始执行的环节：失败、拦截都停在这里。 */
 export function lastStage(q: QueryView): string | undefined {
-  const names = Object.keys(q.stage_timings ?? {})
+  // Logging always runs last, so the stage that stopped the query is the last one before it.
+  const names = inRunOrder(Object.keys(q.stage_timings ?? {}).filter((name) => name !== 'record'))
   return names[names.length - 1]
 }
 
@@ -233,10 +223,13 @@ function QueryDetail(props: { query: QueryView; personName: (id: number) => stri
   const snap = snapshotOf(q)
   const clarification = snap.clarification as { question?: string; choices?: string[] } | null | undefined
   const interpretation = snap.interpretation as string | undefined
-  const retries = (snap.retries ?? []) as { attempt?: number; code?: string }[]
+  const retries = (snap.retries ?? []) as { attempt?: number; code?: string; rule?: string }[]
+  const diagnostic = diagnosticOf(snap.diagnostic)
+  const evalRef = evalRefText(diagnostic, snap.eval)
   const code = q.status === 'blocked' ? q.blocked_code : q.error
   const reason = code && !cancelled ? friendlyError(code) : null
-  const stage = lastStage(q)
+  // The recorded diagnosis knows where it stopped; older entries fall back to the timings.
+  const stage = diagnostic?.stage ?? lastStage(q)
   const bars = stageBars(q.stage_timings)
   const versions = Object.entries(q.prompt_versions ?? {})
   const pos = props.position
@@ -298,22 +291,28 @@ function QueryDetail(props: { query: QueryView; personName: (id: number) => stri
         ) : null}
         {q.status === 'success' ? (<><dt>结果</dt><dd>{formatInt(q.row_count)} 行{q.retry_count ? ` · 自动纠错 ${q.retry_count} 次` : ''}</dd></>) : null}
         {interpretation ? (<><dt>理解</dt><dd>{interpretation}</dd></>) : null}
+        {evalRef ? (<><dt>来源</dt><dd className="cb-m">{evalRef}</dd></>) : null}
       </dl>
 
       {reason ? (
         <Callout tone={q.status === 'blocked' ? 'warning' : 'danger'} title={`${status.label}原因：${reason.title}`}>
           {reason.hint ? <div>{reason.hint}</div> : null}
           <div className="cb-muted">
-            {stage ? `停在「${STAGE[stage] ?? stage}」环节 · ` : ''}错误码 <span className="cb-m">{reason.code}</span>
+            {stage ? `停在「${STAGE_NAME[stage] ?? stage}」环节 · ` : ''}错误码 <span className="cb-m">{reason.code}</span>
           </div>
-          {retries.length ? <div className="cb-muted">自动纠错 {retries.length} 次：{retries.map((r) => r.code).join('、')}</div> : null}
+          {diagnostic && diagnosticText({ ...diagnostic, stage: undefined }) ? <div className="cb-muted">{diagnosticText({ ...diagnostic, stage: undefined })}</div> : null}
+          {retries.length ? (
+            <div className="cb-muted">
+              自动纠错 {retries.length} 次：{retries.map((r) => (r.rule ? `${r.code}（${RULE_NAME[r.rule] ?? r.rule}）` : r.code)).join('、')}
+            </div>
+          ) : null}
         </Callout>
       ) : null}
 
       {cancelled ? (
         <Callout tone="info" title="用户主动停止了这次查询">
           <div>不是系统故障，不计入失败。</div>
-          {stage ? <div className="cb-muted">停止时正在「{STAGE[stage] ?? stage}」环节</div> : null}
+          {stage ? <div className="cb-muted">停止时正在「{STAGE_NAME[stage] ?? stage}」环节</div> : null}
         </Callout>
       ) : null}
 
@@ -334,7 +333,7 @@ function QueryDetail(props: { query: QueryView; personName: (id: number) => stri
           <ul className="cb-stages">
             {bars.map((b) => (
               <li key={b.name} className="cb-stage">
-                <span>{STAGE[b.name] ?? b.name}</span>
+                <span>{STAGE_NAME[b.name] ?? b.name}</span>
                 <span className="cb-stage-bar" aria-hidden="true"><i style={{ width: `${b.pct}%` }} /></span>
                 <span className="cb-stage-ms">{formatMs(b.ms)}</span>
               </li>

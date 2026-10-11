@@ -126,6 +126,8 @@ class PipelineOutcome(BaseModel):
     semantic_ids: list[str] = Field(default_factory=list)
     metric_ids: list[str] = Field(default_factory=list)
     time_range: dict[str, str] | None = None
+    # Why it failed or was refused (stage, guard rule, error type); see chat diagnose().
+    diagnostic: dict[str, Any] | None = None
 
 
 class Evaluation(BaseModel):
@@ -152,6 +154,8 @@ class Evaluation(BaseModel):
     clarification_options: list[str] = Field(default_factory=list)
     assumption: str = ""
     error: str | None = None
+    # Stage, guard rule, error type and code behind a failure or refusal. Never SQL or data.
+    diagnostic: dict[str, Any] | None = None
     expected_rows: list[dict[str, Any]] = Field(default_factory=list, max_length=5)
     actual_rows: list[dict[str, Any]] = Field(default_factory=list, max_length=5)
     # How the two results lined up, so a reviewer sees why it passed or failed without

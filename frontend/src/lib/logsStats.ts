@@ -1,3 +1,4 @@
+import { inRunOrder } from './diagnostic'
 import type { QueryView } from '../api/types'
 
 /** 当前筛选结果的统计：纠错后成功条数和平均耗时（只算有耗时的记录）。 */
@@ -22,7 +23,7 @@ export function toCsv(header: string[], rows: unknown[][]): string {
 
 /** 各环节耗时条：按开始顺序，宽度占最长环节的比例。 */
 export function stageBars(timings: Record<string, number> | undefined): { name: string; ms: number; pct: number }[] {
-  const entries = Object.entries(timings ?? {})
+  const entries = inRunOrder(Object.keys(timings ?? {})).map((name) => [name, timings?.[name] ?? 0] as const)
   const max = Math.max(0, ...entries.map(([, ms]) => ms))
   return entries.map(([name, ms]) => ({ name, ms, pct: max ? Math.max(2, Math.round((ms / max) * 100)) : 0 }))
 }

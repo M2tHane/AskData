@@ -27,6 +27,8 @@ class LogEvent(StrEnum):
     TASK = "task"
     AUDIT = "audit"
     FAILURE = "failure"
+    # A question that failed or was refused: stage, rule, error type, evaluation case.
+    DIAGNOSTIC = "diagnostic"
     RETENTION = "retention"
 
 
@@ -45,6 +47,9 @@ _ALLOWED_FIELDS = {
     "task_id",
     "action",
     "count",
+    "retries",
+    "query_run_id",
+    "eval_run_id",
 }
 _SENSITIVE = re.compile(
     r"password|secret|token|authorization|api.?key|result|preview|content", re.I
@@ -77,7 +82,19 @@ class SafeLogger:
             if key in _ALLOWED_FIELDS and isinstance(value, (int, float, bool))
         }
         # String fields have constrained formats; arbitrary SQL/results/errors are never logged.
-        for key in ("code", "status", "task_id", "model_id", "prompt_version", "action"):
+        for key in (
+            "code",
+            "status",
+            "task_id",
+            "model_id",
+            "prompt_version",
+            "action",
+            "stage",
+            "rule",
+            "subject",
+            "error_type",
+            "eval_case_id",
+        ):
             value = fields.get(key)
             if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.:/-]{1,100}", value):
                 payload[key] = value

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 
 from app.core.datasource import ConnectorRegistry, Datasource
-from app.core.errors import AppError, DatasourceUnavailable, ErrorCode, SqlBlocked
+from app.core.errors import AppError, BlockRule, DatasourceUnavailable, ErrorCode, SqlBlocked
 from app.core.masking import mask_rows
 from app.core.sql.guard import GuardedSql
 
@@ -110,11 +110,11 @@ class SqlExecutor:
         self, datasource: Datasource, sql: GuardedSql, limits: QueryLimits
     ) -> QueryResult:
         if not isinstance(sql, GuardedSql) or not sql.authentic():
-            raise SqlBlocked(ErrorCode.SQL_NOT_SELECT)
+            raise SqlBlocked(ErrorCode.SQL_NOT_SELECT, BlockRule.NOT_GUARDED)
         if sql.datasource_id != datasource.id or sql.dialect != datasource.dialect:
-            raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+            raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.DATASOURCE_MISMATCH)
         if not datasource.read_only:
-            raise SqlBlocked(ErrorCode.SQL_NOT_SELECT)
+            raise SqlBlocked(ErrorCode.SQL_NOT_SELECT, BlockRule.NOT_READ_ONLY)
         lease = await self.limiter.acquire(limits.user_id)
         start = time.monotonic()
         try:
@@ -123,10 +123,10 @@ class SqlExecutor:
                 async with connector.read_session(datasource, limits.timeout_seconds) as session:
                     cost = await session.explain(sql.normalized_sql)
                     if not math.isfinite(cost) or cost > limits.max_cost:
-                        raise SqlBlocked(ErrorCode.SQL_COST_EXCEEDED)
+                        raise SqlBlocked(ErrorCode.SQL_COST_EXCEEDED, BlockRule.COST_EXCEEDED)
                     batch = await session.fetch(sql.normalized_sql, limits.max_rows + 1)
                     if len(batch.columns) != len(set(batch.columns)):
-                        raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+                        raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.DUPLICATE_OUTPUT)
                     rows = mask_rows(batch.rows[: limits.max_rows], sql.output_masks)
                     return QueryResult(
                         columns=batch.columns,

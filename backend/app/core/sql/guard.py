@@ -16,7 +16,7 @@ from sqlglot.optimizer.qualify import qualify
 from sqlglot.optimizer.scope import Scope, traverse_scope
 from sqlglot.schema import MappingSchema
 
-from app.core.errors import ErrorCode, SqlBlocked, UnresolvedReference
+from app.core.errors import BlockRule, ErrorCode, SqlBlocked, UnresolvedReference
 from app.core.masking import MaskKind, MaskRule
 from app.core.permission import RowFilter, RowOperator, VisibleScope
 from app.core.sql.dialect import Dialect
@@ -144,8 +144,18 @@ class SqlGuard:
             return self._check(sql, dialect, scope)
         except SqlBlocked:
             raise
-        except (SqlglotError, ValueError, TypeError, KeyError, AttributeError, RecursionError):
-            raise SqlBlocked(ErrorCode.SQL_PARSE_FAILED) from None
+        except (
+            SqlglotError,
+            ValueError,
+            TypeError,
+            KeyError,
+            AttributeError,
+            RecursionError,
+        ) as error:
+            # Only the exception's type: its message may quote the SQL.
+            raise SqlBlocked(
+                ErrorCode.SQL_PARSE_FAILED, BlockRule.PARSE_ERROR, type(error).__name__
+            ) from None
 
     def _check(self, sql: str, dialect: str | Dialect, scope: VisibleScope) -> GuardedSql:
         try:
@@ -153,48 +163,59 @@ class SqlGuard:
             statements = sqlglot.parse(
                 sql, read=target.sqlglot, error_level=sqlglot.ErrorLevel.RAISE
             )
-        except (ParseError, ValueError, RecursionError):
-            raise SqlBlocked(ErrorCode.SQL_PARSE_FAILED) from None
+        except (ParseError, ValueError, RecursionError) as error:
+            raise SqlBlocked(
+                ErrorCode.SQL_PARSE_FAILED, BlockRule.PARSE_ERROR, type(error).__name__
+            ) from None
         statements = [
             statement
             for statement in statements
             if statement is not None and not isinstance(statement, exp.Semicolon)
         ]
         if len(statements) > 1:
-            raise SqlBlocked(ErrorCode.SQL_MULTI_STATEMENT)
+            raise SqlBlocked(ErrorCode.SQL_MULTI_STATEMENT, BlockRule.MULTI_STATEMENT)
         if not statements:
-            raise SqlBlocked(ErrorCode.SQL_PARSE_FAILED)
+            raise SqlBlocked(ErrorCode.SQL_PARSE_FAILED, BlockRule.PARSE_ERROR)
         tree = statements[0]
         if not isinstance(tree, (exp.Select, exp.SetOperation)):
-            raise SqlBlocked(ErrorCode.SQL_NOT_SELECT)
+            raise SqlBlocked(ErrorCode.SQL_NOT_SELECT, BlockRule.NOT_SELECT)
         for node in tree.walk():
             # ClickHouse SETTINGS/FORMAT clauses could lift server limits or change output.
             if isinstance(node, exp.Select) and (
                 node.args.get("settings") or node.args.get("format")
             ):
-                raise SqlBlocked(ErrorCode.SQL_FORBIDDEN_FUNC)
+                raise SqlBlocked(ErrorCode.SQL_FORBIDDEN_FUNC, BlockRule.QUERY_SETTINGS)
             if isinstance(node, (exp.DML, exp.DDL, exp.Command, exp.Into, exp.Lock)):
-                raise SqlBlocked(ErrorCode.SQL_NOT_SELECT)
+                raise SqlBlocked(ErrorCode.SQL_NOT_SELECT, BlockRule.WRITE_STATEMENT)
             if isinstance(node, (exp.Placeholder, exp.Parameter, exp.SessionParameter)):
-                raise SqlBlocked(ErrorCode.SQL_PARSE_FAILED)
+                raise SqlBlocked(ErrorCode.SQL_PARSE_FAILED, BlockRule.PARAMETER)
             if isinstance(node, exp.With) and node.args.get("recursive"):
-                raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+                raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.RECURSIVE_CTE)
             if isinstance(node, exp.DataType) and node.this == exp.DataType.Type.USERDEFINED:
-                raise SqlBlocked(ErrorCode.SQL_FORBIDDEN_FUNC)
+                raise SqlBlocked(ErrorCode.SQL_FORBIDDEN_FUNC, BlockRule.USER_DEFINED_TYPE)
             if isinstance(node, exp.Func):
                 name = node.name if isinstance(node, exp.Anonymous) else node.sql_name()
                 name = name.lower()
+                # Only a function sqlglot knows (or one on our public deny list) is named in
+                # diagnostics; an unknown name is model text and could spell a hidden object.
+                known = name if not isinstance(node, exp.Anonymous) or name in _DANGEROUS else None
                 if name in _DANGEROUS or name.startswith(("lo_", "dblink", "pg_")):
-                    raise SqlBlocked(ErrorCode.SQL_FORBIDDEN_FUNC)
+                    raise SqlBlocked(
+                        ErrorCode.SQL_FORBIDDEN_FUNC, BlockRule.DANGEROUS_FUNCTION, known
+                    )
                 if target == Dialect.CLICKHOUSE and isinstance(node, exp.CombinedAggFunc):
                     base = str(node.name).lower().removesuffix("if")
                     name = base if base in _CLICKHOUSE_COMBINABLE else name
                 if name not in _SAFE_FUNCTIONS and not (
                     target == Dialect.CLICKHOUSE and name in _CLICKHOUSE_SAFE_FUNCTIONS
                 ):
-                    raise SqlBlocked(ErrorCode.SQL_FORBIDDEN_FUNC)
+                    raise SqlBlocked(
+                        ErrorCode.SQL_FORBIDDEN_FUNC, BlockRule.FUNCTION_NOT_ALLOWED, known
+                    )
                 if isinstance(node.parent, exp.Dot):
-                    raise SqlBlocked(ErrorCode.SQL_FORBIDDEN_FUNC)
+                    raise SqlBlocked(
+                        ErrorCode.SQL_FORBIDDEN_FUNC, BlockRule.QUALIFIED_FUNCTION, known
+                    )
         normalize_identifiers(tree, dialect=target.sqlglot)
         schema = MappingSchema(dialect=target.sqlglot, normalize=False)
         for name, table_scope in scope.tables.items():
@@ -205,14 +226,14 @@ class SqlGuard:
                     continue
                 name = _table_name(source)
                 if any(part.name.lower() in _SYSTEM_SCHEMAS for part in source.parts[:-1]):
-                    raise SqlBlocked(ErrorCode.SQL_SYSTEM_TABLE)
+                    raise SqlBlocked(ErrorCode.SQL_SYSTEM_TABLE, BlockRule.SYSTEM_TABLE)
                 # PG catalog objects can be reached without a schema through search_path.
                 if source.name.lower().startswith(("pg_", "sql_")):
-                    raise SqlBlocked(ErrorCode.SQL_SYSTEM_TABLE)
+                    raise SqlBlocked(ErrorCode.SQL_SYSTEM_TABLE, BlockRule.SYSTEM_TABLE)
                 if source.catalog or not isinstance(source.this, exp.Identifier):
-                    raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+                    raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.CROSS_CATALOG)
                 if name not in scope.tables:
-                    raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+                    raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.TABLE_NOT_VISIBLE)
         try:
             tree = qualify(
                 tree,
@@ -231,12 +252,12 @@ class SqlGuard:
                 if isinstance(source, exp.Table):
                     name = _table_name(source)
                     if name not in scope.tables:
-                        raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+                        raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.TABLE_NOT_VISIBLE)
                     tables[id(source)] = (source, name)
                     used.setdefault(name, set())
             for column in query_scope.columns:
                 if column.is_star:
-                    raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+                    raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.STAR_PROJECTION)
                 owner: Scope = query_scope
                 resolved: Any = owner.sources.get(column.table)
                 while resolved is None and owner.parent is not None:
@@ -250,7 +271,7 @@ class SqlGuard:
                         in scope.tables[name].all_columns.keys() - scope.tables[name].columns
                     ):
                         # Withheld from this user: refuse outright, never offer a correction.
-                        raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+                        raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.COLUMN_WITHHELD)
                     if column.name not in scope.tables[name].columns:
                         raise UnresolvedReference(reference)
                     used.setdefault(name, set()).add(column.name)
@@ -262,7 +283,7 @@ class SqlGuard:
         # Unresolved stars in projections (e.g. unknown-schema derived tables) never pass.
         for select in tree.find_all(exp.Select):
             if any(projection.is_star for projection in select.selects):
-                raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+                raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.STAR_PROJECTION)
         masks = self._output_masks(tree, scope, schema, target)
         for table, name in tables.values():
             filters = scope.tables[name].row_filters
@@ -295,14 +316,14 @@ class SqlGuard:
     @staticmethod
     def _row_condition(rule: RowFilter, columns: dict[str, str]) -> exp.Expression:
         if rule.column not in columns:
-            raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+            raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.ROW_FILTER_INVALID)
         column = exp.column(rule.column, quoted=True)
         if rule.operator == RowOperator.IN:
             if not isinstance(rule.value, list) or not rule.value:
-                raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+                raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.ROW_FILTER_INVALID)
             return exp.In(this=column, expressions=[exp.convert(value) for value in rule.value])
         if isinstance(rule.value, list):
-            raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+            raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.ROW_FILTER_INVALID)
         if rule.value is None:
             condition: exp.Expression = exp.Is(this=column, expression=exp.Null())
             return exp.Not(this=condition) if rule.operator == RowOperator.NE else condition
@@ -319,7 +340,7 @@ class SqlGuard:
         masks: dict[str, MaskRule] = {}
         names = tree.named_selects
         if len(names) != len(set(names)):
-            raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+            raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.DUPLICATE_OUTPUT)
         for name in names:
             try:
                 graph = lineage(
@@ -329,7 +350,7 @@ class SqlGuard:
                     dialect=dialect.sqlglot,
                 )
             except (SqlglotError, ValueError):
-                raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE) from None
+                raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.LINEAGE_UNKNOWN) from None
             matched: list[MaskRule] = []
             for node in graph.walk():
                 if isinstance(node.expression, exp.Table):

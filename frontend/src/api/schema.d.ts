@@ -2989,6 +2989,10 @@ export interface components {
             clarification_options?: string[];
             /** Columns Match */
             columns_match?: boolean | null;
+            /** Diagnostic */
+            diagnostic?: {
+                [key: string]: unknown;
+            } | null;
             /**
              * Duration Ms
              * @default 0

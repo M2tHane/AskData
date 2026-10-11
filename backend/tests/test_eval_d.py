@@ -470,6 +470,57 @@ async def test_worker_cancellation_mid_question_leaves_it_for_resume(d_database)
         assert finished.status == "success" and finished.summary["passed"] == 3
 
 
+async def test_results_keep_the_diagnosis_and_point_back_to_run_and_case(d_database):  # noqa: F811
+    assets = EvalAssets(ROOT / "eval")
+    tasks = TaskManager(MemoryTaskStore(), MemoryQueue(), {})
+    admin = CurrentUser(id=1, role=Role.ADMIN)
+    data = result(["count"], [[3]])
+
+    class Reference:
+        async def result(self, question):
+            return data
+
+    async with d_database.session() as session:
+
+        class Pipeline:
+            runs: list[int | None] = []
+
+            async def run(self, question, config):
+                self.runs.append(question.run_id)
+                if question.case_id == "b":
+                    raise AppError(ErrorCode.LLM_UNAVAILABLE)
+                return PipelineOutcome(
+                    status="failed",
+                    executed_queries=0,
+                    diagnostic={"stage": "generate_sql", "error_type": "ValidationError"},
+                )
+
+        pipeline = Pipeline()
+        service = EvalService(
+            EvalRepository(session),
+            assets,
+            pipeline,
+            Reference(),
+            AuditService(DatabaseAuditStore(session)),
+            tasks,
+        )
+        tasks.handlers["eval.run"] = service.run
+        for name in ("a", "b"):
+            await service.save_case(case(id=name), actor=admin)
+        run = await service.start(RunRequest(model_id="fixed"), actor=admin)
+        await tasks.run(run.task_id)
+        assert pipeline.runs == [run.id, run.id]
+        first, second = await service.results(run.id, actor=admin)
+        assert first.diagnostic == {"stage": "generate_sql", "error_type": "ValidationError"}
+        assert second.diagnostic == {
+            "stage": "evaluation",
+            "code": "LLM_UNAVAILABLE",
+            "error_type": "AppError",
+            "eval_run_id": run.id,
+            "eval_case_id": "b",
+        }
+
+
 def test_module_routers_generate_openapi_without_binding_chat():
     from fastapi import FastAPI
 

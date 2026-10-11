@@ -17,7 +17,14 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.core.audit import QueryLogWriter
 from app.core.datasource import Datasource
 from app.core.deps import CurrentUser
-from app.core.errors import MESSAGES, AppError, ErrorCode, SqlBlocked, UnresolvedReference
+from app.core.errors import (
+    MESSAGES,
+    AppError,
+    BlockRule,
+    ErrorCode,
+    SqlBlocked,
+    UnresolvedReference,
+)
 from app.core.llm import CallContext, ChatMessage, LLMClient, extract_json_object, query_call_scope
 from app.core.logging import LogEvent, logger
 from app.core.permission import PermissionService, TableScope, VisibleScope
@@ -410,6 +417,14 @@ class QueryContext:
     error_detail: str = field(default="", repr=False)
     # SQL the guard rejected. Never persisted or returned; evaluation shows it to admins.
     rejected_sql: str | None = field(default=None, repr=False)
+    # The guard rule behind execution_error, for the correction log.
+    execution_rule: str | None = None
+    # The stage that was running when the question failed or was refused.
+    stage: str = ""
+    # Safe facts for finding a failure later (see diagnose): never SQL, data or hidden names.
+    diagnostic: dict[str, Any] | None = None
+    # Set by evaluation runs: {"run_id": int, "case_id": str}.
+    eval_ref: dict[str, Any] | None = None
     # The usual reading the model chose for an open dimension or measure, told to the user.
     assumption: str = ""
     warnings: list[str] = field(default_factory=list)
@@ -480,6 +495,8 @@ class QueryContext:
             ],
             "time_range": self.time_ranges,
             "retry_count": len(self.retries),
+            "diagnostic": self.diagnostic,
+            "eval": self.eval_ref,
             "status": self.status,
             "error": self.error_code,
             "warnings": self.warnings,
@@ -866,7 +883,7 @@ class GenerateSqlStage:
         )
         if output.write_request:
             # Refuse the whole request rather than quietly answering only its read part.
-            raise SqlBlocked(ErrorCode.SQL_NOT_SELECT)
+            raise SqlBlocked(ErrorCode.SQL_NOT_SELECT, BlockRule.WRITE_REQUEST)
         if output.clarify is not None and output.clarify.clarify and data["clarification_allowed"]:
             pairs = verified_choices(output.clarify, ctx.retrieval)
             if len(pairs) >= 2:
@@ -890,7 +907,7 @@ class GenerateSqlStage:
             )
         if output.unanswerable or not output.sql.strip():
             # Nothing was generated or executed; report only the category, never object names.
-            raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+            raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.UNANSWERABLE)
         ctx.generated_sql = output.sql
         ctx.title = " ".join(output.title.split())[:20]
         ctx.interpretation = output.interpretation.strip()[:500]
@@ -923,6 +940,7 @@ class GuardStage:
                 raise
             # A field the model made up: let the correction round fix it. Nothing ran.
             ctx.execution_error, ctx.error_detail = error.code, error.detail
+            ctx.execution_rule = error.rule.value if error.rule else None
             return ctx
         except SqlBlocked:
             ctx.rejected_sql = ctx.generated_sql
@@ -942,16 +960,20 @@ class ExecuteStage:
             return ctx  # The guard asked for a correction; nothing to execute yet.
         if ctx.datasource is None or ctx.guarded_sql is None:
             raise AppError(ErrorCode.INTERNAL_ERROR)
-        ctx.execution_error, ctx.error_detail = None, ""
+        ctx.execution_error, ctx.error_detail, ctx.execution_rule = None, "", None
         try:
             limits = self.deps.limits_for(ctx.user.id)
             if ctx.limit_overrides:
                 limits = limits.model_copy(update=ctx.limit_overrides)
             ctx.result = await self.deps.executor.run(ctx.datasource, ctx.guarded_sql, limits)
         except AppError as error:
+            if isinstance(error, SqlBlocked):
+                raise  # Keeps the rule (cost, mismatch) for diagnostics.
             if error.code != ErrorCode.SQL_EXECUTION_ERROR or ctx.manual_sql:
                 raise AppError(error.code, http_status=error.http_status) from None
             ctx.execution_error = error.code
+            rule = getattr(error, "rule", None)
+            ctx.execution_rule = rule.value if rule else None
         return ctx
 
 
@@ -964,7 +986,10 @@ class CorrectionStage:
     async def run(self, ctx: QueryContext) -> QueryContext:
         while ctx.execution_error and len(ctx.retries) < MAX_CORRECTIONS:
             error = ctx.execution_error
-            ctx.retries.append({"attempt": len(ctx.retries) + 1, "code": error.value})
+            ctx.retries.append(
+                {"attempt": len(ctx.retries) + 1, "code": error.value}
+                | ({"rule": ctx.execution_rule} if ctx.execution_rule else {})
+            )
             request = {
                 **self.deps.data(ctx),
                 "sql": ctx.generated_sql,
@@ -976,14 +1001,14 @@ class CorrectionStage:
                 extract_json_object(await self.deps.call(ctx, PromptId.CORRECT, request))
             )
             if output.unanswerable or not output.sql.strip():
-                raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE)
+                raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.UNANSWERABLE)
             ctx.generated_sql = output.sql
             # Every correction passes the same guard; only unresolved fields get another round.
             await GuardStage(self.deps).run(ctx)
             await ExecuteStage(self.deps).run(ctx)
         if ctx.execution_error:
             if ctx.execution_error == ErrorCode.SQL_OUT_OF_SCOPE:
-                raise SqlBlocked(ctx.execution_error)
+                raise SqlBlocked(ctx.execution_error, BlockRule.CORRECTION_OUT_OF_SCOPE)
             raise AppError(ctx.execution_error)
         return ctx
 
@@ -1184,6 +1209,49 @@ class RecordStage:
         return ctx
 
 
+def diagnose(ctx: QueryContext, error: BaseException) -> dict[str, Any]:
+    """Why a question failed or was refused, in terms safe to keep and show to admins.
+
+    Only the stage, the error code and type, the guard rule (plus a known SQL function name)
+    and the evaluation case. Never SQL, data, exception messages or hidden object names.
+    """
+    facts: dict[str, Any] = {"stage": ctx.stage or "start", "error_type": type(error).__name__}
+    if isinstance(error, AppError):
+        facts["code"] = error.code.value
+    if isinstance(error, SqlBlocked) and error.rule:
+        facts["rule"] = error.rule.value
+        if error.subject:
+            facts["subject"] = error.subject
+    if ctx.retries:
+        facts["retries"] = len(ctx.retries)
+    if ctx.eval_ref:
+        facts["eval_run_id"] = ctx.eval_ref.get("run_id")
+        facts["eval_case_id"] = ctx.eval_ref.get("case_id")
+    return facts
+
+
+def log_diagnostic(ctx: QueryContext) -> None:
+    if not ctx.diagnostic:
+        return
+    facts = ctx.diagnostic
+    logger.info(
+        LogEvent.DIAGNOSTIC,
+        status=ctx.status,
+        code=facts.get("code"),
+        stage=facts.get("stage"),
+        rule=facts.get("rule"),
+        subject=facts.get("subject"),
+        error_type=facts.get("error_type"),
+        retries=facts.get("retries", 0),
+        eval_run_id=facts.get("eval_run_id"),
+        eval_case_id=facts.get("eval_case_id"),
+        query_run_id=ctx.query_run_id,
+        datasource_id=ctx.datasource_id,
+        user_id=ctx.user.id,
+        model_id=ctx.model_id or None,
+    )
+
+
 class QueryPipeline:
     def __init__(self, deps: PipelineDependencies) -> None:
         self.deps = deps
@@ -1216,6 +1284,7 @@ class QueryPipeline:
                 )
             )
             for stage in self.stages[:-1]:
+                ctx.stage = stage.name
                 started = time.monotonic()
                 await ctx.event(EventType.STAGE, {"name": stage.name})
                 try:
@@ -1224,10 +1293,12 @@ class QueryPipeline:
                     ctx.timings[stage.name] = int((time.monotonic() - started) * 1000)
                 if ctx.status == "clarify":
                     break
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as error:
             cancelled = True
             ctx.status, ctx.error_code = "failed", ErrorCode.QUERY_CANCELLED
+            ctx.diagnostic = diagnose(ctx, error)
         except AppError as error:
+            ctx.diagnostic = diagnose(ctx, error)
             ctx.error_code = error.code
             ctx.status = (
                 "blocked"
@@ -1237,7 +1308,9 @@ class QueryPipeline:
                 else "failed"
             )
             ctx.explanation = MESSAGES[error.code]
-        except ValidationError:
+        except ValidationError as error:
+            # Usually model output that is not the JSON the prompt asked for.
+            ctx.diagnostic = diagnose(ctx, error)
             ctx.status, ctx.error_code = "failed", ErrorCode.VALIDATION_ERROR
             ctx.explanation = MESSAGES[ErrorCode.VALIDATION_ERROR]
         except Exception as error:
@@ -1245,6 +1318,7 @@ class QueryPipeline:
             logger.info(
                 LogEvent.FAILURE, code=ErrorCode.INTERNAL_ERROR, action=type(error).__name__
             )
+            ctx.diagnostic = diagnose(ctx, error)
             ctx.status, ctx.error_code = "failed", ErrorCode.INTERNAL_ERROR
             ctx.explanation = MESSAGES[ErrorCode.INTERNAL_ERROR]
         finally:
@@ -1255,6 +1329,7 @@ class QueryPipeline:
             else:
                 await ctx.event(EventType.STAGE, {"name": self.stages[-1].name})
                 await self.stages[-1].run(ctx)
+        log_diagnostic(ctx)
         if ctx.error_code:
             await ctx.event(
                 EventType.ERROR, {"code": ctx.error_code.value, "message": MESSAGES[ctx.error_code]}

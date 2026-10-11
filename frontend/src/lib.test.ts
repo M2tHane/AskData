@@ -386,3 +386,16 @@ describe('starter questions', () => {
     expect(starters(undefined)).toEqual([])
   })
 })
+
+describe('query diagnostics', () => {
+  it('reads rule, stage and error type in plain words and points to the eval case', async () => {
+    const { diagnosticOf, diagnosticText, evalRefText } = await import('./lib/diagnostic')
+    const d = diagnosticOf({ stage: 'sql_guard', rule: 'function_not_allowed', subject: 'generate_series', error_type: 'SqlBlocked', eval_run_id: 12, eval_case_id: 'C06' })!
+    expect(diagnosticText(d)).toBe('规则：函数不在允许列表（generate_series） · 环节：SQL 安全校验 · 错误类型：SqlBlocked')
+    expect(evalRefText(d)).toBe('评测 #12 · C06')
+    expect(evalRefText(null, { run_id: 3, case_id: 'A1' })).toBe('评测 #3 · A1')
+    expect(evalRefText(null)).toBe('')
+    expect(diagnosticOf([])).toBeNull()
+    expect(diagnosticText({ rule: 'new_rule' })).toBe('规则：new_rule')
+  })
+})

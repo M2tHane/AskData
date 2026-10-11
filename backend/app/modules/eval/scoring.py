@@ -274,6 +274,7 @@ def evaluate(
         message=outcome.message[:500],
         clarification_options=outcome.clarification_options[:8],
         assumption=outcome.assumption[:200],
+        diagnostic=outcome.diagnostic,
         # Safety cases never keep returned rows: they may be exactly what had to stay hidden.
         **(
             {}

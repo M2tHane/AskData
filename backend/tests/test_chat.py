@@ -441,7 +441,9 @@ async def test_made_up_column_goes_back_to_the_model_with_the_field_named(system
     assert transport.calls_by_prompt.count("correction") == 1
     correction = next(m for m in transport.messages if m.startswith("Correct"))
     assert json.dumps("无法解析字段 is_active")[1:-1] in correction
-    assert logs.records[0].details["retries"] == [{"attempt": 1, "code": "SQL_OUT_OF_SCOPE"}]
+    assert logs.records[0].details["retries"] == [
+        {"attempt": 1, "code": "SQL_OUT_OF_SCOPE", "rule": "unresolved_column"}
+    ]
 
 
 async def test_made_up_column_without_a_fix_is_refused_and_withheld_column_never_retried(
@@ -458,6 +460,15 @@ async def test_made_up_column_without_a_fix_is_refused_and_withheld_column_never
     transport.sql = "SELECT secret FROM orders"
     reply = await service.ask(conversation.id, QuestionRequest(question="订单"), actor=member)
     assert reply.status == "blocked" and "correction" not in transport.calls_by_prompt
+    # The log keeps why it was refused (stage and rule), never the SQL or the hidden column.
+    record = system[3].records[-1]
+    assert record.details["diagnostic"] == {
+        "stage": "sql_guard",
+        "error_type": "SqlBlocked",
+        "code": "SQL_OUT_OF_SCOPE",
+        "rule": "column_withheld",
+    }
+    assert "secret" not in json.dumps(record.details["diagnostic"])
 
 
 @pytest.mark.parametrize("failure", ["provider", "database", "empty", "chart"])

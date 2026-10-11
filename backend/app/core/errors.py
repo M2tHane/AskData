@@ -1,3 +1,4 @@
+import re
 from enum import StrEnum
 
 
@@ -53,9 +54,55 @@ class PermissionDenied(AppError):
         super().__init__(ErrorCode.FORBIDDEN, http_status=403)
 
 
+class BlockRule(StrEnum):
+    """Which check refused the SQL. A fixed vocabulary, safe to log and to show to admins."""
+
+    PARSE_ERROR = "parse_error"
+    MULTI_STATEMENT = "multi_statement"
+    NOT_SELECT = "not_select"
+    WRITE_STATEMENT = "write_statement"
+    QUERY_SETTINGS = "query_settings"
+    PARAMETER = "parameter"
+    RECURSIVE_CTE = "recursive_cte"
+    USER_DEFINED_TYPE = "user_defined_type"
+    DANGEROUS_FUNCTION = "dangerous_function"
+    FUNCTION_NOT_ALLOWED = "function_not_allowed"
+    QUALIFIED_FUNCTION = "qualified_function"
+    SYSTEM_TABLE = "system_table"
+    CROSS_CATALOG = "cross_catalog"
+    TABLE_NOT_VISIBLE = "table_not_visible"
+    COLUMN_WITHHELD = "column_withheld"
+    UNRESOLVED_COLUMN = "unresolved_column"
+    STAR_PROJECTION = "star_projection"
+    DUPLICATE_OUTPUT = "duplicate_output"
+    LINEAGE_UNKNOWN = "lineage_unknown"
+    ROW_FILTER_INVALID = "row_filter_invalid"
+    NOT_GUARDED = "not_guarded"
+    DATASOURCE_MISMATCH = "datasource_mismatch"
+    NOT_READ_ONLY = "not_read_only"
+    COST_EXCEEDED = "cost_exceeded"
+    WRITE_REQUEST = "write_request"
+    UNANSWERABLE = "unanswerable"
+    CORRECTION_OUT_OF_SCOPE = "correction_out_of_scope"
+
+
+# A subject is kept only when it is a plain identifier (a function name), never free text.
+_SUBJECT = re.compile(r"[a-z_][a-z0-9_]{0,63}")
+
+
 class SqlBlocked(AppError):
-    def __init__(self, code: ErrorCode) -> None:
+    """A refusal. rule says which check fired; subject names a public SQL function at most.
+
+    Neither ever carries the SQL, a hidden table or column, or data.
+    """
+
+    def __init__(
+        self, code: ErrorCode, rule: BlockRule | None = None, subject: str | None = None
+    ) -> None:
         super().__init__(code, http_status=403)
+        self.rule = rule
+        name = (subject or "").lower()
+        self.subject = name if _SUBJECT.fullmatch(name) else None
 
 
 class UnresolvedReference(SqlBlocked):
@@ -67,7 +114,7 @@ class UnresolvedReference(SqlBlocked):
     """
 
     def __init__(self, reference: str) -> None:
-        super().__init__(ErrorCode.SQL_OUT_OF_SCOPE)
+        super().__init__(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.UNRESOLVED_COLUMN)
         self.detail = f"无法解析字段 {reference}" if reference else "SQL 中有无法解析的字段引用"
 
 

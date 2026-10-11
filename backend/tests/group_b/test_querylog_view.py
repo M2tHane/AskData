@@ -30,6 +30,40 @@ def test_view_explains_clarifications_and_rerun_origin_but_hides_raw_context():
     assert "visible_schema" not in view and "history" not in view
 
 
+def test_refusal_keeps_its_diagnosis_for_admins_and_leaders_only():
+    from app.core.deps import CurrentUser, Role
+
+    diagnostic = {"stage": "sql_guard", "code": "SQL_OUT_OF_SCOPE", "rule": "column_withheld"}
+    row = SimpleNamespace(
+        id=9,
+        created_at=datetime.now(UTC),
+        payload={
+            "user_id": 2,
+            "team_id": 1,
+            "datasource_id": 1,
+            "status": "blocked",
+            "blocked_code": "SQL_OUT_OF_SCOPE",
+            "question": "订单",
+            "generated_sql": "SELECT secret FROM orders",
+            "context_snapshot": {
+                "diagnostic": diagnostic,
+                "eval": {"run_id": 12, "case_id": "P02"},
+                "retries": [{"attempt": 1}],
+            },
+        },
+    )
+    leader = CurrentUser(id=5, role=Role.LEADER, team_id=1)
+    view = QueryLogService.view(row, leader)
+    # A refusal shows why (the rule), never the SQL or the rest of its context.
+    assert view.context_snapshot == {
+        "diagnostic": diagnostic,
+        "eval": {"run_id": 12, "case_id": "P02"},
+    }
+    assert view.generated_sql is None
+    member = CurrentUser(id=2, role=Role.MEMBER, team_id=1)
+    assert "diagnostic" not in QueryLogService.view(row, member).context_snapshot
+
+
 async def test_cancelled_runs_filter_apart_from_real_failures(b_services, member, admin):
     from app.core.audit import QueryLogWriter
     from app.core.errors import ErrorCode

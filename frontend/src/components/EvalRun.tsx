@@ -14,6 +14,7 @@ import { useToast } from './Toast'
 import { ApiError, friendlyError } from '../lib/errors'
 import { formatInt, formatMs, formatSpan, formatTime } from '../lib/format'
 import { ACTUAL, CATEGORY, DIFFICULTY, EXPECT, MODE, RUN_STATUS, canResume, compareSummary, isActive, looksUnprovisioned, num, pct, reasonText } from '../lib/evalText'
+import { diagnosticOf, diagnosticText } from '../lib/diagnostic'
 
 export function RunStatus({ status }: { status: string }) {
   const [tone, icon]: ['success' | 'danger' | 'info' | 'warning', IconName] =
@@ -410,6 +411,7 @@ function ResultDialog(props: { results: Evaluation[]; caseId: string; admin: boo
               {r.blocked_code ? `（${friendlyError(r.blocked_code).title}）` : ''}
               {r.error ? `（${friendlyError(r.error).title}）` : ''}
             </div>
+            {r.diagnostic && diagnosticText(diagnosticOf(r.diagnostic) ?? {}) ? <div className="cb-muted">{diagnosticText(diagnosticOf(r.diagnostic) ?? {})}</div> : null}
             {r.message ? <div className="cb-eval-answer">{r.message}</div> : null}
             {r.assumption ? <div className="cb-muted">按哪种理解：{r.assumption}</div> : null}
             {r.clarification_options?.length ? <Options items={r.clarification_options} /> : null}

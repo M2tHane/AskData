@@ -47,6 +47,8 @@ class EvalQuestion(BaseModel):
     history: list[dict[str, Any]] = Field(default_factory=list)
     clock: dict[str, Any] = Field(default_factory=dict)
     injection_context: dict[str, Any] | None = None
+    # The run asking it, so the query log and diagnostics point back to this run and case.
+    run_id: int | None = None
 
 
 class ChatPipeline(Protocol):
@@ -515,6 +517,7 @@ class EvalService:
                         history=case.history,
                         clock=case_clock(case, self.assets.fixtures["clock"]),
                         injection_context=case.injection_context,
+                        run_id=identifier,
                     )
                     outcome = await self.pipeline.run(question, request)
                     result = evaluate(
@@ -542,6 +545,14 @@ class EvalService:
                         passed=False,
                         reason="execution_failed",
                         error=error.code.value,
+                        # Raised before or around the pipeline (reference query, adapter).
+                        diagnostic={
+                            "stage": "evaluation",
+                            "code": error.code.value,
+                            "error_type": type(error).__name__,
+                            "eval_run_id": identifier,
+                            "eval_case_id": case.id,
+                        },
                     )
                 async with self.repository.transaction():
                     # Locked so a stop request sees either all or none of this question.

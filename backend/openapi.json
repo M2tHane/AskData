@@ -3222,6 +3222,18 @@
       ],
       "title": "Columns Match"
      },
+     "diagnostic": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Diagnostic"
+     },
      "duration_ms": {
       "default": 0,
       "title": "Duration Ms",

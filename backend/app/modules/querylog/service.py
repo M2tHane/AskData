@@ -2,7 +2,7 @@ from typing import Any
 
 from app.core.audit import AuditService, DatabaseAuditStore, QueryLogRecord, QueryLogWriter
 from app.core.db import AsyncSession
-from app.core.deps import CurrentUser
+from app.core.deps import CurrentUser, Role
 from app.core.errors import AppError, ErrorCode, PermissionDenied
 from app.core.logging import redact
 from app.core.response import Page
@@ -49,7 +49,7 @@ class QueryLogService:
         self.repository, self.audit = repository, audit
 
     @staticmethod
-    def view(row: Any) -> QueryView:
+    def view(row: Any, actor: CurrentUser | None = None) -> QueryView:
         payload = dict(row.payload)
         payload["details"] = {}
         payload["error"] = payload.get("error") if payload.get("error") in set(ErrorCode) else None
@@ -74,14 +74,24 @@ class QueryLogService:
                     "retries",
                     "warnings",
                     "interpretation",
+                    # Why it failed: stage, guard rule, error type, evaluation case. No SQL.
+                    "diagnostic",
+                    "eval",
                 }
             }
         )
+        snapshot = payload["context_snapshot"]
+        # Diagnostics are for admins and team leaders working out what went wrong.
+        if actor is not None and actor.role == Role.MEMBER:
+            snapshot.pop("diagnostic", None)
         if payload.get("status") == "blocked":
             payload.update(
                 generated_sql=None,
                 normalized_sql=None,
-                context_snapshot={},
+                # A refusal keeps only its diagnosis: which rule fired, never the SQL.
+                context_snapshot={
+                    key: snapshot[key] for key in ("diagnostic", "eval") if key in snapshot
+                },
                 result_preview=[],
                 chart_spec={},
             )
@@ -94,7 +104,7 @@ class QueryLogService:
             raise AppError(ErrorCode.VALIDATION_ERROR)
         rows, total = await self.repository.search(actor, filters)
         return Page(
-            items=[self.view(row) for row in rows],
+            items=[self.view(row, actor) for row in rows],
             total=total,
             page=filters.page,
             page_size=filters.page_size,
@@ -106,7 +116,7 @@ class QueryLogService:
         row = await self.repository.get(identifier, actor)
         if row is None:
             raise AppError(ErrorCode.NOT_FOUND, http_status=404)
-        return self.view(row)
+        return self.view(row, actor)
 
     async def write(
         self,

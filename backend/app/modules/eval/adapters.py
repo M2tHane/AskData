@@ -254,6 +254,7 @@ class RealChatAdapter:
             question=question.question,
             now=now,
             timezone=timezone,
+            eval_ref={"run_id": question.run_id, "case_id": question.case_id},
         )
         selected_model = await deps.llm.registry.select(
             self.assets.users[question.as_user].team_id, "llm"
@@ -307,6 +308,7 @@ class RealChatAdapter:
             semantic_ids=self._aliases(ctx, "semantic"),
             metric_ids=self._aliases(ctx, "metric"),
             time_range=self._time_range(ctx),
+            diagnostic=ctx.diagnostic,
         )
 
     def _aliases(self, ctx: QueryContext, kind: Literal["semantic", "metric"]) -> list[str]:

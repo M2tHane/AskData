@@ -23,5 +23,7 @@ describe('logsStats', () => {
   it('scales stage bars to the longest stage', () => {
     expect(stageBars({ a: 100, b: 50 }).map((b) => b.pct)).toEqual([100, 50])
     expect(stageBars(undefined)).toEqual([])
+    // Stored key order is not run order: bars follow the pipeline.
+    expect(stageBars({ record: 0, execute: 5, generate_sql: 10 }).map((b) => b.name)).toEqual(['generate_sql', 'execute', 'record'])
   })
 })
