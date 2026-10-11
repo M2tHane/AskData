@@ -67,7 +67,7 @@ export function EvalPage({ role }: { role: Role }) {
           { id: 'compare', label: '两次对比' },
         ]}
       />
-      {view === 'overview' ? <EvalOverview runs={list} /> : null}
+      {view === 'overview' ? <EvalOverview runs={list} bankSize={cases.data?.length ?? 0} /> : null}
       {view === 'history' && picked == null ? <History runs={runs} admin={admin} onOpen={open} /> : null}
       {view === 'history' && picked != null ? <RunPanel runId={picked} admin={admin} onBack={() => setPicked(null)} onOpen={open} /> : null}
       {view === 'bank' ? <BankPanel admin={admin} onStarted={open} /> : null}

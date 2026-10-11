@@ -366,6 +366,18 @@ describe('eval overview helpers', () => {
     expect(s.avgMs).toBe(10000)
     expect(overviewStats([], now)).toMatchObject({ latest: null, passRate: null, deltaPt: null, avgMs: null })
   })
+  it('leaves partial retests out of the pass rate, delta, time and trend', async () => {
+    const { overviewStats, trendRuns } = await import('./lib/evalText')
+    const retest = { ...mk(5, 30, 1, 1), case_count: 1 }
+    const s = overviewStats([retest, mk(3, 29, 9), mk(2, 20, 8)], now, 10)
+    expect(s.latest?.id).toBe(3)
+    expect(s.deltaPt).toBe(10)
+    expect(s.avgMs).toBe(10000)
+    expect(s.count30).toBe(3)
+    expect(trendRuns([retest, mk(3, 29, 9), mk(2, 20, 8)], { last: 10 }, now, 10).map((r) => r.id)).toEqual([2, 3])
+    // Before the bank has loaded every finished run counts.
+    expect(overviewStats([retest, mk(3, 29, 9)], now).latest?.id).toBe(5)
+  })
   it('selects trend runs by count or days, oldest first', async () => {
     const { trendRuns, formatPt, changeRatio } = await import('./lib/evalText')
     const runs = [mk(3, 30, 9), mk(2, 20, 8), mk(1, -20, 5)]

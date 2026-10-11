@@ -12,7 +12,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi.encoders import jsonable_encoder
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.core.audit import QueryLogWriter
 from app.core.datasource import Datasource
@@ -583,6 +583,36 @@ class SqlOutput(BaseModel):
     assumption: str = Field(default="", max_length=500)
     # Validated later against the real result columns; never trusted as is.
     chart: dict[str, Any] | None = None
+
+    # The display fields are best-effort text for the user. A model that writes too much
+    # or uses the wrong JSON type must not throw away a valid SQL answer.
+    @field_validator("sql", mode="before")
+    @classmethod
+    def _sql_text(cls, value: Any) -> Any:
+        return "" if value is None else value
+
+    @field_validator("title", "interpretation", "assumption", mode="before")
+    @classmethod
+    def _short_text(cls, value: Any, info: Any) -> str:
+        limit = {"title": 200, "interpretation": 1000, "assumption": 500}[info.field_name]
+        if value is None:
+            return ""
+        return (value if isinstance(value, str) else str(value))[:limit]
+
+    @field_validator("filters", mode="before")
+    @classmethod
+    def _filter_list(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        items = [value] if isinstance(value, str) else value
+        if not isinstance(items, list):
+            return []
+        return [str(item)[:200] for item in items if item is not None][:50]
+
+    @field_validator("chart", mode="before")
+    @classmethod
+    def _chart_object(cls, value: Any) -> Any:
+        return value if isinstance(value, dict) else None
 
 
 def verified_choices(output: ClarifyOutput, retrieval: RetrievalBundle) -> list[tuple[str, str]]:

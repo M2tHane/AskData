@@ -340,7 +340,7 @@ async def test_complete_pipeline_versions_timings_and_masked_summary(system, mem
     # chart and title) and the streamed answer.
     assert record.tokens_in == 20 and record.tokens_out == 6
     assert transport.calls_by_prompt == ["sql_generation", "answer"]
-    assert record.prompt_versions == {"answer": "v3", "sql_generation": "v9"}
+    assert record.prompt_versions == {"answer": "v3", "sql_generation": "v10"}
     assert "secret" not in " ".join(transport.messages)
     assert {record.action for record in audit.records} == {"chat.create", "chat.ask", "chat.answer"}
     assert repository.messages_by_id[reply.message_id].query_run_id == 1

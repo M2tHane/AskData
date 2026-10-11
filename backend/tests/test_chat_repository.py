@@ -217,7 +217,7 @@ async def test_persisted_query_view_keeps_effective_definitions_and_versions(
         assert query.context_snapshot["metrics"][0]["version"] == 3
         assert query.context_snapshot["metrics"][0]["scope"] == "platform"
         assert query.model_id == "fixed" and query.tokens_in == 20
-        assert query.prompt_versions == {"sql_generation": "v9", "answer": "v3"}
+        assert query.prompt_versions == {"sql_generation": "v10", "answer": "v3"}
         assert "rows" not in query.context_snapshot
 
 

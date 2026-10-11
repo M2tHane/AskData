@@ -11,6 +11,7 @@
 .cb-eval-delta { margin-left: var(--space-2); font: 500 12px/18px var(--font-sans); color: var(--text-3); }
 .cb-eval-delta-up { color: var(--success); }
 .cb-eval-delta-down { color: var(--danger); }
+.cb-eval-trend-title { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; font-size: 12px; }
 .cb-eval-trend-body { padding: var(--space-2) var(--space-4) var(--space-4); min-height: 240px; }
 
 /* 两次对比 */

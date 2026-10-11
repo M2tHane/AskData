@@ -96,6 +96,8 @@ export function compareSummary(r: Pick<Evaluation, 'expected_row_count' | 'actua
 
 const DAY = 86_400_000
 const finished = (r: RunListItem) => r.status === 'success' && r.done > 0
+/** 跑了整个题库的评测；挑几道题的复测和整套题的通过率不可比。bankSize 未知（0）时都算。 */
+const fullRun = (bankSize: number) => (r: RunListItem) => r.case_count >= bankSize
 const rateOf = (r: RunListItem) => r.passed / r.done
 
 export interface OverviewStats {
@@ -109,9 +111,9 @@ export interface OverviewStats {
   avgMs: number | null
 }
 
-/** 概览统计卡：只统计已完成（未中断、未停止）的评测，通过率以最近一次为准。 */
-export function overviewStats(runs: RunListItem[], now = Date.now()): OverviewStats {
-  const done = runs.filter(finished).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+/** 概览统计卡：通过率、变化和用时只看已跑完整个题库的评测，以最近一次为准；次数统计全部评测。 */
+export function overviewStats(runs: RunListItem[], now = Date.now(), bankSize = 0): OverviewStats {
+  const done = runs.filter((r) => finished(r) && fullRun(bankSize)(r)).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
   const latest = done[0] ?? null
   const prev = done[1]
   const timed = done.filter((r) => r.duration_ms > 0)
@@ -124,9 +126,9 @@ export function overviewStats(runs: RunListItem[], now = Date.now()): OverviewSt
   }
 }
 
-/** 趋势图用的评测：已完成的，按时间从早到晚；range 为最近几次（'10'）或最近几天（'30d'）。 */
-export function trendRuns(runs: RunListItem[], range: { last: number } | { days: number }, now = Date.now()): RunListItem[] {
-  const done = runs.filter(finished).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+/** 趋势图用的评测：已跑完整个题库的，按时间从早到晚；range 为最近几次（'10'）或最近几天（'30d'）。 */
+export function trendRuns(runs: RunListItem[], range: { last: number } | { days: number }, now = Date.now(), bankSize = 0): RunListItem[] {
+  const done = runs.filter((r) => finished(r) && fullRun(bankSize)(r)).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
   if ('last' in range) return done.slice(-range.last)
   return done.filter((r) => now - Date.parse(r.created_at) <= range.days * DAY)
 }

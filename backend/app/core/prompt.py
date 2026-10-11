@@ -95,7 +95,7 @@ class PromptRegistry:
     def __init__(self, directory: Path | None = None) -> None:
         self.directory = directory or Path(__file__).resolve().parents[1] / "prompts"
         self.versions = {
-            PromptId.SQL: "v9",
+            PromptId.SQL: "v10",
             PromptId.CORRECT: "v3",
             PromptId.ANSWER: "v3",
             PromptId.SUGGEST: "v2",

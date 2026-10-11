@@ -100,7 +100,7 @@ def test_prompt_registry_versions_and_injection_delimiters(prompt):
     assert (
         result.version
         == {
-            PromptId.SQL: "v9",
+            PromptId.SQL: "v10",
             PromptId.CORRECT: "v3",
             PromptId.ANSWER: "v3",
             PromptId.SUGGEST: "v2",
