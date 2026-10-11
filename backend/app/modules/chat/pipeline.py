@@ -179,8 +179,10 @@ class ScopeOnlyIndex:
 
 
 class ContextBuilder:
-    def __init__(self, index: RetrievalIndex, threshold: int = 30) -> None:
+    def __init__(self, index: RetrievalIndex, threshold: int = 30, semantics: bool = True) -> None:
         self.index, self.threshold = index, threshold
+        # Off only in ablation runs: no glossary terms, metrics or examples reach the model.
+        self.semantics = semantics
 
     async def build(
         self,
@@ -222,6 +224,8 @@ class ContextBuilder:
         if follow_up and mode == "hybrid":
             extra["follow_up"] = follow_up
         bundle = await self.index.retrieve(user, safe_scope, question, mode, **extra)
+        if not self.semantics:
+            bundle.items = []
         if bundle.mode == "hybrid":
             for name in keep_tables:
                 if name in safe_scope.tables:
@@ -729,6 +733,8 @@ class PipelineDependencies:
         self.prompts = prompts or PromptRegistry()
         self.prompt_source = prompt_source
         self.limits = limits or QueryLimits(user_id=1)
+        # Correction rounds per question; ablation runs set 0 to measure what they recover.
+        self.max_corrections = MAX_CORRECTIONS
 
     def limits_for(self, user_id: int) -> QueryLimits:
         return self.limits.model_copy(update={"user_id": user_id})
@@ -1045,7 +1051,7 @@ class GuardStage:
             )
         except UnresolvedReference as error:
             ctx.rejected_sql = ctx.generated_sql
-            if ctx.manual_sql or len(ctx.retries) >= MAX_CORRECTIONS:
+            if ctx.manual_sql or len(ctx.retries) >= self.deps.max_corrections:
                 raise
             # A field the model made up: let the correction round fix it. Nothing ran.
             ctx.execution_error, ctx.error_detail = error.code, error.detail
@@ -1057,7 +1063,7 @@ class GuardStage:
                 error.rule != BlockRule.FUNCTION_NOT_REVIEWED
                 or ctx.manual_sql
                 or ctx.function_rewritten
-                or len(ctx.retries) >= MAX_CORRECTIONS
+                or len(ctx.retries) >= self.deps.max_corrections
             ):
                 # Scope, writes, several statements, dangerous or unknown functions: final.
                 raise
@@ -1121,7 +1127,7 @@ class CorrectionStage:
         self.deps = deps
 
     async def run(self, ctx: QueryContext) -> QueryContext:
-        while ctx.execution_error and len(ctx.retries) < MAX_CORRECTIONS:
+        while ctx.execution_error and len(ctx.retries) < self.deps.max_corrections:
             error = ctx.execution_error
             ctx.retries.append(
                 {"attempt": len(ctx.retries) + 1, "code": error.value}

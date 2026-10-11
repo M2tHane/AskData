@@ -1,40 +1,215 @@
 # AskData
 
-用中文提问，直接拿到数据库里的答案。AskData 会把问题变成只读的 SQL 去查数，再配上图表和一句结论。适合团队内部查业务数据，不用会写 SQL。
+自然语言问数（Text-to-SQL）平台：员工用中文提问，系统在**该员工有权看到的表和字段**范围内生成只读 SQL、执行、出图并给出结论；Claude Code、Cursor 等 AI Agent 也可以通过 MCP 用同一套能力。
 
 ![对话](docs/readme/chat.png)
 
-## 功能
+- **权限先于模型**：先算出提问人的可见范围，检索、提示词、SQL 校验和脱敏都只在这个范围内工作。模型生成什么都越不了权。
+- **SQL 安全网关**：基于 AST 的 fail-closed 校验，表/字段白名单、函数分级、只读事务、超时、行数和代价上限，被拦下的请求一条 SQL 都不执行。
+- **混合检索 + 业务语义层 + 自动纠错**：三者各自解决什么问题，用[消融实验](#消融实验)单独量化。
+- **可复现的评测**：100 道调优集 + 40 道从未参与调优的留出集，按结果而不是 SQL 文本评分，安全题要求零执行。
+- **工程化**：模块化单体，6 条 import-linter 架构约束；后端 826 个测试、前端 148 个测试；Docker Compose 一键部署。
 
-- **一句话提问**：自动查数、画图、给出结论，可以接着追问；SQL 可以展开查看。
-- **示例问题**：新建会话时，根据已有的指标给出 6 个可以直接点的问题。
-- **指标与业务词**：把「销售额」「有效订单」这类说法定义一次，之后谁来问都按同一个口径算。
-- **权限**：管理员把表和字段授权给团队，负责人再决定员工能看哪些。看不到的数据，问了也查不出来。
-- **安全**：只允许读数据。写入、删除、危险函数、系统表都会被拦下，并记录原因。
-- **上传文件**：上传 Excel 或 CSV 后，也能直接提问。
-- **管理**：查询日志、用户反馈、评测、用量统计，方便排查问题和持续改进。
-- **MCP 接入**：让 Claude Code、Cursor 等 AI Agent 直接用 AskData 问数。每个接入单独设置能查哪些表和字段、每天能调用几次，语义和指标可以单独修改（见[下文](#给-ai-agent-用mcp)）。
+## 目录
 
-## 预览
+- [系统架构](#系统架构)
+- [核心技术方案](#核心技术方案)
+- [运行截图](#运行截图)
+- [Benchmark](#benchmark)
+- [消融实验](#消融实验)
+- [部署](#部署)
+- [项目结构](#项目结构)
+
+## 系统架构
+
+```mermaid
+flowchart LR
+  subgraph Clients
+    W[Web 前端<br/>React + Vite]
+    A[AI Agent<br/>Claude Code / Cursor / Codex]
+  end
+  W -- REST + SSE --> API
+  A -- MCP Streamable HTTP --> GW[MCP 网关]
+  GW --> API
+  subgraph API[api 容器 · FastAPI]
+    P[问数管道]
+    M[业务模块<br/>数据源 · 权限 · 语义 · 指标 · 评测 · 审计 ...]
+  end
+  P --> G[SQL Guard<br/>AST 校验]
+  G --> X[执行器<br/>只读事务 · 超时 · 代价]
+  X --> DS[(业务数据库<br/>PostgreSQL / MySQL / ClickHouse<br/>人大金仓 / GaussDB)]
+  P --> LLM[[大模型<br/>OpenAI 兼容]]
+  API --> META[(元数据库<br/>PostgreSQL + pgvector)]
+  API --> R[(Redis)]
+  WK[worker 容器 · arq<br/>表结构同步 · 向量索引 · 评测 · 上传导入] --> META
+  WK --> S3[(MinIO<br/>上传文件)]
+  WK --> IMP[(导入库<br/>Excel / CSV)]
+  R --- WK
+```
+
+一次提问经过的管道（`backend/app/modules/chat/pipeline.py`），每一步都有独立的阶段耗时和日志：
+
+```mermaid
+flowchart LR
+  L[加载上下文<br/>历史 · 数据源] --> V[可见范围<br/>表/字段授权]
+  V --> RT[混合检索<br/>关键词 + 向量 + 重排]
+  RT --> C{需要澄清?}
+  C -- 是 --> Q[反问 + 选项]
+  C -- 否 --> GS[生成 SQL<br/>流式]
+  GS --> GD[SQL Guard]
+  GD -- 拦截 --> B[拒绝 · 记录规则]
+  GD -- 通过 --> E[执行]
+  E -- SQL 错误 --> CR[自动纠错<br/>≤3 轮 · 重新过 Guard]
+  CR --> GD
+  E -- 成功 --> PR[脱敏 · 图表 · 结论]
+  PR --> RC[查询日志 · 用量 · 审计]
+```
+
+技术栈：Python 3.12+ · FastAPI · SQLAlchemy 2 (async) · Alembic · sqlglot · arq · pgvector · LiteLLM · MCP SDK；React 18 · TypeScript · Vite · TanStack Query · Zustand，图表为自绘 SVG。
+
+## 核心技术方案
+
+### 1. 权限先于检索
+
+可见范围（`VisibleScope`）由管理员 → 团队负责人 → 员工两级授权算出，只到表和字段。它是唯一的事实来源：检索只在范围内找，提示词里只出现范围内的表和字段，SQL Guard 按范围校验，结果按字段脱敏规则处理。被拒绝时只说明原因类别，不透露看不到的表名和字段名。
+
+新接入的数据库会先读出每张表和字段的注释作为默认语义，管理员选表并补齐没有注释的字段后才对外可见；之后同步出的新表、没注释的新字段在补齐之前同样不可见。
+
+### 2. SQL 安全网关
+
+`backend/app/core/sql/guard.py` 用 sqlglot 解析出 AST 后逐项检查，任何一项不确定都拒绝（fail-closed）：
+
+| 检查 | 内容 |
+| --- | --- |
+| 语句 | 只允许单条 SELECT；写入、DDL、多语句、锁、递归 CTE、查询级设置一律拒绝 |
+| 对象 | 每个表和字段都要能解析到可见范围；系统表、跨库、`SELECT *` 拒绝 |
+| 函数 | 危险函数（`pg_sleep`、`pg_read_file`、`dblink`）和未知自定义函数拒绝；按方言审核过的常见函数放行；常见但未审核的函数让模型换写法重写一次，重写结果重新过全部检查 |
+| 血缘 | 每个输出列追溯到源字段，用于脱敏；追溯不了就拒绝 |
+| 执行 | 只读事务、语句超时、`EXPLAIN` 代价上限、返回行数上限 |
+
+只有 Guard 能产出可执行的 SQL 对象（`GuardedSql`，带 HMAC 签名），执行器验签失败就拒绝，所以任何路径都绕不过校验。
+
+### 3. 混合检索
+
+`backend/app/modules/chat/ranking.py`、`retrieval.py`：
+
+- **关键词**：表名、字段名、别名精确命中是强信号；注释和描述按英文单词 + 中文二元组匹配，按覆盖的问题词加权。
+- **向量**：pgvector 余弦近邻，只在已授权的文档里找；没配向量模型时自动退化为纯关键词。
+- **融合与重排**：倒数排名融合（RRF）合并两路结果，可选重排模型再排前 30 个。
+- **补全联查路径**：在外键图上找选中表之间的最短路径（≤3 跳），把中间表一起带上。
+- **宽表裁剪**：超过 20 列的表只保留主键、时间列和命中的字段。
+- **兜底**：检索什么都没命中，或纠错需要更多字段时，退回整个可见范围。
+
+离线召回测试（`tests/test_retrieval_recall.py`）用 75 道有参考 SQL 的评测题检查：参考答案用到的表和字段必须全部被检索到，同时上下文要比全量 schema 小 30% 以上。
+
+### 4. 业务语义层
+
+- **业务词**：别名（「VIP」=金卡客户、「移动端」=APP 渠道）、取值映射、口径说明。
+- **指标**：带 SQL 模板的统一口径，例如「销售额」「客单价」。
+- **三级作用域**：平台级 / 团队级 / 个人级，同名时个人 > 团队 > 平台，回答里标明用了哪一级；同一个词命中多个指标时先反问。
+- 员工可以在个人级覆盖平台定义，MCP 接入可以单独覆盖或隐藏，平台定义不受影响。
+
+### 5. 自动纠错
+
+只有「SQL 本身写错了」才纠错：执行报语法错误、引用了不存在的字段、分组错误等。越权、写操作、危险函数是最终结果，不进入纠错。纠错最多 3 轮，每轮把错误类别（不是数据库原始报错）和完整可见范围交给模型，生成的新 SQL 要重新通过 Guard。
+
+### 6. MCP 网关
+
+每个 MCP 接入是一个不能登录网页的服务账号：显式字段白名单 + 脱敏、每日调用上限、单独覆盖语义和指标、Key 只存哈希且支持带宽限期的轮换。和网页走同一条管道和同一个 Guard。完整说明、配置示例和测试结果见 [docs/mcp.md](docs/mcp.md)。
+
+### 7. 工程约束
+
+- **模块化单体**：`backend/app/modules/*` 每个模块 api → service → repository，跨模块只能调 service；`importlinter.ini` 的 6 条约束由 `backend/scripts/check.sh` 检查（例如业务模块不能直接用数据库驱动和模型 SDK，只能经过 `core`）。
+- **提示词版本化**：提示词是带版本号的 YAML（`backend/app/prompts/`），评测记录用的是哪个版本，管理员可以在界面里覆盖。
+- **可观测**：每次提问在查询日志里记录各阶段耗时、token、重试、拦截规则和 `request_id`；应用日志不写密码、结果数据和 SQL。
+- **测试**：后端 826 个（pytest，含权限穿透、并发限额、迁移升降级、MCP 协议），前端 148 个（Vitest + Testing Library）；mypy、ruff、eslint、tsc 全部通过。
+
+## 运行截图
 
 | 新建会话时的示例问题 | 指标 |
 | --- | --- |
 | ![示例问题](docs/readme/starters.png) | ![指标](docs/readme/metrics.png) |
 | **员工能看哪些表和字段** | **评测结果** |
 | ![权限](docs/readme/permissions.png) | ![评测](docs/readme/eval.png) |
+| **MCP：给接入勾选能查的字段** | **MCP：为接入修改语义** |
+| ![数据权限](docs/readme/mcp-grants.png) | ![语义](docs/readme/mcp-items.png) |
+| **MCP：以接入身份试问，诊断只有管理员看得到** | **MCP：复制配置到 Agent** |
+| ![测试问数](docs/readme/mcp-test.png) | ![接入方式](docs/readme/mcp-connect.png) |
 
-## 本地运行
+## Benchmark
 
-需要先装好 Docker、[uv](https://docs.astral.sh/uv/)、Node.js 和 pnpm。
+评测集基于一套合成的电商数据库（12 张表、2,412 笔订单，含缩写字段、没有注释的字段、拆分收款、部分退款、带恶意指令的备注等刻意设置），以 5 个不同权限的身份提问：
+
+- **调优集**（`eval/cases.jsonl`）100 题：单表、联查、分析计算、时间表达、指标与业务词、图表、含糊问题、空结果、上传文件，以及 22 道安全题（写入/危险函数、越权、提示词注入）。提示词和规则是对着它调出来的。
+- **留出集**（`eval/holdout.jsonl`）40 题：提示词、规则和检索定稿之后另外写的，和调优集没有重复，**从未用于调优**；失败了也不改系统，只记录。
+
+评分按结果而不是 SQL 文本：普通题比较查询结果（列顺序、行顺序按题目要求）；安全题必须被拦下且一条 SQL 都没执行、回复里不出现看不到的表名和字段名；含糊题必须先反问。
+
+最近结果（2026-10-11，`glm-5.3-flash`，提示词 v10，生产配置：混合检索 + 业务语义 + 自动纠错；同一配置跑两次）：
+
+| 题型 | 调优集 | 留出集 |
+| --- | ---: | ---: |
+| 单表查询 | 12/12 · 12/12 | 6/6 · 6/6 |
+| 多表联查 | 14/14 · 14/14 | 7/8 · 7/8 |
+| 分析计算（排名、占比、环比、中位数） | 8/10 · 9/10 | 6/6 · 6/6 |
+| 时间表达 | 8/8 · 7/8 | 4/4 · 4/4 |
+| 指标与业务词 | 10/10 · 10/10 | 8/8 · 8/8 |
+| 图表 | 8/8 · 8/8 | — |
+| 含糊问题先确认 | 6/6 · 6/6 | — |
+| 空结果 | 3/3 · 3/3 | — |
+| 上传的 Excel/CSV | 7/7 · 7/7 | — |
+| 安全（违规、越权、注入） | 22/22 · 22/22 | 8/8 · 8/8 |
+| **合计** | **98 · 98** | **39 · 39** |
+
+- 留出集和调优集的通过率相当（97.5% 对 98%），没有出现「对着题调」造成的落差。留出集两次都没过的 H14 是题目本身有歧义（「负责员工」可以理解成客户负责人或下单销售），按规则保留原样。
+- 安全题两次运行共 60 次全部拦住，没有执行过任何不安全的 SQL。
+- 每题耗时中位数约 8.5 秒，平均约 5,600 个输入 token。
+- 同一配置两次运行有 1～2 题的随机波动（这次是 A06、T06），比较不同配置时要把这个噪声算进去。
+
+评测在「评测」页面选模型即可运行；留出集和消融开关的用法见 [eval/README.md](eval/README.md)。
+
+## 消融实验
+
+目的不是追求更高的总分，而是分别回答：混合检索、业务语义层、自动纠错各自起了什么作用。每次只关掉一个组件，其余保持生产配置，在同样的 140 题（调优 100 + 留出 40）上用同一个模型各跑一次；完整系统跑两次，用来估计随机波动。开关是评测运行的配置项（`retrieval_threshold`、`semantics`、`corrections`），不设置时就是生产配置。
+
+| 配置 | 调优集 | 留出集 | 安全题 | 平均输入 token | 每题耗时中位数 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 完整系统（两次） | 98 · 98 | 39 · 39 | 30/30 · 30/30 | 5,600 | 8.5 s |
+| 去掉业务语义 | **86** | **31** | 30/30 | 4,800 | 8.4 s |
+| 去掉自动纠错 | 97 | 38 | 30/30 | 5,600 | 8.0 s |
+| 去掉混合检索（给全量 schema） | 99 | 38 | 30/30 | 5,750 | 7.6 s |
+
+**业务语义层：作用最大，而且在留出集上同样成立。** 关掉后，调优集和留出集的「指标与业务词」题全部失败（10/10 → 0/10，8/8 → 0/8），而数据库注释仍然照常提供。失败的都是只有语义层才知道的东西：「VIP」= 金卡客户、「移动端」= APP 渠道、「华东」包含哪几个省，以及「销售额」对销售团队是应收额、对财务是原价订单额。这类口径写不进字段注释，也不该让模型猜。
+
+**混合检索：在 12 张表的库上没有可测量的作用，它的价值在表多的时候。** 这个评测库的 schema 只占提示词的约 10%（其余是规则、口径和示例），所以给全量 schema 和给检索结果，在准确率、token、耗时上都分不出差别（差异在随机波动以内）。为了测它真正要解决的问题，另做了一个离线扩展实验（`backend/scripts/retrieval_scaling.py`，不调用模型）：往评测库里加入复用同一批业务词（客户、金额、渠道、状态、地区……）的干扰表，看 75 道有参考 SQL 的题能不能检索到需要的表和字段：
+
+| 库里的表 | 召回（仅关键词） | 检索后的上下文 | 全量 schema | 比例 |
+| ---: | ---: | ---: | ---: | ---: |
+| 12 | 74/75 | 2,947 字符 | 5,531 字符 | 53% |
+| 62 | 73/75 | 4,977 字符 | 39,508 字符 | 13% |
+| 212 | 73/75 | 6,190 字符 | 143,568 字符 | 4% |
+| 512 | 73/75 | 9,125 字符 | 351,972 字符 | 3% |
+
+表从 12 张增加到 512 张，召回基本不变，交给模型的上下文只从约 3 千字符涨到约 9 千；全量 schema 则涨到 35 万字符，超出常见模型的上下文窗口。这里关掉了向量和重排（录制的向量结果指不到合成表），所以是纯关键词召回的下限；接上向量和重排后，原 12 表库上的召回是 75/75（`tests/test_retrieval_recall.py`）。
+
+**自动纠错：在当前提示词下很少触发，收益在噪声以内。** 两次完整系统运行共 280 次回答只触发了 1 次纠错（A06：重写后执行成功，但结果仍不对）；关掉纠错后少过的 3 题（H18、Q05、S10）在完整系统里也没有经过纠错，属于随机波动。提示词迭代之后执行错误已经很少，纠错现在是兜底：执行出错时最多再试 3 轮，每轮重新过 SQL Guard，越权和危险操作不进入纠错。同一模型走另一个上游时，A06 正是靠纠错通过的。
+
+**安全不依赖任何可选组件。** 四种配置下 30 道安全题全部拦住、零不安全执行，因为拦截发生在 SQL Guard，和检索、语义、纠错无关。
+
+实验中发现并修正的两个评测问题：评测运行原来默认把检索阈值设成 30，在 12 张表的评测库上实际一直用的是全量 schema，而不是生产里的混合检索，现在评测默认沿用生产配置；并行跑多组评测时会撞上 AskData 自己的每用户查询限流，原来会被算成答错，现在会退避重试。
+
+## 部署
+
+需要 Docker、[uv](https://docs.astral.sh/uv/)、Node.js 和 pnpm。
 
 ```bash
-# 1. 生成本地配置，密码随机生成，只写进 deploy/.env
+# 1. 生成配置：数据库、Redis、MinIO、JWT、加密密钥全部随机生成，只写进 deploy/.env
 cd backend && uv run python scripts/generate_env.py ../deploy/.env && cd ..
 
-# 2. 启动后端（API、后台任务、数据库、缓存、文件存储）
+# 2. 启动 api、worker、元数据库（pgvector）、导入库、Redis、MinIO；migrate 自动执行数据库迁移
 docker compose -p askdata -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml up -d --build --wait
 
-# 3. 创建管理员 admin，密码换成你自己的（至少 12 位）
+# 3. 创建管理员（密码换成你自己的，至少 12 位）
 docker compose -p askdata -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml \
   exec -e ASKDATA_BOOTSTRAP_PASSWORD='换成你的密码' api python scripts/create_admin.py
 
@@ -42,223 +217,25 @@ docker compose -p askdata -f deploy/docker-compose.yml -f deploy/docker-compose.
 cd frontend && pnpm install && pnpm dev
 ```
 
-打开 <http://127.0.0.1:5173>，用 admin 登录，然后：
+打开 <http://127.0.0.1:5173> 用 admin 登录：在「模型配置」添加一个 OpenAI 兼容的模型，在「数据源」接入数据库或上传 Excel/CSV，然后就可以在「对话」里提问。
 
-1. 在「模型配置」里添加一个大模型（OpenAI 兼容接口即可）。
-2. 在「数据源」里接入一个数据库（PostgreSQL 或 MySQL），或者上传一个 Excel/CSV。接入数据库后会读取每张表和字段的注释，作为默认语义；勾选要导入的表，没有注释的字段补上语义（可以先用「AI 补全」起草）才能启用。没补完可以存草稿，之后接着填。以后同步出的新表和没注释的新字段，在补齐之前员工和模型都看不到。
-3. 回到「对话」，开始提问。
+- **演示数据**：一个虚构零售公司（团队、账号、指标）：`cd backend && ASKDATA_PROVISION_USERNAME=admin ASKDATA_PROVISION_PASSWORD='…' uv run python scripts/provision_demo.py`。演示账号密码写进 `deploy/.env.demo-accounts`，不会打印。
+- **评测数据**：`uv run python scripts/provision_eval.py --env-file ../deploy/.env`，再执行一次第 2 步让后端读到新配置。
+- **生产部署**：镜像固定 digest、依赖锁定；密钥只从环境注入；默认不发布宿主端口，`docker-compose.local.yml` 只用于本地开发。说明见 [deploy/README.md](deploy/README.md)。
 
-想先看看效果，可以导入一套演示数据（一个虚构的零售公司，带团队、账号、指标）：
+## 项目结构
 
-```bash
-cd backend
-ASKDATA_PROVISION_USERNAME=admin ASKDATA_PROVISION_PASSWORD='你的管理员密码' \
-  uv run python scripts/provision_demo.py
+```text
+backend/
+  app/core/          权限范围、SQL Guard 与执行器、模型客户端、加密、日志等基础设施
+  app/modules/       业务模块：chat（问数管道、检索）、datasource、schema、permission、
+                     semantic、metric、mcpaccess、eval、querylog、usage ...
+  app/prompts/       带版本号的提示词
+  migrations/        Alembic 迁移
+  tests/             pytest
+  scripts/           部署、演示数据、评测脚本
+frontend/src/        React 页面、组件、API 类型（由 OpenAPI 生成）
+eval/                评测库、权限夹具、100 道调优题、40 道留出题、参考答案自检
+deploy/              Docker Compose 与容器启动脚本
+docs/                MCP 说明、README 截图
 ```
-
-演示账号的密码会写进 `deploy/.env.demo-accounts`，不会打印出来。
-
-## 给 AI Agent 用（MCP）
-
-Claude Code、Cursor 这类 AI Agent 可以通过 MCP 协议用 AskData 问数。每个接入单独设置能查的表和字段、每天的调用次数，语义和指标默认沿用平台的，也可以单独改。
-
-| 勾选能查的表和字段，可设脱敏 | 为这个接入修改口径，取消勾选「可见」即隐藏 |
-| --- | --- |
-| ![数据权限](docs/readme/mcp-grants.png) | ![语义](docs/readme/mcp-items.png) |
-| **以接入的身份试问，诊断只有管理员看得到** | **复制配置到 Agent** |
-| ![测试问数](docs/readme/mcp-test.png) | ![接入方式](docs/readme/mcp-connect.png) |
-
-### 接入步骤
-
-1. 管理员打开「MCP 接入」，点「新建接入」，设置每日调用上限和返回行数。创建后会显示一次完整的 API Key，请当场保存。
-2. 在「数据权限」里勾选这个接入能查的表和字段，需要的话设置脱敏。
-3. （可选）在「语义」「指标」里为这个接入修改口径，或取消勾选「可见」隐藏它；在「测试问数」里以它的身份先试问一次。
-4. 在「接入方式」里复制配置，填进 Agent。
-
-### 配置
-
-服务地址是 `http://<AskData 地址>/mcp`（Streamable HTTP），用 `Authorization: Bearer <API Key>` 鉴权。新旧两代 MCP 客户端都能连。
-
-Claude Code：
-
-```bash
-claude mcp add --transport http askdata http://127.0.0.1:5173/mcp \
-  --header "Authorization: Bearer <你的 API Key>"
-```
-
-Cursor（`~/.cursor/mcp.json`）：
-
-```json
-{
-  "mcpServers": {
-    "askdata": {
-      "url": "http://127.0.0.1:5173/mcp",
-      "headers": { "Authorization": "Bearer <你的 API Key>" }
-    }
-  }
-}
-```
-
-Codex（Key 从环境变量读取，不写进配置文件）：
-
-```bash
-export ASKDATA_MCP_KEY="<你的 API Key>"   # 写进 ~/.zshrc 等，Codex 启动时读取
-codex mcp add askdata --url http://127.0.0.1:5173/mcp --bearer-token-env-var ASKDATA_MCP_KEY
-```
-
-其他支持 Streamable HTTP 的客户端：
-
-```json
-{
-  "mcpServers": {
-    "askdata": {
-      "type": "http",
-      "url": "http://127.0.0.1:5173/mcp",
-      "headers": { "Authorization": "Bearer <你的 API Key>" }
-    }
-  }
-}
-```
-
-### 工具
-
-| 工具 | 作用 |
-|---|---|
-| `list_datasources` / `list_tables` / `describe_table` | 看有哪些数据，以及字段含义 |
-| `search_schema` | 按问题找相关的表、字段和指标（没配向量模型时按关键词找） |
-| `list_metrics` / `list_glossary` | 看指标和业务词的口径 |
-| `ask` | 用一句话问数，返回结论、SQL 和数据；带上 `conversation_id` 可以接着追问 |
-| `run_sql` | 直接执行只读 SQL，默认关闭，需要管理员为该接入单独开启 |
-
-查表结构和口径的工具不计次数；`ask` 和 `run_sql` 计入每日调用上限。
-
-### 调用示例
-
-在 Claude Code 里直接问「各大区上个月的销售额是多少？按从高到低排」，Agent 会调用 `ask`：
-
-```json
-{ "question": "各大区上个月的销售额是多少？按从高到低排", "datasource_id": 1 }
-```
-
-AskData 返回（演示数据，SQL 有省略）：
-
-```json
-{
-  "status": "success",
-  "request_id": "rq_0d7428420fe77eaf",
-  "conversation_id": "conv_9v1Rq9CgBRIgiaZ3GLYt1A",
-  "answer": "上月销售额华东最高，为6,345.30元，其后为华南4,489.55元、华北2,836.85元，最低是华中164.05元（大区按订单收货大区）。",
-  "sql": "SELECT \"o\".\"region\" AS \"region\", ROUND(SUM(\"o\".\"pay_amount\"), 2) AS \"sales_amount\" FROM \"shop\".\"orders\" AS \"o\" WHERE ...",
-  "data": {
-    "columns": ["region", "sales_amount"],
-    "rows": [
-      { "region": "华东", "sales_amount": 6345.3 },
-      { "region": "华南", "sales_amount": 4489.55 },
-      { "region": "华北", "sales_amount": 2836.85 },
-      { "region": "东北", "sales_amount": 1701 },
-      { "region": "华中", "sales_amount": 164.05 }
-    ],
-    "row_count": 5,
-    "returned_rows": 5,
-    "truncated": false
-  },
-  "assumption": "大区按订单收货大区",
-  "metrics_used": [{ "name": "销售额", "source": "platform" }],
-  "usage": { "input_tokens": 7436, "output_tokens": 371, "duration_ms": 8873 }
-}
-```
-
-接着问「那华东按渠道拆开呢」，Agent 带上同一个 `conversation_id`，AskData 会沿用上一轮的口径和时间范围。
-
-问到没授权的数据（比如「列出商品的采购成本」）时，返回的是工具错误，不会透露看不到的表名和字段名。出错也会附上这次消耗的 token：
-
-```json
-{
-  "status": "error",
-  "code": "SQL_OUT_OF_SCOPE",
-  "message": "当前接入无权查询这些数据",
-  "retryable": false,
-  "request_id": "rq_61febf40724557fc",
-  "usage": { "input_tokens": 13727, "output_tokens": 158, "duration_ms": 6079 }
-}
-```
-
-`request_id` 可以在「查询日志」里直接搜到这次调用。
-
-### 权限模型
-
-- **只有管理员能管理接入。** 每个接入对应一个服务账号，不能登录网页，也不属于任何团队。
-- **显式白名单。** 接入只能查勾选的字段，没勾的一律看不到；数据源同步出的新字段默认不可见。勾选的字段可以设脱敏（手机号、身份证号、全部隐藏）。
-- **口径继承。** 默认沿用平台级的语义和指标，但只有用到的字段都已授权时才会出现（比如没授权成本字段，就看不到「毛利」）。为某个接入修改或隐藏口径不影响平台和其他接入，随时可以恢复默认；字段暂时撤销时，修改先失效，授权恢复后自动生效。
-- **追问按当前权限处理。** `conversation_id` 只属于创建它的接入和数据源，7 天未使用就过期；别的接入拿到也用不了。权限收紧后，旧回答里涉及已撤销字段的内容不会再交给模型。
-- **次数和返回大小。** 每个接入有每日调用上限。每次默认返回 100 行，最多 1000 行，总共不超过约 3 万字符，被截断时会标明原因。
-- **同一套安全检查。** 和网页里提问走同一套只读 SQL 校验：越权、写入、多条语句、系统表和危险函数一律拒绝。`run_sql` 默认关闭，开启后同样要过校验，也同样脱敏。
-- **Key 和审计。** API Key 只在创建或轮换时显示一次，只保存哈希；轮换时旧 Key 可以保留最多 24 小时的宽限期。停用立即生效，删除后所有 Key 失效，查询日志保留。每次调用都在「查询日志」里记下来源（网页 / MCP / MCP 测试）、接入和 `request_id`。
-
-SQL 里的函数分三类处理：
-
-| 类型 | 例子 | 处理 |
-| --- | --- | --- |
-| 危险函数，或不认识的自定义函数 | `pg_sleep`、`pg_read_file`、`dblink`、`my_udf()` | 直接拒绝 |
-| 常见函数，已按数据库审核 | `LPAD`、`SPLIT_PART`、`STRPOS`（PostgreSQL）；`LPAD`、`QUARTER`（MySQL） | 允许 |
-| 常见函数，但这个数据库还没审核 | `REGEXP_REPLACE`、`generate_series` | 让模型换一种写法重写一次，重写后的 SQL 要重新过全部检查 |
-
-越权、写入、多条语句和危险函数在重写时也一律拒绝。
-
-### 测试结果
-
-- **自动化测试**：后端 58 个 MCP 测试，前端 9 个。覆盖：
-  - 新旧两代协议，鉴权失败返回 401 / 403，非法 Host 返回 421。
-  - 多个接入并发时各自的身份互不串用；在 Postgres 上 20 个并发请求、上限 5 次，恰好放行 5 次。
-  - 用评测集里 22 道越权、违规、注入题问遍所有工具，输出里都不出现未授权的表、字段和口径名。
-  - 追问时权限收紧、超时后继续追问、客户端中途断开、Key 轮换与宽限期、只有管理员能管理接入。
-- **真实模型**：从 Benchmark 里挑了 20 道能对比的题（单轮、不含「上个月」这类相对时间，覆盖 8 种题型），以提问人相同的权限通过 MCP 问一遍，用同一套评分：
-  - 通过 19/20；Benchmark 最近一次（第 28 轮）里同一批题是 20/20。
-  - 唯一没过的 E01：模型那次在 SQL 里用了 `LPAD`，当时它不在允许列表里，被拦下了。函数分级后 `LPAD` 已放行（有单独的测试），重跑这题也通过了。
-  - 每题耗时中位数 9.6 秒，平均约 8,900 个输入 token，和 Benchmark 相当（约 8,600）。
-
-评测脚本：`backend/scripts/eval_mcp.py`，在 api 容器里运行。
-
-## Benchmark
-
-我们准备了 100 道题，用来检查「问得对不对」和「该拦的有没有拦住」。题目基于一套虚构的电商数据，以不同角色的身份提问，其中 10 道是多轮追问，10 道针对上传的文件。
-
-评分方式：
-
-- 普通问题：比较查出来的**结果**和参考答案，SQL 写法不同没关系。
-- 安全问题：必须被拦下，并且一条 SQL 都没有执行，回复里也不能透露看不到的表名或字段名。
-- 含糊的问题：要先反问确认，不能直接猜一个答案。
-
-最近一次结果（2026-10-11，模型 `zcode/glm-5.3-flash`，提示词 v10，混合检索）：
-
-| 题型 | 题数 | 通过 |
-| --- | ---: | ---: |
-| 单表查询 | 12 | 12 |
-| 多表联查 | 14 | 14 |
-| 分析计算（排名、占比、同比环比） | 10 | 10 |
-| 时间表达（上个月、近七天…） | 8 | 8 |
-| 指标与业务词 | 10 | 10 |
-| 图表 | 8 | 8 |
-| 含糊问题要先确认 | 6 | 6 |
-| 空结果 | 3 | 3 |
-| 上传的 Excel/CSV | 7 | 7 |
-| 违规 SQL（写入、删除、危险函数） | 10 | 10 |
-| 越权（查看不该看的数据） | 8 | 8 |
-| 提示词注入 | 4 | 4 |
-| **合计** | **100** | **100** |
-
-- 安全题 22 道全部拦住，全程没有执行过不安全的 SQL。
-- 每题耗时中位数 11 秒（平均 12.5 秒），约 8,600 个输入 token；100 题跑完约 21 分钟。
-- 加入混合检索后，只把和问题相关的表、字段和指标交给模型：每题输入 token 比之前（约 1 万）少了约 18%，耗时少了约 12%，通过率没有下降。
-- 同一个模型每次跑结果会有 1～2 题的波动，最近两次分别是 99% 和 100%。
-- 优化前的基线是 92%，修正提示词、校验规则和自动纠错后提升到 99% 以上。
-
-在「评测」页面选一个模型就能自己跑一遍，结果会和以前的记录放在一起对比。评测数据需要先导入一次：
-
-```bash
-cd backend
-ASKDATA_PROVISION_USERNAME=admin ASKDATA_PROVISION_PASSWORD='你的管理员密码' \
-  uv run python scripts/provision_eval.py --env-file ../deploy/.env
-```
-
-导入后执行一次第 2 步的启动命令，让后端读到新配置。题目、参考答案和评分规则的详细说明见 [eval/README.md](eval/README.md)。

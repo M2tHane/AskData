@@ -188,10 +188,11 @@ class RuntimeEvaluation:
                 deps.llm = LLMClient(
                     ModelRegistry(PinnedModel(model)), services.usage, self.runtime.transport
                 )
-                threshold = config.config.get("retrieval_threshold", 30)
-                if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 0:
-                    raise AppError(ErrorCode.VALIDATION_ERROR)
-                deps.builder.threshold = threshold
+                threshold, semantics, corrections = config.pipeline_options()
+                if threshold is not None:
+                    deps.builder.threshold = threshold
+                deps.builder.semantics = semantics
+                deps.max_corrections = corrections
                 return deps
 
             adapter = adapter_factory("app.modules.eval.adapters", "build_eval_adapter")(

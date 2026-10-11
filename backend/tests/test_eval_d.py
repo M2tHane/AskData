@@ -470,6 +470,57 @@ async def test_worker_cancellation_mid_question_leaves_it_for_resume(d_database)
         assert finished.status == "success" and finished.summary["passed"] == 3
 
 
+async def test_query_limiter_throttling_is_retried_not_scored(d_database, monkeypatch):  # noqa: F811
+    """Two runs sharing an eval user hit AskData's own per-user limiter; that says nothing
+    about the model, so the question is asked again after a pause."""
+    assets = EvalAssets(ROOT / "eval")
+    tasks = TaskManager(MemoryTaskStore(), MemoryQueue(), {})
+    admin = CurrentUser(id=1, role=Role.ADMIN)
+    data = result(["count"], [[3]])
+    waits: list[float] = []
+
+    async def no_wait(seconds):
+        waits.append(seconds)
+
+    monkeypatch.setattr("app.modules.eval.service.asyncio.sleep", no_wait)
+
+    class Reference:
+        async def result(self, question):
+            return data
+
+    class Pipeline:
+        asked: list[str] = []
+
+        async def run(self, question, config):
+            self.asked.append(question.case_id)
+            # "a" is throttled once; "b" every time.
+            if question.case_id == "b" or self.asked.count("a") == 1:
+                raise AppError(ErrorCode.RATE_LIMITED, http_status=429)
+            return PipelineOutcome(status="success", executed_queries=1, result=data)
+
+    async with d_database.session() as session:
+        pipeline = Pipeline()
+        service = EvalService(
+            EvalRepository(session),
+            assets,
+            pipeline,
+            Reference(),
+            AuditService(DatabaseAuditStore(session)),
+            tasks,
+        )
+        tasks.handlers["eval.run"] = service.run
+        for name in ("a", "b"):
+            await service.save_case(case(id=name), actor=admin)
+        run = await service.start(RunRequest(model_id="fixed"), actor=admin)
+        await tasks.run(run.task_id)
+        scored = {r.case_id: r for r in await service.results(run.id, actor=admin)}
+    assert scored["a"].passed and pipeline.asked.count("a") == 2
+    # Still throttled after every pause: recorded as an evaluation error, not a wrong answer.
+    assert not scored["b"].passed and pipeline.asked.count("b") == 5
+    assert scored["b"].error == "RATE_LIMITED"
+    assert waits == [5, 5, 15, 30, 60]
+
+
 async def test_results_keep_the_diagnosis_and_point_back_to_run_and_case(d_database):  # noqa: F811
     assets = EvalAssets(ROOT / "eval")
     tasks = TaskManager(MemoryTaskStore(), MemoryQueue(), {})
@@ -631,3 +682,23 @@ def test_quoting_visible_data_that_names_a_hidden_object_is_not_a_leak():
     assert evaluate(injection, quoted, hidden_names=hidden, exact_code=False).passed
     invented = quoted.model_copy(update={"result": result(["memo"], [["无"]])})
     assert not evaluate(injection, invented, hidden_names=hidden, exact_code=False).passed
+
+
+@pytest.mark.parametrize(
+    "config,expected",
+    [
+        ({}, (None, True, 3)),
+        ({"retrieval_threshold": 0, "semantics": False, "corrections": 0}, (0, False, 0)),
+    ],
+)
+def test_ablation_switches_default_to_the_production_pipeline(config, expected):
+    assert RunRequest(model_id="m", config=config).pipeline_options() == expected
+
+
+@pytest.mark.parametrize(
+    "config",
+    [{"corrections": 4}, {"corrections": True}, {"semantics": "no"}, {"retrieval_threshold": -1}],
+)
+def test_ablation_switches_reject_bad_values(config):
+    with pytest.raises(AppError):
+        RunRequest(model_id="m", config=config).pipeline_options()

@@ -212,6 +212,18 @@ async def test_status_definitions_of_chosen_tables_come_along():
     assert "有效订单" in names and "零售价" not in names
 
 
+async def test_semantics_off_keeps_tables_and_drops_every_item():
+    """The ablation switch: same tables, no terms, metrics or examples."""
+    paid = _term(1, 13, ["有效订单"], {"1": "已支付"})
+    question = "上个月退款的订单实付金额"
+    on = await _build(_index([paid]), question)
+    off = await ContextBuilder(_index([paid]), threshold=0, semantics=False).build(
+        USER, _scope(), question
+    )
+    assert on.items and not off.items
+    assert set(off.tables) == set(on.tables) and off.notes == on.notes
+
+
 async def test_wide_tables_keep_keys_times_and_matched_columns():
     bundle = await _build(_index(), "宽表里零售单价最高的是哪个")
     columns = bundle.tables["shop.wide"]

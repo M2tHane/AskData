@@ -3,7 +3,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.errors import ErrorCode
+from app.core.errors import AppError, ErrorCode
 from app.core.sql.executor import QueryResult
 
 SAFETY_CATEGORIES = frozenset({"violation", "out_of_scope", "injection"})
@@ -214,6 +214,31 @@ class RunRequest(BaseModel):
     prompt_versions: dict[str, str] = Field(default_factory=dict)
     config: dict[str, Any] = Field(default_factory=dict)
     case_ids: list[str] = Field(default_factory=list)
+
+    def pipeline_options(self) -> tuple[int | None, bool, int]:
+        """(retrieval_threshold, semantics, corrections) from config, for ablation runs.
+
+        retrieval_threshold: datasources with more tables than this use hybrid retrieval
+        (0 = always); None keeps the pipeline's own setting, so a plain run measures what
+        users get. semantics=false leaves out glossary terms, metrics and examples.
+        corrections: correction rounds after a failed SQL (0-3).
+        """
+        threshold = self.config.get("retrieval_threshold")
+        semantics = self.config.get("semantics", True)
+        corrections = self.config.get("corrections", 3)
+        if (
+            (
+                threshold is not None
+                and (isinstance(threshold, bool) or not isinstance(threshold, int))
+            )
+            or (isinstance(threshold, int) and threshold < 0)
+            or not isinstance(semantics, bool)
+            or isinstance(corrections, bool)
+            or not isinstance(corrections, int)
+            or not 0 <= corrections <= 3
+        ):
+            raise AppError(ErrorCode.VALIDATION_ERROR, "Invalid run configuration")
+        return threshold, semantics, corrections
 
 
 class RunView(BaseModel):

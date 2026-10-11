@@ -417,6 +417,21 @@ async def test_only_execution_syntax_error_retries_at_most_three(
     assert "raw database" not in " ".join(transport.messages)
 
 
+async def test_corrections_off_fails_on_the_first_error(system, member):
+    """The ablation switch: no correction round, for syntax errors or made-up fields."""
+    service, transport, _, _, _, _ = system
+    service.pipeline.deps.max_corrections = 0
+    connector = SyntaxErrorConnector(1)
+    service.pipeline.deps.executor = SqlExecutor(ConnectorRegistry({Dialect.POSTGRES: connector}))
+    conversation = await create_conversation(system, member)
+    reply = await service.ask(conversation.id, QuestionRequest(question="订单"), actor=member)
+    assert reply.status == "failed" and connector.attempts == 1
+    transport.sql = "SELECT o.is_active FROM orders o"
+    reply = await service.ask(conversation.id, QuestionRequest(question="订单"), actor=member)
+    assert reply.status == "blocked"
+    assert "correction" not in transport.calls_by_prompt
+
+
 async def test_correction_guard_rejection_stops_immediately(system, member):
     service, transport, _, logs, _, _ = system
     connector = SyntaxErrorConnector(9)

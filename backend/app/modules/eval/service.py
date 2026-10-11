@@ -350,6 +350,20 @@ class GuardedReferenceRunner:
         return result
 
 
+# Seconds to wait before asking a question again after the query limiter turned it away.
+THROTTLE_BACKOFF = (5, 15, 30, 60)
+
+
+def _stopping(error: AppError) -> bool:
+    """The worker itself is being stopped (job timeout, shutdown) mid-question. The pipeline
+    reports that as an error; scoring it would record a failure the model never made, and a
+    resume would skip it. The run stops and leaves the question unanswered."""
+    current = asyncio.current_task()
+    return (
+        error.code == ErrorCode.QUERY_CANCELLED and current is not None and current.cancelling() > 0
+    )
+
+
 class EvalService:
     def __init__(
         self,
@@ -411,6 +425,7 @@ class EvalService:
 
     async def start(self, request: RunRequest, *, actor: CurrentUser) -> RunView:
         self._role(actor, write=True)
+        request.pipeline_options()  # reject a bad ablation config before anything is queued
         async with self.repository.transaction():
             cases = await self.repository.all_cases()
             selected = [
@@ -458,6 +473,63 @@ class EvalService:
                 await self.repository.runs.update(row, {"task_id": task.id})
         return await self.get(identifier, actor=actor)
 
+    async def _scored(
+        self, case: EvalCaseInput, identifier: int, request: RunRequest
+    ) -> Evaluation:
+        """Score one question. Throttling by AskData's own per-user query limiter says nothing
+        about the model: wait and ask again instead of scoring it as a failure."""
+        for delay in THROTTLE_BACKOFF:
+            try:
+                return await self._score(case, identifier, request)
+            except AppError as error:
+                if error.code != ErrorCode.RATE_LIMITED:
+                    if _stopping(error):
+                        raise
+                    return self._failed(case, identifier, error)
+                await asyncio.sleep(delay)
+        try:
+            return await self._score(case, identifier, request)
+        except AppError as error:
+            if _stopping(error):
+                raise
+            return self._failed(case, identifier, error)
+
+    @staticmethod
+    def _failed(case: EvalCaseInput, identifier: int, error: AppError) -> Evaluation:
+        return Evaluation(
+            case_id=case.id,
+            category=case.category,
+            passed=False,
+            reason="execution_failed",
+            error=error.code.value,
+            # Raised before or around the pipeline (reference query, adapter).
+            diagnostic={
+                "stage": "evaluation",
+                "code": error.code.value,
+                "error_type": type(error).__name__,
+                "eval_run_id": identifier,
+                "eval_case_id": case.id,
+            },
+        )
+
+    async def _score(self, case: EvalCaseInput, identifier: int, request: RunRequest) -> Evaluation:
+        # Self-check references before scoring; safety/clarify never execute one.
+        reference = await self.references.result(case) if case.expect_status == "success" else None
+        question = EvalQuestion(
+            case_id=case.id,
+            datasource=case.datasource,
+            as_user=case.as_user,
+            question=case.question,
+            history=case.history,
+            clock=case_clock(case, self.assets.fixtures["clock"]),
+            injection_context=case.injection_context,
+            run_id=identifier,
+        )
+        outcome = await self.pipeline.run(question, request)
+        return evaluate(
+            case, outcome, reference, await self.assets.hidden_names(case), exact_code=False
+        )
+
     async def _owned(self, identifier: int, task_id: str) -> EvalRun | None:
         """The locked run while this task still owns it; None once stopped, resumed by
         another task, or deleted. Must be called inside a transaction."""
@@ -502,58 +574,7 @@ class EvalService:
                 if snapshot["case_id"] in scored:
                     continue
                 case = EvalCaseInput.model_validate(snapshot["definition"])
-                try:
-                    # Self-check references before scoring; safety/clarify never execute one.
-                    reference = (
-                        await self.references.result(case)
-                        if case.expect_status == "success"
-                        else None
-                    )
-                    question = EvalQuestion(
-                        case_id=case.id,
-                        datasource=case.datasource,
-                        as_user=case.as_user,
-                        question=case.question,
-                        history=case.history,
-                        clock=case_clock(case, self.assets.fixtures["clock"]),
-                        injection_context=case.injection_context,
-                        run_id=identifier,
-                    )
-                    outcome = await self.pipeline.run(question, request)
-                    result = evaluate(
-                        case,
-                        outcome,
-                        reference,
-                        await self.assets.hidden_names(case),
-                        exact_code=False,
-                    )
-                except AppError as error:
-                    current = asyncio.current_task()
-                    if (
-                        error.code == ErrorCode.QUERY_CANCELLED
-                        and current is not None
-                        and current.cancelling()
-                    ):
-                        # The worker itself is being stopped (job timeout, shutdown) mid-question.
-                        # The pipeline reports that as an error; scoring it would record a failure
-                        # the model never made, and a resume would skip it. Stop the run here and
-                        # leave the question unanswered.
-                        raise
-                    result = Evaluation(
-                        case_id=case.id,
-                        category=case.category,
-                        passed=False,
-                        reason="execution_failed",
-                        error=error.code.value,
-                        # Raised before or around the pipeline (reference query, adapter).
-                        diagnostic={
-                            "stage": "evaluation",
-                            "code": error.code.value,
-                            "error_type": type(error).__name__,
-                            "eval_run_id": identifier,
-                            "eval_case_id": case.id,
-                        },
-                    )
+                result = await self._scored(case, identifier, request)
                 async with self.repository.transaction():
                     # Locked so a stop request sees either all or none of this question.
                     if await self._owned(identifier, context.task.id) is None:

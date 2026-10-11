@@ -513,21 +513,22 @@ def build_simulated_adapter(
         async def history(identifier: int) -> list[MessageView]:
             return []
 
-        threshold = config.config.get("retrieval_threshold", 30)
-        if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 0:
-            raise AppError(ErrorCode.VALIDATION_ERROR)
-        if builder is not None and config.config.get("retrieval_threshold") is not None:
-            if builder.threshold != threshold:
-                raise AppError(ErrorCode.VALIDATION_ERROR, "Retrieval configuration mismatch")
-        return PipelineDependencies(
+        threshold, semantics, corrections = config.pipeline_options()
+        if builder is not None and threshold is not None and builder.threshold != threshold:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "Retrieval configuration mismatch")
+        # Replays have no retrieval index: the scope-only index sends the whole schema.
+        threshold = 30 if threshold is None else threshold
+        deps = PipelineDependencies(
             assets.permissions,
             resolve,
             history,
-            builder or ContextBuilder(ScopeOnlyIndex(), threshold=threshold),
+            builder or ContextBuilder(ScopeOnlyIndex(), threshold=threshold, semantics=semantics),
             build_fixed_client(scripts[question.case_id], config.model_id),
             SqlGuard(),
             executor,
             querylog,
         )
+        deps.max_corrections = corrections
+        return deps
 
     return build_eval_adapter(assets, dependencies)
