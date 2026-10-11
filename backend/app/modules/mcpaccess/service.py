@@ -10,6 +10,7 @@ import hashlib
 import json
 import secrets
 import time
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -157,6 +158,7 @@ class McpAccessService:
                     catalog = await self.grants.schema.catalog(datasource_id)
                     live.update(c.id for t in catalog for c in t.columns)
                 stale = len(granted - live)
+        overrides = await self.repository.overrides(row.id)
         return McpClientRead(
             id=row.id,
             public_id=row.public_id,
@@ -175,7 +177,8 @@ class McpAccessService:
             keys=[McpKeyRead.model_validate(key) for key in await self.repository.keys(row.id)],
             datasource_ids=await self._datasource_ids(row) if row.status == "active" else [],
             stale_grants=stale,
-            override_count=len(await self.repository.overrides(row.id)),
+            override_count=len(overrides),
+            override_kinds=dict(Counter(item.kind for item in overrides)),
         )
 
     async def clients(self, *, actor: CurrentUser) -> list[McpClientRead]:

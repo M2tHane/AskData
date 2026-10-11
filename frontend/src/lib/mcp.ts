@@ -78,6 +78,7 @@ export function snippets(url: string, key: string | null): { id: string; label: 
   return [
     { id: 'claude', label: 'Claude Code', text: `claude mcp add --transport http askdata ${url} --header "Authorization: Bearer ${secret}"` },
     { id: 'cursor', label: 'Cursor', text: JSON.stringify({ mcpServers: { askdata: { url, headers: server.headers } } }, null, 2) },
+    { id: 'codex', label: 'Codex', text: `# Key 放在环境变量里（写进 ~/.zshrc 等），Codex 启动时读取\nexport ASKDATA_MCP_KEY="${secret}"\ncodex mcp add askdata --url ${url} --bearer-token-env-var ASKDATA_MCP_KEY` },
     { id: 'json', label: '通用 JSON', text: JSON.stringify({ mcpServers: { askdata: server } }, null, 2) },
   ]
 }

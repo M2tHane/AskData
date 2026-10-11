@@ -345,7 +345,11 @@ async def test_definitions_are_inherited_edited_hidden_and_restored(database):
                 actor=ADMIN,
             )
         assert outside.value.code == ErrorCode.SQL_OUT_OF_SCOPE
-        assert await service.restore(client_id, OverrideRestore(), actor=ADMIN) == 2
+        detail = await service.get(client_id, actor=ADMIN)
+        assert detail.override_kinds == {"semantic": 1, "metric": 1}
+        assert await service.restore(client_id, OverrideRestore(kind="metric"), actor=ADMIN) == 1
+        assert (await service.get(client_id, actor=ADMIN)).override_kinds == {"semantic": 1}
+        assert await service.restore(client_id, OverrideRestore(), actor=ADMIN) == 1
         assert {i.state for i in await service.overlay_items(client_id, 1, actor=ADMIN)} == {
             "default"
         }

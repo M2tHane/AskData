@@ -19,7 +19,7 @@ import {
   useUpdateMcpClient,
 } from '../api/hooks'
 import type { McpClientRead, McpClientWrite, McpKeyCreated, OverlayItem, TableRead, TestAskReply } from '../api/types'
-import { Badge, Button, Callout, ScopeTag, Switch, Tabs, TextField } from '../components/basic'
+import { Badge, Button, Callout, Switch, Tabs, TextField } from '../components/basic'
 import { Check } from '../components/Check'
 import { ConfirmDialog, Dialog, DialogFooter, Drawer, UnsavedDialog } from '../components/Dialog'
 import { Icon } from '../components/Icon'
@@ -262,7 +262,7 @@ function Snippet(props: { text: string }) {
   )
 }
 
-type TabId = 'basic' | 'grants' | 'items' | 'test' | 'connect'
+type TabId = 'basic' | 'grants' | 'semantic' | 'metric' | 'test' | 'connect'
 
 function McpDetail(props: { id: number; justCreated: McpKeyCreated | null; onClose: () => void }) {
   const client = useMcpClient(props.id)
@@ -300,7 +300,8 @@ function McpDetail(props: { id: number; justCreated: McpKeyCreated | null; onClo
             items={[
               { id: 'basic', label: '基本' },
               { id: 'grants', label: '数据权限', count: (c.datasource_ids ?? []).length },
-              { id: 'items', label: '语义与指标', count: c.override_count || undefined },
+              { id: 'semantic', label: '语义', count: c.override_kinds?.semantic || undefined },
+              { id: 'metric', label: '指标', count: c.override_kinds?.metric || undefined },
               { id: 'test', label: '测试问数' },
               { id: 'connect', label: '接入方式' },
             ]}
@@ -308,7 +309,7 @@ function McpDetail(props: { id: number; justCreated: McpKeyCreated | null; onClo
           <div className="cb-mcp-tab">
             {tab === 'basic' ? <BasicTab client={c} onDeleted={props.onClose} /> : null}
             {tab === 'grants' ? <GrantsTab client={c} onDirty={setDirty} /> : null}
-            {tab === 'items' ? <ItemsTab client={c} /> : null}
+            {tab === 'semantic' || tab === 'metric' ? <ItemsTab key={tab} client={c} kind={tab} /> : null}
             {tab === 'test' ? <TestTab client={c} /> : null}
             {tab === 'connect' ? <ConnectTab client={c} /> : null}
           </div>
@@ -530,15 +531,22 @@ const ITEM_FIELDS = {
   ],
 } as const
 
-function ItemsTab(props: { client: McpClientRead }) {
+const KIND_TEXT = {
+  semantic: { name: '语义', empty: '没有可继承的语义' },
+  metric: { name: '指标', empty: '没有可继承的指标' },
+} as const
+
+function ItemsTab(props: { client: McpClientRead; kind: 'semantic' | 'metric' }) {
   const c = props.client
+  const text = KIND_TEXT[props.kind]
+  const overridden = c.override_kinds?.[props.kind] ?? 0
   const toast = useToast()
   const [ds, setDs] = useState<number | null>(null)
   const items = useMcpItems(c.id, ds)
   const setItem = useSetMcpItem(c.id, ds)
   const restore = useRestoreMcpItems(c.id)
   const [editing, setEditing] = useState<OverlayItem | null>(null)
-  const list = items.data ?? []
+  const list = (items.data ?? []).filter((i) => i.kind === props.kind)
   const changed = list.filter((i) => i.state !== 'default').length
   const act = (item: OverlayItem, action: 'hide' | 'restore') => {
     const done = { onSuccess: () => toast({ tone: 'success', title: `${item.name}：${action === 'hide' ? '已对这个接入隐藏' : '已恢复平台默认'}` }), onError: (e: unknown) => toast({ tone: 'danger', title: '操作失败', message: fail(e) }) }
@@ -547,26 +555,26 @@ function ItemsTab(props: { client: McpClientRead }) {
   }
   return (
     <>
-      <Callout tone="info">默认使用平台级的语义和指标。在这里修改或隐藏只影响这个接入，平台上的定义不变；恢复默认即撤销修改。</Callout>
+      <Callout tone="info">默认使用平台级的{text.name}。在这里修改或隐藏只影响这个接入，平台上的定义不变；恢复默认即撤销修改。</Callout>
       <div className="cb-filters">
         <DatasourceSelect value={ds} onChange={setDs} />
         <span className="cb-faint">
           {changed ? `${changed} 项已修改或隐藏` : '全部为平台默认'}
-          {(c.override_count ?? 0) > changed ? `；另有 ${(c.override_count ?? 0) - changed} 项修改不在此列（属于其他数据源，或用到的字段未授权），授权恢复后自动生效` : ''}
+          {overridden > changed ? `；另有 ${overridden - changed} 项修改不在此列（属于其他数据源，或用到的字段未授权），授权恢复后自动生效` : ''}
         </span>
-        <Button disabled={!c.override_count || restore.isPending} onClick={() => restore.mutate({}, { onSuccess: (r) => toast({ tone: 'success', title: `已恢复 ${r.restored} 项为平台默认` }) })}>
+        <Button disabled={!overridden || restore.isPending} onClick={() => restore.mutate({ kind: props.kind }, { onSuccess: (r) => toast({ tone: 'success', title: `已恢复 ${r.restored} 项${text.name}为平台默认` }) })}>
           全部恢复默认
         </Button>
       </div>
-      <ListCard label="语义与指标">
+      <ListCard label={text.name}>
         <ListStatus
           loading={items.isLoading}
           error={items.error}
           onRetry={() => void items.refetch()}
-          what="语义与指标"
+          what={text.name}
           count={list.length}
           cols={4}
-          empty={<EmptyState icon="book" title="没有可继承的语义和指标">平台级语义和指标只有用到的字段都已授权给这个接入时才会出现。</EmptyState>}
+          empty={<EmptyState icon={props.kind === 'metric' ? 'sigma' : 'book'} title={text.empty}>平台级{text.name}只有用到的字段都已授权给这个接入时才会出现。</EmptyState>}
         >
           <table className="cb-data cb-data-fixed">
             <thead>
@@ -582,8 +590,6 @@ function ItemsTab(props: { client: McpClientRead }) {
                   <td title={String(item.effective.description ?? '')}>
                     <span className="cb-mcp-item">
                       <span className="cb-mcp-name">{item.name}</span>
-                      <Badge>{item.kind === 'metric' ? '指标' : '语义'}</Badge>
-                      <ScopeTag level="platform" />
                     </span>
                     <span className="cb-sub cb-mcp-def">{String(item.effective.description ?? '') || '无说明'}</span>
                   </td>

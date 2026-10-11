@@ -4460,6 +4460,13 @@
       "title": "Override Count",
       "type": "integer"
      },
+     "override_kinds": {
+      "additionalProperties": {
+       "type": "integer"
+      },
+      "title": "Override Kinds",
+      "type": "object"
+     },
      "public_id": {
       "title": "Public Id",
       "type": "string"

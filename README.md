@@ -72,7 +72,7 @@ Claude Code、Cursor 这类 AI Agent 可以通过 MCP 协议用 AskData 问数�
 
 1. 管理员打开「MCP 接入」，点「新建接入」，设置每日调用上限和返回行数。创建后会显示一次完整的 API Key，请当场保存。
 2. 在「数据权限」里勾选这个接入能查的表和字段，需要的话设置脱敏。
-3. （可选）在「语义与指标」里为这个接入修改或隐藏口径；在「测试问数」里以它的身份先试问一次。
+3. （可选）在「语义」「指标」里为这个接入修改或隐藏口径；在「测试问数」里以它的身份先试问一次。
 4. 在「接入方式」里复制配置，填进 Agent。
 
 ### 配置
@@ -97,6 +97,13 @@ Cursor（`~/.cursor/mcp.json`）：
     }
   }
 }
+```
+
+Codex（Key 从环境变量读取，不写进配置文件）：
+
+```bash
+export ASKDATA_MCP_KEY="<你的 API Key>"   # 写进 ~/.zshrc 等，Codex 启动时读取
+codex mcp add askdata --url http://127.0.0.1:5173/mcp --bearer-token-env-var ASKDATA_MCP_KEY
 ```
 
 其他支持 Streamable HTTP 的客户端：

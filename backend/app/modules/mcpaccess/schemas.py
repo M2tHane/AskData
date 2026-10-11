@@ -63,6 +63,8 @@ class McpClientRead(McpClientWrite):
     # Granted columns that a schema sync has since removed.
     stale_grants: int = 0
     override_count: int = 0
+    # The same overrides by kind: {"semantic": 1, "metric": 2}.
+    override_kinds: dict[str, int] = Field(default_factory=dict)
 
 
 class McpClientStatus(BaseModel):

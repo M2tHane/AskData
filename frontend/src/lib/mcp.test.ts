@@ -47,8 +47,9 @@ describe('MCP 接入状态与密钥', () => {
   it('配置片段只在刚拿到 Key 时带真实值', () => {
     const withKey = snippets('http://x/mcp', 'ak_secret')
     expect(withKey[0]?.text).toContain('--transport http askdata http://x/mcp')
-    expect(withKey.every((s) => s.text.includes('Bearer ak_secret'))).toBe(true)
+    expect(withKey.every((s) => s.text.includes('ak_secret'))).toBe(true)
+    expect(withKey.find((s) => s.id === 'codex')?.text).toContain('codex mcp add askdata --url http://x/mcp --bearer-token-env-var ASKDATA_MCP_KEY')
     expect(snippets('http://x/mcp', null).every((s) => s.text.includes(KEY_PLACEHOLDER))).toBe(true)
-    expect(JSON.parse(withKey[2]?.text ?? '{}').mcpServers.askdata.type).toBe('http')
+    expect(JSON.parse(withKey.find((s) => s.id === 'json')?.text ?? '{}').mcpServers.askdata.type).toBe('http')
   })
 })

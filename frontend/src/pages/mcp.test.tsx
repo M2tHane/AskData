@@ -65,6 +65,7 @@ function serve(state: { clients: ReturnType<typeof client>[]; items?: unknown[];
       if (path === '/api/mcp-clients/1/grants/7' && method === 'GET') return reply({ datasource_id: 7, columns: state.grants ?? [] })
       if (path === '/api/mcp-clients/1/grants/7' && method === 'PUT') return reply({ datasource_id: 7, columns: body.columns })
       if (path === '/api/mcp-clients/1/items') return reply(state.items ?? [])
+      if (path === '/api/mcp-clients/1/items/restore') return reply({ restored: 3 })
       return reply(null, 404)
     }),
   )
@@ -121,9 +122,9 @@ describe('MCP page', () => {
     expect(put?.body).toEqual({ columns: [{ column_id: 12, mask_rule: { kind: 'phone', prefix: 0, suffix: 0 } }] })
   })
 
-  it('says when edits are waiting for a grant instead of hiding them', async () => {
-    serve({
-      clients: [client({ override_count: 3 })],
+  it('keeps semantics and metrics apart and says when edits wait for a grant', async () => {
+    const sent = serve({
+      clients: [client({ override_count: 4, override_kinds: { metric: 3, semantic: 1 } })],
       items: [
         { kind: 'metric', item_id: 1, name: '销售额', state: 'edited', platform: { description: '实付合计' }, effective: { description: '含运费' } },
         { kind: 'semantic', item_id: 2, name: '实付金额', state: 'default', platform: {}, effective: { description: '订单实付' } },
@@ -131,10 +132,15 @@ describe('MCP page', () => {
     })
     mount()
     await userEvent.click(await screen.findByRole('button', { name: '管理' }))
-    await userEvent.click(await screen.findByRole('tab', { name: /语义与指标/ }))
+    await userEvent.click(await screen.findByRole('tab', { name: /^指标/ }))
     expect(await screen.findByText('含运费')).toBeInTheDocument()
+    expect(screen.queryByText('实付金额')).toBeNull()
     expect(screen.getByText(/1 项已修改或隐藏/)).toHaveTextContent('另有 2 项修改不在此列')
-    expect(screen.getByRole('button', { name: '全部恢复默认' })).toBeEnabled()
+    await userEvent.click(screen.getByRole('button', { name: '全部恢复默认' }))
+    await waitFor(() => expect(sent.find((r) => r.path.endsWith('/items/restore'))?.body).toEqual({ kind: 'metric' }))
+    await userEvent.click(screen.getByRole('tab', { name: /^语义/ }))
+    expect(await screen.findByText('实付金额')).toBeInTheDocument()
+    expect(screen.queryByText('含运费')).toBeNull()
   })
 
   it('is an admin-only entry', () => {

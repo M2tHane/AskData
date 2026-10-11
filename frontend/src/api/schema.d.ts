@@ -3661,6 +3661,10 @@ export interface components {
              * @default 0
              */
             override_count: number;
+            /** Override Kinds */
+            override_kinds?: {
+                [key: string]: number;
+            };
             /** Public Id */
             public_id: string;
             /**
