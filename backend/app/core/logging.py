@@ -39,6 +39,7 @@ _ALLOWED_FIELDS = {
     "row_count",
     "tokens_in",
     "tokens_out",
+    "tokens_cached",
     "model_id",
     "prompt_version",
     "user_id",

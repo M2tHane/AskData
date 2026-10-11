@@ -141,32 +141,39 @@ async def test_full_retrieval_uses_live_services_versions_enums_and_approved_exa
     assert not bundle.items
 
 
-async def test_fk_expansion_only_adds_authorized_endpoints(b_services, member):
-    b_services.provider.grants.append(
-        TableGrant(
-            name="customers",
-            all_columns={"id": "BIGINT"},
-            team_visible=True,
-            member_visible=True,
-            team_columns={"id"},
-            member_columns={"id"},
+async def test_fk_expansion_adds_only_authorized_join_paths(b_services, member):
+    for name in ("customers", "regions", "notes"):
+        b_services.provider.grants.append(
+            TableGrant(
+                name=name,
+                all_columns={"id": "BIGINT"},
+                team_visible=True,
+                member_visible=True,
+                team_columns={"id"},
+                member_columns={"id"},
+            )
         )
-    )
 
     class Schema:
         async def browse(self, datasource_id, permissions, *, actor):
             return [
                 SimpleNamespace(
                     qualified_name=name,
-                    columns=[SimpleNamespace(id=identifier, name="id", data_type="BIGINT")],
+                    columns=[
+                        SimpleNamespace(id=identifier, name="id", data_type="BIGINT", is_pk=True)
+                    ],
                 )
-                for name, identifier in [("orders", 1), ("customers", 2)]
+                for name, identifier in [("orders", 1), ("customers", 2), ("regions", 3)]
+                + [("notes", 4)]
             ]
 
         async def relations(self, datasource_id, permissions, *, actor):
+            # orders - customers - regions; notes hangs off orders; 99 is not authorized.
             return [
                 SimpleNamespace(from_column_id=1, to_column_id=2),
-                SimpleNamespace(from_column_id=1, to_column_id=99),
+                SimpleNamespace(from_column_id=2, to_column_id=3),
+                SimpleNamespace(from_column_id=4, to_column_id=1),
+                SimpleNamespace(from_column_id=3, to_column_id=99),
             ]
 
     from app.modules.chat.schemas import RetrievalBundle
@@ -174,12 +181,18 @@ async def test_fk_expansion_only_adds_authorized_endpoints(b_services, member):
     index = ServiceRetrievalIndex(
         Schema(), b_services.semantic, b_services.metric, b_services.feedback
     )
+    scope = await b_services.permissions.visible_scope(member, 1)
     bundle = await index.expand_relations(
         member,
-        await b_services.permissions.visible_scope(member, 1),
-        RetrievalBundle(tables={"orders": {"id": "BIGINT"}}),
+        scope,
+        RetrievalBundle(tables={"orders": {"id": "BIGINT"}, "regions": {"id": "BIGINT"}}),
     )
-    assert set(bundle.tables) == {"orders", "customers"}
+    # The bridge joins the two selected tables; a mere neighbour (notes) is not added.
+    assert set(bundle.tables) == {"orders", "customers", "regions"}
+    alone = await index.expand_relations(
+        member, scope, RetrievalBundle(tables={"orders": {"id": "BIGINT"}})
+    )
+    assert set(alone.tables) == {"orders"}
 
 
 async def test_embedding_filters_before_database_ranking_and_audits_search(b_services, member):

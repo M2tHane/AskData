@@ -25,6 +25,8 @@ class ModelConfig(BaseModel):
     # text stays separate from the JSON answer content.
     api: Literal["chat", "responses"] = "chat"
     reasoning_effort: Literal["low", "medium", "high"] | None = None
+    # Embedding models that support it return vectors of this size (the index column's).
+    dimensions: int | None = None
 
 
 class ModelProvider(Protocol):
@@ -58,6 +60,22 @@ class ChatMessage(BaseModel):
 class Usage(BaseModel):
     tokens_in: int = Field(default=0, ge=0)
     tokens_out: int = Field(default=0, ge=0)
+    # Input tokens the provider served from its prompt cache (a stable prompt prefix).
+    tokens_cached: int = Field(default=0, ge=0)
+
+
+def _cached_tokens(usage: Any) -> int:
+    """Cached input tokens from chat (prompt_tokens_details) or responses (input_tokens_details)."""
+    for name in ("prompt_tokens_details", "input_tokens_details"):
+        details = usage.get(name) if isinstance(usage, dict) else getattr(usage, name, None)
+        value = (
+            details.get("cached_tokens")
+            if isinstance(details, dict)
+            else getattr(details, "cached_tokens", None)
+        )
+        if isinstance(value, int) and value > 0:
+            return value
+    return 0
 
 
 class ChatResponse(BaseModel):
@@ -168,6 +186,9 @@ class CallContext(BaseModel):
     )
     # A caller-selected model; it must still be an enabled configuration of the right kind.
     requested_model_id: str | None = Field(default=None, min_length=1, max_length=64)
+    # Upper bound on the model's reasoning effort for this call; light prompts (writing a
+    # one-line answer) need not think as hard as SQL generation. Never raises it.
+    reasoning_effort: Literal["low", "medium", "high"] | None = None
 
 
 def normalize_call_context(context: CallContext) -> CallContext:
@@ -248,7 +269,9 @@ class LiteLLMTransport:
             text=result.choices[0].message.content or "",
             model_id=model.id,
             usage=Usage(
-                tokens_in=result.usage.prompt_tokens, tokens_out=result.usage.completion_tokens
+                tokens_in=result.usage.prompt_tokens,
+                tokens_out=result.usage.completion_tokens,
+                tokens_cached=_cached_tokens(result.usage),
             ),
         )
 
@@ -290,6 +313,7 @@ class LiteLLMTransport:
             usage=Usage(
                 tokens_in=usage.get("input_tokens") or 0,
                 tokens_out=usage.get("output_tokens") or 0,
+                tokens_cached=_cached_tokens(usage),
             ),
         )
 
@@ -365,6 +389,7 @@ class LiteLLMTransport:
                                     usage=Usage(
                                         tokens_in=usage.get("input_tokens") or 0,
                                         tokens_out=usage.get("output_tokens") or 0,
+                                        tokens_cached=_cached_tokens(usage),
                                     )
                                 )
                             elif kind in {"response.failed", "error"}:
@@ -419,7 +444,11 @@ class LiteLLMTransport:
                 yield StreamChunk(
                     text=(delta.content or "") if delta else "",
                     reasoning=reasoning,
-                    usage=Usage(tokens_in=usage.prompt_tokens, tokens_out=usage.completion_tokens)
+                    usage=Usage(
+                        tokens_in=usage.prompt_tokens,
+                        tokens_out=usage.completion_tokens,
+                        tokens_cached=_cached_tokens(usage),
+                    )
                     if usage
                     else None,
                 )
@@ -430,18 +459,58 @@ class LiteLLMTransport:
     async def embed(self, model: ModelConfig, texts: list[str]) -> tuple[list[list[float]], Usage]:
         from litellm import aembedding
 
-        result: Any = await aembedding(**self._options(model), input=texts)
+        extra: dict[str, Any] = {"dimensions": model.dimensions} if model.dimensions else {}
+        result: Any = await aembedding(**self._options(model), input=texts, **extra)
         ordered = sorted(result.data, key=lambda item: item["index"])
         return [item["embedding"] for item in ordered], Usage(tokens_in=result.usage.prompt_tokens)
 
     async def rerank(self, model: ModelConfig, query: str, documents: list[str]) -> list[int]:
+        if model.model.startswith("dashscope/"):
+            return await self._dashscope_rerank(model, query, documents)
         from litellm import arerank
 
         result: Any = await arerank(**self._options(model), query=query, documents=documents)
         return [item["index"] for item in result.results]
 
+    @staticmethod
+    async def _dashscope_rerank(model: ModelConfig, query: str, documents: list[str]) -> list[int]:
+        """DashScope's native rerank API; base_url is the bare host and the path is added here."""
+        import httpx
+
+        base = (model.base_url or "https://dashscope.aliyuncs.com").rstrip("/")
+        url = base if base.endswith(DASHSCOPE_RERANK_PATH) else base + DASHSCOPE_RERANK_PATH
+        async with httpx.AsyncClient(timeout=model.timeout_seconds) as client:
+            response = await client.post(
+                url,
+                headers={"Authorization": f"Bearer {model.api_key.get_secret_value()}"},
+                json={
+                    "model": model.model.split("/", 1)[1],
+                    "input": {"query": query, "documents": documents},
+                    "parameters": {"return_documents": False, "top_n": len(documents)},
+                },
+            )
+            response.raise_for_status()
+            results = (response.json().get("output") or {}).get("results") or []
+        ordered = sorted(results, key=lambda item: -float(item.get("relevance_score") or 0))
+        return [int(item["index"]) for item in ordered]
+
 
 T = TypeVar("T")
+
+DASHSCOPE_RERANK_PATH = "/api/v1/services/rerank/text-rerank/text-rerank"
+
+_EFFORT = {"low": 0, "medium": 1, "high": 2}
+
+
+def capped(model: ModelConfig, context: CallContext) -> ModelConfig:
+    """The model with its reasoning effort lowered to the call's bound, never raised."""
+    if (
+        context.reasoning_effort
+        and model.reasoning_effort
+        and _EFFORT[context.reasoning_effort] < _EFFORT[model.reasoning_effort]
+    ):
+        return model.model_copy(update={"reasoning_effort": context.reasoning_effort})
+    return model
 
 
 class _Client:
@@ -465,8 +534,10 @@ class _Client:
 
     async def _choose(self, context: CallContext, kind: str) -> ModelConfig:
         if context.requested_model_id:
-            return await self.registry.get(context.requested_model_id, kind)
-        return await self.registry.select(context.team_id, kind)
+            model = await self.registry.get(context.requested_model_id, kind)
+        else:
+            model = await self.registry.select(context.team_id, kind)
+        return capped(model, context)
 
     async def _invoke(
         self,
@@ -479,7 +550,7 @@ class _Client:
         model = await self._choose(context, kind)
         candidates = [model]
         if model.fallback_id:
-            candidates.append(await self.registry.get(model.fallback_id, kind))
+            candidates.append(capped(await self.registry.get(model.fallback_id, kind), context))
         for candidate in candidates:
             for attempt in range(candidate.retries + 1):
                 if attempt:
@@ -505,7 +576,7 @@ class _Client:
         self, model: ModelConfig, context: CallContext, usage: Usage, start: float, success: bool
     ) -> None:
         record = CallRecord(
-            **context.model_dump(exclude={"requested_model_id"}),
+            **context.model_dump(exclude={"requested_model_id", "reasoning_effort"}),
             model_id=model.id,
             usage=usage,
             duration_ms=int((time.monotonic() - start) * 1000),
@@ -518,6 +589,7 @@ class _Client:
             prompt_version=context.prompt_version,
             tokens_in=usage.tokens_in,
             tokens_out=usage.tokens_out,
+            tokens_cached=usage.tokens_cached,
             duration_ms=record.duration_ms,
             status="success" if success else "failed",
         )
@@ -540,7 +612,7 @@ class LLMClient(_Client):
         model = await self._choose(context, "llm")
         candidates = [model]
         if model.fallback_id:
-            candidates.append(await self.registry.get(model.fallback_id, "llm"))
+            candidates.append(capped(await self.registry.get(model.fallback_id, "llm"), context))
         for candidate in candidates:
             for _ in range(candidate.retries + 1):
                 usage, success, emitted = Usage(), False, False

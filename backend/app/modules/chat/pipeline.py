@@ -32,7 +32,7 @@ from app.core.prompt import PromptId, PromptOverrides, PromptOverrideSource, Pro
 from app.core.scope import ScopedQuery
 from app.core.sql.dialect import DialectAdapter
 from app.core.sql.executor import QueryLimits, QueryResult, SqlExecutor
-from app.core.sql.guard import GuardedSql, SqlGuard
+from app.core.sql.guard import GuardedSql, SqlGuard, referenced_tables
 from app.core.stream import EventType, StreamEvent
 from app.modules.chat.chart_heuristics import suggest_chart, with_series
 from app.modules.chat.schemas import (
@@ -143,7 +143,9 @@ class RetrievalIndex(Protocol):
         question: str,
         mode: str,
         pinned_metric_ids: frozenset[int] = frozenset(),
-    ) -> RetrievalBundle: ...
+    ) -> RetrievalBundle:
+        """Hybrid indexes may also take follow_up=: earlier question text to search with."""
+        ...
 
     async def expand_relations(
         self, user: CurrentUser, scope: VisibleScope, bundle: RetrievalBundle
@@ -188,7 +190,17 @@ class ContextBuilder:
         choice: str | None = None,
         pinned_metric_ids: frozenset[int] = frozenset(),
         choice_ref: str | None = None,
+        *,
+        full: bool = False,
+        follow_up: str = "",
+        keep_tables: frozenset[str] = frozenset(),
     ) -> RetrievalBundle:
+        """Context for one question.
+
+        full forces every visible table and item (the fallback when retrieval missed).
+        follow_up is earlier question text a follow-up depends on; keep_tables are the tables
+        its inherited SQL used, kept whole so "按月拆开" still has the previous tables.
+        """
         # Do not give the index withheld column metadata retained by the SQL guard.
         safe_scope = VisibleScope(
             datasource_id=scope.datasource_id,
@@ -200,16 +212,22 @@ class ContextBuilder:
                 for name, table in scope.tables.items()
             },
         )
+        # An answered clarification names its option by label: give the model everything.
         mode: Literal["full", "hybrid"] = (
-            "full" if len(safe_scope.tables) <= self.threshold else "hybrid"
+            "full" if full or choice or len(safe_scope.tables) <= self.threshold else "hybrid"
         )
+        extra: dict[str, Any] = {}
         if pinned_metric_ids:
-            bundle = await self.index.retrieve(
-                user, safe_scope, question, mode, pinned_metric_ids=pinned_metric_ids
-            )
-        else:
-            bundle = await self.index.retrieve(user, safe_scope, question, mode)
+            extra["pinned_metric_ids"] = pinned_metric_ids
+        if follow_up and mode == "hybrid":
+            extra["follow_up"] = follow_up
+        bundle = await self.index.retrieve(user, safe_scope, question, mode, **extra)
+        if bundle.mode == "hybrid":
+            for name in keep_tables:
+                if name in safe_scope.tables:
+                    bundle.tables[name] = dict(safe_scope.tables[name].all_columns)
         bundle = await self.index.expand_relations(user, safe_scope, bundle)
+        mode = bundle.mode if mode == "hybrid" else mode
         tables = {
             name: {
                 column: scope.tables[name].all_columns[column]
@@ -314,6 +332,16 @@ class ContextBuilder:
         # Indexes without schema descriptions (tests, bootstrap) simply give none.
         describe = getattr(self.index, "notes", None)
         notes = await describe(user, scope, list(tables)) if describe else {}
+        # Descriptions only of what is sent: a pruned column's note would be noise.
+        notes = {
+            key: note
+            for key, note in notes.items()
+            if key in tables
+            or (
+                key.rsplit(".", 1)[0] in tables
+                and key.rsplit(".", 1)[1] in tables[key.rsplit(".", 1)[0]]
+            )
+        }
         # Example SQL is still only prompt data; every resulting SQL passes the guard.
         return RetrievalBundle(
             tables=tables,
@@ -384,6 +412,8 @@ class QueryContext:
     scope: VisibleScope | None = field(default=None, repr=False)
     history: list[MessageView] = field(default_factory=list, repr=False)
     retrieval: RetrievalBundle = field(default_factory=RetrievalBundle, repr=False)
+    # Why retrieved context was replaced by the full schema ("unanswerable", "correction").
+    retrieval_fallback: str = ""
     time_ranges: dict[str, Any] = field(default_factory=dict)
     follow_up: bool = False
     inherited_sql: str | None = None
@@ -471,6 +501,14 @@ class QueryContext:
             if self.result
             else None,
             "retries": self.retries,
+            # How much context the model got (counts only), and why it fell back to all of it.
+            "retrieval_stats": {
+                "mode": self.retrieval.mode,
+                "tables": len(self.retrieval.tables),
+                "columns": sum(len(columns) for columns in self.retrieval.tables.values()),
+                "items": len(self.retrieval.items),
+                **({"fallback": self.retrieval_fallback} if self.retrieval_fallback else {}),
+            },
             "chart": self.chart.model_dump() if self.chart else None,
             "title": self.title,
             "interpretation": self.interpretation,
@@ -567,6 +605,10 @@ class ClarifyOutput(BaseModel):
     clarify: bool = True
     question: str = Field(default="", max_length=500)
     choices: list[ClarifyChoice] = Field(default_factory=list, max_length=8)
+
+
+# Prompts that only phrase an answer from a finished result; they need little reasoning.
+LIGHT_PROMPTS: dict[PromptId, Literal["low", "medium", "high"]] = {PromptId.ANSWER: "low"}
 
 
 class SqlOutput(BaseModel):
@@ -753,6 +795,7 @@ class PipelineDependencies:
             team_id=ctx.user.team_id,
             prompt_version=f"{prompt_id.value}:{rendered.version}",
             requested_model_id=str(ctx.requested_model_id) if ctx.requested_model_id else None,
+            reasoning_effort=LIGHT_PROMPTS.get(prompt_id),
         )
 
     def data(self, ctx: QueryContext) -> dict[str, Any]:
@@ -847,17 +890,28 @@ class RetrievalStage:
         self.deps = deps
 
     async def run(self, ctx: QueryContext) -> QueryContext:
-        if ctx.scope is None:
-            raise AppError(ErrorCode.INTERNAL_ERROR)
-        ctx.retrieval = await self.deps.builder.build(
-            ctx.user,
-            ctx.scope,
-            ctx.question,
-            ctx.clarification_choice,
-            ctx.pinned_metric_ids,
-            ctx.clarification_ref,
-        )
+        ctx.retrieval = await build_context(self.deps, ctx)
         return ctx
+
+
+async def build_context(
+    deps: "PipelineDependencies", ctx: QueryContext, full: bool = False
+) -> RetrievalBundle:
+    """Retrieve this question's context; full=True is the fallback when retrieval missed."""
+    if ctx.scope is None:
+        raise AppError(ErrorCode.INTERNAL_ERROR)
+    earlier = [message.content for message in ctx.history if message.role == "user"][-1:]
+    return await deps.builder.build(
+        ctx.user,
+        ctx.scope,
+        ctx.question,
+        ctx.clarification_choice,
+        ctx.pinned_metric_ids,
+        ctx.clarification_ref,
+        full=full,
+        follow_up=" ".join(earlier) if ctx.inherited_sql else "",
+        keep_tables=referenced_tables(ctx.inherited_sql) if ctx.inherited_sql else frozenset(),
+    )
 
 
 class ClarificationStage:
@@ -937,6 +991,20 @@ class GenerateSqlStage:
                     )
                 )
             )
+        if output.unanswerable and ctx.retrieval.mode == "hybrid":
+            # Retrieval may have left out what the question needs: ask once more with the
+            # whole visible schema before refusing.
+            ctx.retrieval = await build_context(self.deps, ctx, full=True)
+            ctx.retrieval_fallback = "unanswerable"
+            output = SqlOutput.model_validate_json(
+                extract_json_object(
+                    await self.deps.stream_call(
+                        ctx, PromptId.SQL, {**self.deps.data(ctx), "clarification_allowed": False}
+                    )
+                )
+            )
+            if output.write_request:
+                raise SqlBlocked(ErrorCode.SQL_NOT_SELECT, BlockRule.WRITE_REQUEST)
         if output.unanswerable or not output.sql.strip():
             # Nothing was generated or executed; report only the category, never object names.
             raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.UNANSWERABLE)
@@ -1028,6 +1096,10 @@ class CorrectionStage:
                 | ({"rule": ctx.execution_rule} if ctx.execution_rule else {})
                 | ({"subject": ctx.execution_subject} if ctx.execution_subject else {})
             )
+            if ctx.retrieval.mode == "hybrid":
+                # A correction may need a column retrieval left out: give it the whole schema.
+                ctx.retrieval = await build_context(self.deps, ctx, full=True)
+                ctx.retrieval_fallback = "correction"
             request = {
                 **self.deps.data(ctx),
                 "sql": ctx.generated_sql,

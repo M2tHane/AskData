@@ -254,6 +254,7 @@ class Services:
             self.permissions,
             self.datasources.resolve,
             repository.history,
+            # Every question gets retrieved context; misses fall back to the full schema.
             ContextBuilder(
                 ServiceRetrievalIndex(
                     self.schema,
@@ -262,7 +263,8 @@ class Services:
                     self.feedback,
                     self.embedding,
                     RerankClient(self.models.registry, self.usage, self.runtime.transport),
-                )
+                ),
+                threshold=0,
             ),
             self.llm,
             SqlGuard(),

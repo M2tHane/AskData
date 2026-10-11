@@ -110,3 +110,69 @@ async def test_responses_request_sends_system_prompt_as_user_input(monkeypatch):
     assert body["input"] and body["input"][0]["role"] == "user"
     assert "系统提示词" in body["input"][0]["content"]
     assert response.text == "{}" and response.usage.tokens_in == 7
+
+
+async def test_embedding_asks_for_the_index_dimension(monkeypatch):
+    import litellm
+
+    calls = []
+
+    async def embedding(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            data=[{"index": 0, "embedding": [0.1] * 4}], usage=SimpleNamespace(prompt_tokens=3)
+        )
+
+    monkeypatch.setattr(litellm, "aembedding", embedding)
+    model = ModelConfig(
+        id="e", kind="embedding", model="openai/text-embedding", api_key=SecretStr("k")
+    )
+    await LiteLLMTransport().embed(model.model_copy(update={"dimensions": 1024}), ["订单"])
+    await LiteLLMTransport().embed(model, ["订单"])
+    assert calls[0]["dimensions"] == 1024 and "dimensions" not in calls[1]
+
+
+async def test_dashscope_rerank_uses_the_native_path_on_a_bare_host(monkeypatch):
+    import httpx
+
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["auth"] = request.headers["authorization"]
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "output": {
+                    "results": [
+                        {"index": 2, "relevance_score": 0.2},
+                        {"index": 0, "relevance_score": 0.9},
+                        {"index": 1, "relevance_score": 0.5},
+                    ]
+                }
+            },
+        )
+
+    real_client = httpx.AsyncClient
+
+    def mocked_client(**kwargs: object) -> httpx.AsyncClient:
+        return real_client(transport=httpx.MockTransport(handler), **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(httpx, "AsyncClient", mocked_client)
+    model = ModelConfig(
+        id="r",
+        kind="rerank",
+        model="dashscope/qwen-rerank",
+        api_key=SecretStr("rk"),
+        base_url="https://dashscope.example.com/",
+    )
+    order = await LiteLLMTransport().rerank(model, "退款", ["a", "b", "c"])
+    assert order == [0, 1, 2]
+    assert captured["url"] == (
+        "https://dashscope.example.com/api/v1/services/rerank/text-rerank/text-rerank"
+    )
+    assert captured["auth"] == "Bearer rk"
+    body = captured["body"]
+    assert body["model"] == "qwen-rerank"
+    assert body["input"] == {"query": "退款", "documents": ["a", "b", "c"]}

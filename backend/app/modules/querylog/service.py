@@ -77,6 +77,8 @@ class QueryLogService:
                     # Why it failed: stage, guard rule, error type, evaluation case. No SQL.
                     "diagnostic",
                     "eval",
+                    # How much context the model got: counts and mode only.
+                    "retrieval_stats",
                 }
             }
         )

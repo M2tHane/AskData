@@ -134,8 +134,13 @@ class PromptRegistry:
             loaded = loaded.model_copy(update={"version": published.label})
             template = Template(published.content)
         # JSON escapes prevent input containing delimiter tokens from ending the data block.
+        # Non-ASCII text stays as is: a \uXXXX escape costs several tokens per Chinese char.
         serialized = (
-            json.dumps(data, ensure_ascii=True).replace("<", "\\u003c").replace(">", "\\u003e")
+            json.dumps(data, ensure_ascii=False)
+            .replace("<", "\\u003c")
+            .replace(">", "\\u003e")
+            .replace("\u2028", "\\u2028")
+            .replace("\u2029", "\\u2029")
         )
         try:
             content = template.substitute(

@@ -98,6 +98,7 @@ class ModelConfigService:
             api_key=self.box.decrypt(encrypted_key),
             base_url=row.base_url,
             enabled=row.enabled,
+            dimensions=row.embedding_dimension if row.type == "embedding" else None,
             **row.params.model_dump(),
         )
 
@@ -252,6 +253,7 @@ class ModelConfigService:
             api_key=data.api_key,
             base_url=data.base_url,
             enabled=True,
+            dimensions=data.embedding_dimension if data.type == "embedding" else None,
             **data.params.model_dump(),
         )
         available = await self._probe(model, data.embedding_dimension, actor)

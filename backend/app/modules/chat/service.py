@@ -642,7 +642,7 @@ def build_service(session: AsyncSession, request: Request) -> ChatService:
         permissions,
         resolve,
         repository.history,
-        ContextBuilder(index),
+        ContextBuilder(index, threshold=0 if isinstance(index, ServiceRetrievalIndex) else 30),
         llm,
         SqlGuard(),
         executor,

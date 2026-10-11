@@ -117,6 +117,30 @@ class EmbeddingRepository:
             statement = statement.order_by(EmbeddingItem.id).limit(limit)
         return list(await self.session.scalars(statement))
 
+    async def nearest(
+        self,
+        datasource_id: int,
+        model_id: str,
+        vector: list[float],
+        allowed: list[tuple[str, int]],
+        limit: int,
+    ) -> list[EmbeddingItem]:
+        """Pure vector order: the caller fuses it with its own keyword ranking."""
+        if not allowed:
+            return []
+        statement = select(EmbeddingItem).where(
+            tuple_(EmbeddingItem.kind, EmbeddingItem.ref_id).in_(allowed),
+            EmbeddingItem.datasource_id == datasource_id,
+            EmbeddingItem.model_id == model_id,
+            EmbeddingItem.embedding.is_not(None),
+        )
+        if self.session.get_bind().dialect.name == "postgresql":
+            distance = EmbeddingItem.embedding.cosine_distance(vector)
+            statement = statement.order_by(distance, EmbeddingItem.id)
+        else:
+            statement = statement.order_by(EmbeddingItem.id)
+        return list(await self.session.scalars(statement.limit(limit)))
+
     async def snapshot(self, datasource_id: int) -> list[tuple[IndexReference, int]]:
         rows = await self.session.scalars(
             select(EmbeddingItem)

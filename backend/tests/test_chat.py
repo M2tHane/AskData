@@ -440,7 +440,7 @@ async def test_made_up_column_goes_back_to_the_model_with_the_field_named(system
     assert reply.status == "success" and len(connector.executed) == 1
     assert transport.calls_by_prompt.count("correction") == 1
     correction = next(m for m in transport.messages if m.startswith("Correct"))
-    assert json.dumps("无法解析字段 is_active")[1:-1] in correction
+    assert "无法解析字段 is_active" in correction
     assert logs.records[0].details["retries"] == [
         {"attempt": 1, "code": "SQL_OUT_OF_SCOPE", "rule": "unresolved_column"}
     ]
@@ -467,7 +467,7 @@ async def test_grouping_error_goes_back_with_a_fixed_hint_never_the_driver_messa
     reply = await service.ask(conversation.id, QuestionRequest(question="订单"), actor=member)
     assert reply.status == "success"
     correction = next(m for m in transport.messages if m.startswith("Correct"))
-    assert json.dumps("SUM(SUM(x)) OVER ()")[1:-1] in correction
+    assert "SUM(SUM(x)) OVER ()" in correction
     assert "secret_col" not in " ".join(transport.messages)
     assert logs.records[0].details["retries"] == [
         {"attempt": 1, "code": "SQL_EXECUTION_ERROR", "subject": "sqlstate_42803"}
@@ -568,7 +568,7 @@ async def test_rerun_keeps_the_chart_of_the_answer_it_edits(system, member):
     again = RerunRequest(sql=transport.sql, source_message_id=reply.message_id)
     assert (await service.rerun(conversation.id, again, actor=member)).meta.question == "订单"
     answer_prompt = [m for m in transport.messages if not m.startswith(("Generate", "Correct"))]
-    assert '"question": "\\u8ba2\\u5355"' in answer_prompt[-1]  # "订单", JSON-escaped
+    assert '"question": "订单"' in answer_prompt[-1]
     # Columns the edited SQL no longer returns fall back to the shape heuristics.
     connector.rows = [{"id": 1}]
     request = RerunRequest(sql="SELECT id FROM orders", source_message_id=first.message_id)
@@ -708,6 +708,7 @@ async def test_retrieval_filters_hidden_metadata_private_items_and_merges_levels
             return RetrievalBundle(
                 tables={"orders": {"id": "wrong", "secret": "TEXT"}, "salaries": {"amount": "INT"}},
                 items=items,
+                mode="hybrid" if mode == "hybrid" else "full",
             )
 
         async def expand_relations(self, user, visible, bundle):
@@ -822,7 +823,7 @@ async def test_scope_conflict_uses_own_level_and_names_it_in_the_answer(system, 
         ("personal", "个人收入定义")
     ]
     answer_prompt = next(m for m in transport.messages if not m.startswith(("Generate", "Suggest")))
-    assert '"definition_levels": ' + json.dumps({"收入": "个人口径"}) in answer_prompt
+    assert '"definition_levels": ' + json.dumps({"收入": "个人口径"}, ensure_ascii=False) in answer_prompt
 
 
 async def test_presentation_quota_denial_is_not_hidden_by_fallback(system, member):
@@ -1394,4 +1395,62 @@ async def test_assumption_reaches_the_answer_only_in_business_words(
     conversation = await create_conversation(system, member)
     await service.ask(conversation.id, QuestionRequest(question="订单"), actor=member)
     answer_prompt = next(m for m in transport.messages if not m.startswith(("Generate", "Suggest")))
-    assert '"assumption": ' + json.dumps(shown) in answer_prompt
+    assert '"assumption": ' + json.dumps(shown, ensure_ascii=False) in answer_prompt
+
+
+class _NarrowIndex:
+    """Hybrid retrieval that only finds orders.id; full mode returns everything."""
+
+    def __init__(self):
+        self.modes = []
+
+    async def retrieve(self, user, visible, question, mode, **kwargs):
+        self.modes.append(mode)
+        if mode == "hybrid":
+            return RetrievalBundle(tables={"orders": {"id": "BIGINT"}}, mode="hybrid")
+        return RetrievalBundle(
+            tables={name: dict(table.all_columns) for name, table in visible.tables.items()}
+        )
+
+    async def expand_relations(self, user, visible, bundle):
+        return bundle
+
+
+async def test_unanswerable_with_retrieved_context_asks_again_with_everything(system, member):
+    service, transport, connector, logs, _, _ = system
+    index = _NarrowIndex()
+    service.pipeline.deps.builder = ContextBuilder(index, threshold=0)
+    answers = iter([{"sql": "", "unanswerable": True}, {"sql": "SELECT amount FROM orders"}])
+    original = transport.chat
+
+    async def chat(model, messages):
+        if messages[0].content.startswith("Generate"):
+            transport.sql_extra = {}
+            reply = next(answers)
+            transport.sql, transport.sql_extra = reply["sql"], {
+                k: v for k, v in reply.items() if k != "sql"
+            }
+        return await original(model, messages)
+
+    transport.chat = chat
+    conversation = await create_conversation(system, member)
+    reply = await service.ask(conversation.id, QuestionRequest(question="金额"), actor=member)
+    assert reply.status == "success" and index.modes == ["hybrid", "full"]
+    generations = [m for m in transport.messages if m.startswith("Generate")]
+    assert '"tenant_id"' not in generations[0] and '"tenant_id"' in generations[1]
+    stats = logs.records[0].details["retrieval_stats"]
+    assert stats["mode"] == "full" and stats["fallback"] == "unanswerable"
+
+
+async def test_correction_gets_the_whole_schema_after_retrieved_context(system, member):
+    service, transport, _, logs, _, _ = system
+    index = _NarrowIndex()
+    service.pipeline.deps.builder = ContextBuilder(index, threshold=0)
+    transport.sql = "SELECT o.made_up FROM orders o"
+    transport.corrections = ["SELECT amount FROM orders"]
+    conversation = await create_conversation(system, member)
+    reply = await service.ask(conversation.id, QuestionRequest(question="金额"), actor=member)
+    assert reply.status == "success" and index.modes == ["hybrid", "full"]
+    correction = next(m for m in transport.messages if m.startswith("Correct"))
+    assert '"tenant_id"' in correction
+    assert logs.records[0].details["retrieval_stats"]["fallback"] == "correction"

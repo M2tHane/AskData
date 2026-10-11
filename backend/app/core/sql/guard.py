@@ -354,3 +354,16 @@ def _unresolved(message: str) -> str:
     """The identifier sqlglot could not resolve, without the rest of its message."""
     match = re.search(r"Column '([^']+)' could not be resolved|Unknown column: (\S+)", message)
     return (match[1] or match[2]).replace('"', "").replace("`", "") if match else ""
+
+
+def referenced_tables(sql: str) -> frozenset[str]:
+    """schema.table names a guard-normalized SQL reads; empty when it does not parse."""
+    try:
+        tree = sqlglot.parse_one(sql)
+    except sqlglot.errors.ParseError:
+        return frozenset()
+    return frozenset(
+        f"{table.db}.{table.name}" if table.db else table.name
+        for table in tree.find_all(exp.Table)
+        if table.name
+    )

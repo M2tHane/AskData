@@ -48,6 +48,10 @@ class _PinnedModel:
         return self.model.id
 
 
+# Texts per embedding request when rebuilding an index.
+EMBED_BATCH = 10
+
+
 class EmbeddingService:
     UPDATE_TASK = "embedding.update"
     REBUILD_TASK = "embedding.rebuild"
@@ -123,23 +127,49 @@ class EmbeddingService:
         return document
 
     async def _embed(self, text: str, actor: CurrentUser) -> tuple[list[float], str]:
+        vectors, model_id = await self._embed_many([text], actor)
+        return vectors[0], model_id
+
+    async def _embed_many(
+        self, texts: list[str], actor: CurrentUser
+    ) -> tuple[list[list[float]], str]:
         model = await self.client.registry.select(actor.team_id, "embedding")
         # Pin the invocation to one ID: EmbeddingClient returns vectors without model metadata.
         pinned = EmbeddingClient(
             ModelRegistry(_PinnedModel(model)), self.client.recorder, self.client.transport
         )
         vectors = await pinned.embed(
-            [text],
+            texts,
             CallContext(
                 user_id=actor.id, team_id=actor.team_id, prompt_version="embedding_index:v1"
             ),
         )
-        if not vectors or not vectors[0]:
+        if len(vectors) != len(texts) or not all(vectors):
             raise AppError(ErrorCode.LLM_UNAVAILABLE, http_status=503)
-        vector = vectors[0]
-        if len(vector) != self.dimensions or any(not math.isfinite(value) for value in vector):
-            raise AppError(ErrorCode.CONFLICT)
-        return vector, model.id
+        for vector in vectors:
+            if len(vector) != self.dimensions or any(not math.isfinite(v) for v in vector):
+                raise AppError(ErrorCode.CONFLICT)
+        return vectors, model.id
+
+    async def nearest(
+        self,
+        datasource_id: int,
+        query: str,
+        keys: list[tuple[str, int]],
+        actor: CurrentUser,
+        limit: int = 30,
+    ) -> list[tuple[str, int]]:
+        """Indexed documents closest to the query, among keys the caller already authorized.
+
+        The chat retrieval builds its candidates from the user's visible scope, so this skips
+        the per-document checks of search(); it never returns a key outside the given ones.
+        """
+        if not keys:
+            return []
+        vector, model_id = await self._embed(query, actor)
+        rows = await self.repository.nearest(datasource_id, model_id, vector, keys, limit)
+        allowed = set(keys)
+        return [(row.kind, row.ref_id) for row in rows if (row.kind, row.ref_id) in allowed]
 
     async def update_task(self, context: TaskContext) -> None:
         datasource_id = int(context.task.payload["datasource_id"])
@@ -173,13 +203,28 @@ class EmbeddingService:
             await self.repository.mark_dirty(reference)
         expected = await self.repository.snapshot(datasource_id)
         staged: list[tuple[IndexDocument, list[float], str]] = []
+        batch: list[IndexDocument] = []
+        batch_actor: CurrentUser | None = None
+
+        async def flush() -> None:
+            if batch and batch_actor is not None:
+                vectors, model_id = await self._embed_many([d.text for d in batch], batch_actor)
+                staged.extend((d, v, model_id) for d, v in zip(batch, vectors, strict=True))
+                batch.clear()
+
         for index, (reference, _) in enumerate(expected):
             actor = await self.actors.get_actor(reference.actor_id)
             document = await self._document(reference, actor)
             if document is not None:
-                vector, model_id = await self._embed(document.text, actor)
-                staged.append((document, vector, model_id))
+                # Providers cap inputs per request (DashScope: 10); one call per batch.
+                if batch_actor is not None and (
+                    actor.id != batch_actor.id or len(batch) >= EMBED_BATCH
+                ):
+                    await flush()
+                batch.append(document)
+                batch_actor = actor
             await context.progress(int((index + 1) / len(expected) * 90))
+        await flush()
         async with self.repository.atomic():
             await self.repository.replace(datasource_id, staged, expected)
         await context.progress(100)

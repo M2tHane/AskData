@@ -142,6 +142,7 @@ class SuggestionService:
                     user_id=user.id,
                     team_id=user.team_id,
                     prompt_version=f"{PromptId.SUGGEST.value}:{rendered.version}",
+                    reasoning_effort="low",
                 ),
             )
             output = _ModelOutput.model_validate_json(extract_json_object(response.text))

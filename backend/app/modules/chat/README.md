@@ -23,10 +23,18 @@ through `request.state.chat_service` / FastAPI dependency overrides):
 - Optional `llm_client` (core `LLMClient`) or `model_transport` (core transport),
   and `sql_executor` (core `SqlExecutor`) for configured deployments/tests.
 
-The standalone chat factory builds `ServiceRetrievalIndex` for full authorized
-schema, semantics, metrics and reviewed examples. Hybrid retrieval needs a
-transaction-scoped embedding service (or an injected complete retrieval_index).
-`ScopeOnlyIndex` remains a minimal test/bootstrap adapter and refuses hybrid
+Every question gets retrieved context (`ContextBuilder(threshold=0)`):
+`ServiceRetrievalIndex` scores visible tables, columns, terms, metrics and reviewed
+examples by keyword (`ranking.keyword_scores`: IDF-weighted Chinese bigrams and
+ASCII words, plus a literal-name bonus), adds pgvector neighbours when an Embedding
+model is configured (`EmbeddingService.nearest`), fuses both with reciprocal rank
+fusion, optionally reranks the top 30, then keeps up to six tables (wide tables
+only their keys, times and matched columns), the terms of those tables, three
+metrics and three examples. `expand_relations` adds only join-path tables. No hit
+means full context. Two fallbacks give the model the whole schema: an
+"unanswerable" reply is asked once more, and every correction round.
+`scripts/retrieval_recall.py` measures recall on the eval questions without a
+model. `ScopeOnlyIndex` remains a minimal test/bootstrap adapter and refuses hybrid
 retrieval. The composition root must bind the concrete adapter too. Runtime uses
 A/B-group **service** factories, never other modules' repositories or tables.
 
