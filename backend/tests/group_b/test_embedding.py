@@ -4,7 +4,7 @@ from sqlalchemy import select
 
 from app.core.audit import AuditService, DatabaseAuditStore
 from app.core.deps import CurrentUser, Role
-from app.core.errors import AppError
+from app.core.errors import AppError, ErrorCode
 from app.core.llm import EmbeddingClient, ModelConfig, ModelRegistry
 from app.core.scope import ScopeLevel
 from app.core.tasks import TaskManager
@@ -37,6 +37,8 @@ class Source:
         )
 
     async def document(self, ref, actor):
+        if isinstance(self.document_value, Exception):
+            raise self.document_value
         return self.document_value
 
     async def catalog(self, datasource_id):
@@ -103,6 +105,17 @@ async def test_async_outbox_update_rebuild_and_live_authorization(b_services, ad
     assert (await manager.store.get(rebuild.id)).status == "success"
     b_services.provider.grants[0].member_columns = frozenset({"phone"})
     assert await service.search(SearchInput(datasource_id=1, query="Order"), member) == []
+
+
+async def test_rebuild_drops_entries_deleted_since_indexing(b_services, admin):
+    service, manager, source, _ = service_for(b_services)
+    await service.mark_dirty("column", 1, 1, actor=admin)
+    await manager.run((await service.enqueue(1, manager, actor=admin)).id)
+    source.document_value = AppError(ErrorCode.NOT_FOUND, http_status=404)
+    rebuild = await service.enqueue(1, manager, actor=admin, rebuild=True)
+    await manager.run(rebuild.id)
+    assert (await manager.store.get(rebuild.id)).status == "success"
+    assert await b_services.session.scalar(select(EmbeddingItem)) is None
 
 
 async def test_failed_rebuild_keeps_old_vectors(b_services, admin):

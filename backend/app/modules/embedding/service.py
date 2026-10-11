@@ -214,7 +214,14 @@ class EmbeddingService:
 
         for index, (reference, _) in enumerate(expected):
             actor = await self.actors.get_actor(reference.actor_id)
-            document = await self._document(reference, actor)
+            try:
+                document = await self._document(reference, actor)
+            except AppError as error:
+                # Deleted since it was indexed, or no longer visible: the rebuilt index drops
+                # it (as update_task does) rather than failing the whole rebuild.
+                if error.code not in {ErrorCode.FORBIDDEN, ErrorCode.NOT_FOUND}:
+                    raise
+                document = None
             if document is not None:
                 # Providers cap inputs per request (DashScope: 10); one call per batch.
                 if batch_actor is not None and (

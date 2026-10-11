@@ -129,7 +129,8 @@ async def test_embedding_asks_for_the_index_dimension(monkeypatch):
     )
     await LiteLLMTransport().embed(model.model_copy(update={"dimensions": 1024}), ["订单"])
     await LiteLLMTransport().embed(model, ["订单"])
-    assert calls[0]["dimensions"] == 1024 and "dimensions" not in calls[1]
+    assert calls[0]["extra_body"] == {"dimensions": 1024}
+    assert "extra_body" not in calls[1] and "dimensions" not in calls[1]
 
 
 async def test_dashscope_rerank_uses_the_native_path_on_a_bare_host(monkeypatch):

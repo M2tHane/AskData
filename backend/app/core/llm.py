@@ -459,7 +459,11 @@ class LiteLLMTransport:
     async def embed(self, model: ModelConfig, texts: list[str]) -> tuple[list[list[float]], Usage]:
         from litellm import aembedding
 
-        extra: dict[str, Any] = {"dimensions": model.dimensions} if model.dimensions else {}
+        # Sent in the request body: LiteLLM rejects "dimensions" for model names it does not
+        # know, while OpenAI-compatible providers (DashScope) honor it.
+        extra: dict[str, Any] = (
+            {"extra_body": {"dimensions": model.dimensions}} if model.dimensions else {}
+        )
         result: Any = await aembedding(**self._options(model), input=texts, **extra)
         ordered = sorted(result.data, key=lambda item: item["index"])
         return [item["embedding"] for item in ordered], Usage(tokens_in=result.usage.prompt_tokens)
