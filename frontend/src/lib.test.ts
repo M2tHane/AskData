@@ -397,5 +397,8 @@ describe('query diagnostics', () => {
     expect(evalRefText(null)).toBe('')
     expect(diagnosticOf([])).toBeNull()
     expect(diagnosticText({ rule: 'new_rule' })).toBe('规则：new_rule')
+    expect(diagnosticText({ rule: 'unanswerable', retries: 2, retry_rules: ['system_table', 'SQL_EXECUTION_ERROR'] })).toBe(
+      '规则：可见范围内无法回答 · 纠错 2 次后（此前：访问系统表、SQL_EXECUTION_ERROR）',
+    )
   })
 })

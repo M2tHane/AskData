@@ -94,6 +94,7 @@ class SafeLogger:
             "subject",
             "error_type",
             "eval_case_id",
+            "retry_rules",
         ):
             value = fields.get(key)
             if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.:/-]{1,100}", value):

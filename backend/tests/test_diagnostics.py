@@ -89,3 +89,25 @@ def test_diagnosis_and_log_line_carry_only_safe_fields():
     }
     assert line["query_run_id"] == 41 and line["code"] == "SQL_FORBIDDEN_FUNC"
     assert "question" not in line and "sql" not in line
+
+
+def test_refusal_after_correction_keeps_the_rule_each_attempt_hit():
+    member = CurrentUser(id=7, role=Role.MEMBER, team_id=1)
+    ctx = QueryContext(user=member, datasource_id=3, conversation_id=0, question="q")
+    ctx.stage, ctx.status = "correction", "blocked"
+    ctx.retries = [
+        {"attempt": 1, "code": "SQL_SYSTEM_TABLE", "rule": "system_table"},
+        {"attempt": 2, "code": "SQL_EXECUTION_ERROR"},
+    ]
+    ctx.diagnostic = diagnose(ctx, SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.UNANSWERABLE))
+    assert ctx.diagnostic["retries"] == 2
+    assert ctx.diagnostic["retry_rules"] == ["system_table", "SQL_EXECUTION_ERROR"]
+    lines: list[dict] = []
+    from app.modules.chat import pipeline
+
+    original, pipeline.logger = pipeline.logger, SafeLogger(lines.append)
+    try:
+        pipeline.log_diagnostic(ctx)
+    finally:
+        pipeline.logger = original
+    assert lines[0]["retry_rules"] == "system_table/SQL_EXECUTION_ERROR"

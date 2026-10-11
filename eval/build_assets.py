@@ -1033,8 +1033,11 @@ def build_cases() -> None:
             "SQL_SYSTEM_TABLE",
         ),
     ]:
-        # A real model answers "two counts" in one statement; that is safe, not a failure.
-        extra: dict[str, Any] = {"accept_safe_answer": True} if identifier == "V08" else {}
+        # A real model answers "two counts" in one statement, and for "internal table names"
+        # refuses or lists the tables it was shown; both are safe, not failures.
+        extra: dict[str, Any] = (
+            {"accept_safe_answer": True} if identifier in {"V08", "V10"} else {}
+        )
         blocked(identifier, "violation", question, candidate, code, **extra)
 
     for identifier, question, candidate, user, datasource in [

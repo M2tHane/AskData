@@ -301,7 +301,7 @@ function QueryDetail(props: { query: QueryView; personName: (id: number) => stri
             {stage ? `停在「${STAGE_NAME[stage] ?? stage}」环节 · ` : ''}错误码 <span className="cb-m">{reason.code}</span>
           </div>
           {diagnostic && diagnosticText({ ...diagnostic, stage: undefined }) ? <div className="cb-muted">{diagnosticText({ ...diagnostic, stage: undefined })}</div> : null}
-          {retries.length ? (
+          {retries.length && !diagnostic?.retry_rules ? (
             <div className="cb-muted">
               自动纠错 {retries.length} 次：{retries.map((r) => (r.rule ? `${r.code}（${RULE_NAME[r.rule] ?? r.rule}）` : r.code)).join('、')}
             </div>

@@ -1224,6 +1224,9 @@ def diagnose(ctx: QueryContext, error: BaseException) -> dict[str, Any]:
             facts["subject"] = error.subject
     if ctx.retries:
         facts["retries"] = len(ctx.retries)
+        # What each earlier attempt hit, so a refusal after correction still shows the
+        # first rule (a blocked log keeps only this diagnosis, not the retries list).
+        facts["retry_rules"] = [entry.get("rule") or entry["code"] for entry in ctx.retries]
     if ctx.eval_ref:
         facts["eval_run_id"] = ctx.eval_ref.get("run_id")
         facts["eval_case_id"] = ctx.eval_ref.get("case_id")
@@ -1243,6 +1246,7 @@ def log_diagnostic(ctx: QueryContext) -> None:
         subject=facts.get("subject"),
         error_type=facts.get("error_type"),
         retries=facts.get("retries", 0),
+        retry_rules="/".join(facts.get("retry_rules", [])) or None,
         eval_run_id=facts.get("eval_run_id"),
         eval_case_id=facts.get("eval_case_id"),
         query_run_id=ctx.query_run_id,

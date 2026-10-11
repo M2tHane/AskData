@@ -10,6 +10,8 @@ export interface Diagnostic {
   subject?: string
   error_type?: string
   retries?: number
+  /** 每次纠错前撞到的规则（没有规则时是错误码），按先后顺序。 */
+  retry_rules?: string[]
   eval_run_id?: number
   eval_case_id?: string
 }
@@ -78,7 +80,10 @@ export function diagnosticText(d: Diagnostic): string {
   if (d.rule) parts.push(`规则：${RULE_NAME[d.rule] ?? d.rule}${d.subject ? `（${d.subject}）` : ''}`)
   if (d.stage) parts.push(`环节：${STAGE_NAME[d.stage] ?? d.stage}`)
   if (d.error_type) parts.push(`错误类型：${d.error_type}`)
-  if (d.retries) parts.push(`纠错 ${d.retries} 次后`)
+  if (d.retries) {
+    const before = (d.retry_rules ?? []).map((r) => RULE_NAME[r] ?? r)
+    parts.push(`纠错 ${d.retries} 次后${before.length ? `（此前：${before.join('、')}）` : ''}`)
+  }
   return parts.join(' · ')
 }
 
