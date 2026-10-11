@@ -823,7 +823,10 @@ async def test_scope_conflict_uses_own_level_and_names_it_in_the_answer(system, 
         ("personal", "个人收入定义")
     ]
     answer_prompt = next(m for m in transport.messages if not m.startswith(("Generate", "Suggest")))
-    assert '"definition_levels": ' + json.dumps({"收入": "个人口径"}, ensure_ascii=False) in answer_prompt
+    assert (
+        '"definition_levels": ' + json.dumps({"收入": "个人口径"}, ensure_ascii=False)
+        in answer_prompt
+    )
 
 
 async def test_presentation_quota_denial_is_not_hidden_by_fallback(system, member):
@@ -1427,9 +1430,10 @@ async def test_unanswerable_with_retrieved_context_asks_again_with_everything(sy
         if messages[0].content.startswith("Generate"):
             transport.sql_extra = {}
             reply = next(answers)
-            transport.sql, transport.sql_extra = reply["sql"], {
-                k: v for k, v in reply.items() if k != "sql"
-            }
+            transport.sql, transport.sql_extra = (
+                reply["sql"],
+                {k: v for k, v in reply.items() if k != "sql"},
+            )
         return await original(model, messages)
 
     transport.chat = chat
@@ -1454,3 +1458,67 @@ async def test_correction_gets_the_whole_schema_after_retrieved_context(system, 
     correction = next(m for m in transport.messages if m.startswith("Correct"))
     assert '"tenant_id"' in correction
     assert logs.records[0].details["retrieval_stats"]["fallback"] == "correction"
+
+
+async def test_an_unreviewed_standard_function_gets_one_rewrite_through_the_whole_guard(
+    system, member
+):
+    service, transport, connector, logs, _, _ = system
+    transport.sql = "SELECT REGEXP_REPLACE(phone, '1', '0') AS p FROM orders"
+    transport.corrections = ["SELECT id FROM orders"]
+    conversation = await create_conversation(system, member)
+    reply = await service.ask(conversation.id, QuestionRequest(question="订单"), actor=member)
+    assert reply.status == "success" and len(connector.executed) == 1
+    correction = next(m for m in transport.messages if m.startswith("Correct"))
+    assert "函数 REGEXP_REPLACE 未经 postgres 审核" in correction
+    assert logs.records[0].details["retries"] == [
+        {
+            "attempt": 1,
+            "code": "SQL_FORBIDDEN_FUNC",
+            "rule": "function_not_reviewed",
+            "subject": "regexp_replace",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "rewrite",
+    [
+        # Only one rewrite: a second unreviewed function is final.
+        "SELECT REGEXP_REPLACE(phone, '2', '0') AS p FROM orders",
+        # The rewrite passes the full guard: scope, writes and danger are still hard refusals.
+        "SELECT secret FROM orders",
+        "DELETE FROM orders",
+        "SELECT pg_sleep(10) AS s",
+    ],
+)
+async def test_a_rewrite_that_is_still_refused_is_final(system, member, rewrite):
+    service, transport, connector, logs, _, _ = system
+    transport.sql = "SELECT REGEXP_REPLACE(phone, '1', '0') AS p FROM orders"
+    transport.corrections = [rewrite, "SELECT id FROM orders"]
+    conversation = await create_conversation(system, member)
+    reply = await service.ask(conversation.id, QuestionRequest(question="订单"), actor=member)
+    assert reply.status == "blocked" and not connector.executed
+    assert transport.calls_by_prompt.count("correction") == 1
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT pg_sleep(10) AS s",
+        "SELECT my_udf(id) AS c FROM orders",
+        "SELECT public.lower(phone) AS p FROM orders",
+        "SELECT secret FROM orders",
+        "SELECT id FROM orders; SELECT id FROM orders",
+        "DELETE FROM orders",
+    ],
+)
+async def test_hard_refusals_never_go_back_to_the_model(system, member, sql):
+    service, transport, connector, logs, _, _ = system
+    transport.sql = sql
+    transport.corrections = ["SELECT id FROM orders"]
+    conversation = await create_conversation(system, member)
+    reply = await service.ask(conversation.id, QuestionRequest(question="订单"), actor=member)
+    assert reply.status == "blocked" and not connector.executed
+    assert "correction" not in transport.calls_by_prompt
+    assert not logs.records[0].details["retries"]

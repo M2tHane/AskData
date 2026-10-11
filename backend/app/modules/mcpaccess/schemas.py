@@ -172,6 +172,9 @@ class AgentError(BaseModel):
     message: str
     retryable: bool = False
     request_id: str
+    # A failed ask may still have spent model tokens (blocked SQL, timeout): always reported,
+    # zero when it stopped before any model call.
+    usage: AgentUsage = Field(default_factory=AgentUsage)
 
 
 class TestAskRequest(BaseModel):

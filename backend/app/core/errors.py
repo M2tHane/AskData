@@ -67,6 +67,8 @@ class BlockRule(StrEnum):
     USER_DEFINED_TYPE = "user_defined_type"
     DANGEROUS_FUNCTION = "dangerous_function"
     FUNCTION_NOT_ALLOWED = "function_not_allowed"
+    # A standard function not reviewed for the dialect; the only refusal that may be rewritten.
+    FUNCTION_NOT_REVIEWED = "function_not_reviewed"
     QUALIFIED_FUNCTION = "qualified_function"
     SYSTEM_TABLE = "system_table"
     CROSS_CATALOG = "cross_catalog"

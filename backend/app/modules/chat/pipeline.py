@@ -445,6 +445,8 @@ class QueryContext:
     execution_error: ErrorCode | None = None
     # What could not be resolved in the last rejected SQL; only ever sent back to the model.
     error_detail: str = field(default="", repr=False)
+    # Whether the one rewrite allowed for an unreviewed standard function has been used.
+    function_rewritten: bool = False
     # Standard database error code of the last execution failure (sqlstate_42803).
     execution_subject: str | None = None
     # SQL the guard rejected. Never persisted or returned; evaluation shows it to admins.
@@ -1049,11 +1051,34 @@ class GuardStage:
             ctx.execution_error, ctx.error_detail = error.code, error.detail
             ctx.execution_rule = error.rule.value if error.rule else None
             return ctx
-        except SqlBlocked:
+        except SqlBlocked as error:
             ctx.rejected_sql = ctx.generated_sql
-            raise
+            if (
+                error.rule != BlockRule.FUNCTION_NOT_REVIEWED
+                or ctx.manual_sql
+                or ctx.function_rewritten
+                or len(ctx.retries) >= MAX_CORRECTIONS
+            ):
+                # Scope, writes, several statements, dangerous or unknown functions: final.
+                raise
+            # A standard function not reviewed for this database, nothing else wrong so far
+            # and nothing ran: ask once for another way; the rewrite passes the whole guard.
+            ctx.function_rewritten = True
+            ctx.execution_error, ctx.execution_rule = error.code, error.rule.value
+            ctx.execution_subject = error.subject
+            ctx.error_detail = function_hint(error.subject, ctx.datasource.dialect)
+            return ctx
         await ctx.event(EventType.SQL, {"sql": ctx.guarded_sql.normalized_sql})
         return ctx
+
+
+def function_hint(function: str | None, dialect: str) -> str:
+    named = f"函数 {function.upper()}" if function else "SQL 中的某个函数"
+    return (
+        f"{named} 未经 {dialect} 审核，不能使用。请只用常见标准函数改写"
+        "（如 SUBSTRING、CONCAT、CAST、COALESCE、TRIM、UPPER、LOWER、EXTRACT、DATE_TRUNC、ROUND），"
+        "不需要时直接去掉；其余部分保持不变。"
+    )
 
 
 class ExecuteStage:

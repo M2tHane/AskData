@@ -329,3 +329,63 @@ def test_clickhouse_settings_and_format_clauses_are_rejected(guard, scope, sql):
     with pytest.raises(SqlBlocked) as caught:
         guard.check(sql, "clickhouse", scope)
     assert caught.value.code == ErrorCode.SQL_FORBIDDEN_FUNC
+
+
+# --- functions: dangerous, unknown, and standard-but-unreviewed --------------------------
+
+
+def _function_rule(guard, sql, dialect):
+    from app.core.errors import SqlBlocked
+
+    try:
+        guard.check(sql, dialect, _orders_scope(dialect))
+    except SqlBlocked as blocked:
+        return blocked.rule.value
+    return None
+
+
+def _orders_scope(dialect):
+    from app.core.permission import TableScope, VisibleScope
+
+    columns = {"id": "BIGINT", "code": "TEXT", "created_at": "TIMESTAMP"}
+    return VisibleScope(
+        datasource_id=1,
+        tables={"orders": TableScope(all_columns=columns, columns=frozenset(columns))},
+    )
+
+
+@pytest.mark.parametrize(
+    ("sql", "dialect", "rule"),
+    [
+        # Reviewed per dialect: E01 pads a customer number.
+        ("SELECT LPAD(code, 8, '0') AS c FROM orders", "postgres", None),
+        ("SELECT LPAD(code, 8, '0') AS c FROM orders", "mysql", None),
+        ("SELECT SPLIT_PART(code, '-', 1) AS c FROM orders", "kingbase", None),
+        ("SELECT QUARTER(created_at) AS q FROM orders", "mysql", None),
+        # Standard, but not reviewed for this database: may be rewritten once.
+        (
+            "SELECT REGEXP_REPLACE(code, 'a+', 'b') AS c FROM orders",
+            "postgres",
+            "function_not_reviewed",
+        ),
+        ("SELECT generate_series(1, 10) AS n", "postgres", "function_not_reviewed"),
+        ("SELECT SPLIT_PART(code, '-', 1) AS c FROM orders", "mysql", "function_not_reviewed"),
+        # Unknown (possibly user-defined), qualified or dangerous: refused outright.
+        ("SELECT my_udf(id) AS c FROM orders", "postgres", "function_not_allowed"),
+        ("SELECT public.lower(code) AS c FROM orders", "postgres", "qualified_function"),
+        ("SELECT pg_sleep(10) AS s", "postgres", "dangerous_function"),
+        ("SELECT pg_read_file('/etc/passwd') AS f", "postgres", "dangerous_function"),
+        ("SELECT SLEEP(10) AS s", "mysql", "dangerous_function"),
+    ],
+)
+def test_functions_fall_into_three_tiers(guard, sql, dialect, rule):
+    assert _function_rule(guard, sql, dialect) == rule
+
+
+def test_reviewed_functions_keep_their_native_spelling():
+    from app.core.sql.guard import SqlGuard
+
+    guarded = SqlGuard().check(
+        "SELECT LPAD(code, 8, '0') AS c FROM orders", "postgres", _orders_scope("postgres")
+    )
+    assert "LPAD(" in guarded.normalized_sql.upper()

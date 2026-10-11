@@ -553,13 +553,17 @@ AGENT_MESSAGES = {
 RETRYABLE = {"QUERY_TIMEOUT", "TIMEOUT", "RATE_LIMITED", "LLM_UNAVAILABLE", "INTERNAL_ERROR"}
 
 
-def agent_error(code: str, ref: CallRef) -> AgentError:
+def agent_error(code: str, ref: CallRef, usage: AgentUsage | None = None) -> AgentError:
     message = AGENT_MESSAGES.get(code)
     if message is None:
         known = code in ErrorCode.__members__
         message = MESSAGES[ErrorCode(code)] if known else "查询失败"
     return AgentError(
-        code=code, message=message, retryable=code in RETRYABLE, request_id=ref.request_id
+        code=code,
+        message=message,
+        retryable=code in RETRYABLE,
+        request_id=ref.request_id,
+        usage=usage or AgentUsage(),
     )
 
 
@@ -667,6 +671,14 @@ class AgentService:
                 await progress(stage[0], stage[1])
 
         started = time.monotonic()
+
+        def spent() -> AgentUsage:
+            return AgentUsage(
+                input_tokens=ctx.tokens_in,
+                output_tokens=ctx.tokens_out,
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
+
         try:
             async with asyncio.timeout(principal.ask_timeout_seconds) as deadline:
                 reply = await self.chat.run_question(ctx, emit)
@@ -675,18 +687,14 @@ class AgentService:
                 raise
             # The pipeline turns cancellation into this error: by our deadline or the client.
             code = "TIMEOUT" if deadline.expired() else "QUERY_CANCELLED"
-            return AgentOutcome(agent_error(code, ref), ctx)
+            return AgentOutcome(agent_error(code, ref, spent()), ctx)
         except TimeoutError:
-            return AgentOutcome(agent_error("TIMEOUT", ref), ctx)
+            return AgentOutcome(agent_error("TIMEOUT", ref, spent()), ctx)
         self.access.touch(binding, reply.message_id if reply.status == "clarify" else None)
         await self.access.repository.commit()
-        usage = AgentUsage(
-            input_tokens=ctx.tokens_in,
-            output_tokens=ctx.tokens_out,
-            duration_ms=int((time.monotonic() - started) * 1000),
-        )
+        usage = spent()
         if reply.status in {"blocked", "failed"}:
-            return AgentOutcome(agent_error(reply.code.value, ref), ctx)
+            return AgentOutcome(agent_error(reply.code.value, ref, usage), ctx)
         edited = await self.access.overridden(principal.client_id, "metric")
         ids = {item.name: item.ref_id for item in ctx.retrieval.items if item.kind == "metric"}
         used = [

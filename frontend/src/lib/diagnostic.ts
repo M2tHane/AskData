@@ -53,6 +53,7 @@ export const RULE_NAME: Record<string, string> = {
   user_defined_type: '使用了自定义类型',
   dangerous_function: '调用了危险函数',
   function_not_allowed: '函数不在允许列表',
+  function_not_reviewed: '函数未经该数据库审核',
   qualified_function: '带前缀的函数调用',
   system_table: '访问系统表',
   cross_catalog: '跨库访问',

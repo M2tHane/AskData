@@ -388,3 +388,25 @@ async def test_an_admin_test_ask_runs_as_the_connection_and_is_logged_apart(agen
         actor=User(id=1, role=Role.ADMIN),
     )
     assert unknown.is_error and unknown.agent["code"] == "INVALID_PARAMS"
+
+
+async def test_errors_report_the_tokens_they_spent(agent):
+    service, transport, connector, _, clients, access = agent
+    transport.sql = "SELECT secret FROM orders"
+    blocked = await service.ask(PRINCIPAL, "订单里的秘密", 1, CallRef())
+    assert blocked.is_error and blocked.result.code == "SQL_OUT_OF_SCOPE"
+    # The model wrote SQL before the guard refused it: that was paid for.
+    assert blocked.result.usage.input_tokens > 0 and blocked.result.usage.output_tokens > 0
+    transport.sql = "SELECT id FROM orders"
+    connector.wait = asyncio.Event()
+    slow = await service.ask(replace(PRINCIPAL, ask_timeout_seconds=0.05), "订单", 1, CallRef())
+    assert slow.result.code == "TIMEOUT" and slow.result.usage.duration_ms >= 50
+    # Refused before any model call: zero, but always present.
+    access.limit = 0
+    limited = await service.ask(PRINCIPAL, "订单", 1, CallRef())
+    assert limited.result.code == "QUOTA_EXCEEDED"
+    assert limited.result.usage.model_dump() == {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "duration_ms": 0,
+    }

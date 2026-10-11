@@ -97,6 +97,26 @@ uniq uniqexact argmax argmin any anylast median quantile quantileexact arg_max a
 array_join
 """.split()
 )
+# Standard functions reviewed for one dialect family: pure, deterministic, no I/O, cost bounded
+# by their arguments. Left out on purpose: regexp_* (backtracking cost), generate_series
+# (row explosion), hashing and formatting functions nobody has needed yet.
+_PG_REVIEWED = {"pad", "split_part", "initcap", "reverse", "str_position", "to_number"}
+_REVIEWED_FUNCTIONS: dict[Dialect, set[str]] = {
+    Dialect.POSTGRES: _PG_REVIEWED,
+    Dialect.KINGBASE: _PG_REVIEWED,
+    Dialect.GAUSSDB: _PG_REVIEWED,
+    Dialect.MYSQL: {
+        "pad",
+        "reverse",
+        "str_position",
+        "last_day",
+        "quarter",
+        "hour",
+        "minute",
+        "timestampdiff",
+    },
+    Dialect.CLICKHOUSE: _CLICKHOUSE_SAFE_FUNCTIONS,
+}
 # Aggregate combinators (sumIf, avgIf, uniqIf...) are pure when their base aggregate is.
 _CLICKHOUSE_COMBINABLE = {"sum", "avg", "min", "max", "count", "uniq", "uniqexact", "any"}
 _SEAL_KEY = secrets.token_bytes(32)
@@ -206,16 +226,22 @@ class SqlGuard:
                 if target == Dialect.CLICKHOUSE and isinstance(node, exp.CombinedAggFunc):
                     base = str(node.name).lower().removesuffix("if")
                     name = base if base in _CLICKHOUSE_COMBINABLE else name
-                if name not in _SAFE_FUNCTIONS and not (
-                    target == Dialect.CLICKHOUSE and name in _CLICKHOUSE_SAFE_FUNCTIONS
-                ):
-                    raise SqlBlocked(
-                        ErrorCode.SQL_FORBIDDEN_FUNC, BlockRule.FUNCTION_NOT_ALLOWED, known
-                    )
                 if isinstance(node.parent, exp.Dot):
                     raise SqlBlocked(
                         ErrorCode.SQL_FORBIDDEN_FUNC, BlockRule.QUALIFIED_FUNCTION, known
                     )
+                if name in _SAFE_FUNCTIONS or name in _REVIEWED_FUNCTIONS.get(target, set()):
+                    continue
+                # A function sqlglot does not know may be a user-defined one with side
+                # effects: refused outright. A standard one is merely not reviewed for this
+                # dialect: the pipeline may ask the model once to write it differently.
+                raise SqlBlocked(
+                    ErrorCode.SQL_FORBIDDEN_FUNC,
+                    BlockRule.FUNCTION_NOT_ALLOWED
+                    if isinstance(node, exp.Anonymous)
+                    else BlockRule.FUNCTION_NOT_REVIEWED,
+                    known,
+                )
         normalize_identifiers(tree, dialect=target.sqlglot)
         schema = MappingSchema(dialect=target.sqlglot, normalize=False)
         for name, table_scope in scope.tables.items():

@@ -3,7 +3,7 @@ with the eval's own grading; compare with a web-channel run of the same cases.
 
 Run inside the api container (it calls the running endpoint on 127.0.0.1:8000):
 
-    python scripts/eval_mcp.py --baseline-run 28 --limit 20 [--model-id 2]
+    python scripts/eval_mcp.py --baseline-run 28 --limit 20 [--model-id 2] [--cases E01,M01]
 
 A temporary connection is created with exactly the asker's grants (columns and masks) on
 the case's datasource, used, and deleted at the end; its key never leaves this process.
@@ -151,6 +151,7 @@ async def main() -> None:
     parser.add_argument("--baseline-run", type=int, required=True)
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--model-id", type=int, help="LLM to make the default for this run")
+    parser.add_argument("--cases", help="comma-separated case ids, instead of the subset")
     args = parser.parse_args()
     settings = get_settings()
     if settings.database_url is None or settings.redis_url is None:
@@ -159,7 +160,11 @@ async def main() -> None:
     redis = await create_pool(RedisSettings.from_dsn(settings.redis_url.get_secret_value()))
     runtime = Composition(settings, database, redis, worker=True)
     assets = await runtime.mapped_assets()
-    cases = comparable(assets.cases, args.limit)
+    cases = comparable(assets.cases, len(assets.cases))
+    if args.cases:
+        wanted = args.cases.split(",")
+        cases = [case for case in cases if case.id in wanted]
+    cases = cases[: args.limit]
     admin = assets.users["admin"]
     previous_default = None
     # One connection per asker and datasource, granted exactly what that asker sees.

@@ -14,7 +14,7 @@ from app.modules.chat.pipeline import QueryContext, diagnose
         # Known functions are named as sqlglot knows them.
         (
             "SELECT generate_series(1, 10) AS n",
-            BlockRule.FUNCTION_NOT_ALLOWED,
+            BlockRule.FUNCTION_NOT_REVIEWED,
             "exploding_generate_series",
         ),
         # An unknown function name is model text: it could spell a hidden table, so it is dropped.
