@@ -546,16 +546,18 @@ function ItemsTab(props: { client: McpClientRead; kind: 'semantic' | 'metric' })
   const setItem = useSetMcpItem(c.id, ds)
   const restore = useRestoreMcpItems(c.id)
   const [editing, setEditing] = useState<OverlayItem | null>(null)
+  const [hiding, setHiding] = useState<OverlayItem | null>(null)
+  const busy = setItem.isPending || restore.isPending
   const list = (items.data ?? []).filter((i) => i.kind === props.kind)
   const changed = list.filter((i) => i.state !== 'default').length
   const act = (item: OverlayItem, action: 'hide' | 'restore') => {
-    const done = { onSuccess: () => toast({ tone: 'success', title: `${item.name}：${action === 'hide' ? '已对这个接入隐藏' : '已恢复平台默认'}` }), onError: (e: unknown) => toast({ tone: 'danger', title: '操作失败', message: fail(e) }) }
+    const done = { onSuccess: () => toast({ tone: 'success', title: `${item.name}：${action === 'hide' ? '已对这个接入隐藏' : item.state === 'hidden' ? '已恢复可见' : '已恢复平台默认'}` }), onError: (e: unknown) => toast({ tone: 'danger', title: '操作失败', message: fail(e) }) }
     if (action === 'hide') setItem.mutate({ kind: item.kind, item_id: item.item_id, action: 'hide', payload: {} }, done)
     else restore.mutate({ kind: item.kind, item_id: item.item_id }, done)
   }
   return (
     <>
-      <Callout tone="info">默认使用平台级的{text.name}。在这里修改或隐藏只影响这个接入，平台上的定义不变；恢复默认即撤销修改。</Callout>
+      <Callout tone="info">默认使用平台级的{text.name}。在这里修改或取消「可见」只影响这个接入，平台上的定义不变；点「默认」撤销修改。</Callout>
       <div className="cb-filters">
         <DatasourceSelect value={ds} onChange={setDs} />
         <span className="cb-faint">
@@ -581,7 +583,8 @@ function ItemsTab(props: { client: McpClientRead; kind: 'semantic' | 'metric' })
               <tr>
                 <th>名称 · 当前说明</th>
                 <th style={{ width: 88 }}>状态</th>
-                <th style={{ width: 184 }}><span className="cb-sr">操作</span></th>
+                <th className="cb-mcp-vis" style={{ width: 56 }}>可见</th>
+                <th style={{ width: 120 }}><span className="cb-sr">操作</span></th>
               </tr>
             </thead>
             <tbody>
@@ -596,23 +599,17 @@ function ItemsTab(props: { client: McpClientRead; kind: 'semantic' | 'metric' })
                   <td>
                     <Badge tone={item.state === 'edited' ? 'info' : undefined}>{item.state === 'edited' ? '已修改' : item.state === 'hidden' ? '已隐藏' : '平台默认'}</Badge>
                   </td>
+                  <td className="cb-mcp-vis">
+                    <Check state={item.state === 'hidden' ? 'off' : 'on'} label={`${item.name} 对这个接入可见`} disabled={busy} onChange={(on) => (on ? act(item, 'restore') : item.state === 'edited' ? setHiding(item) : act(item, 'hide'))} />
+                  </td>
                   <td>
                     <span className="cb-actions">
-                      {item.state === 'hidden' ? null : (
-                        <Button size="sm" variant="ghost" onClick={() => setEditing(item)}>
-                          修改
-                        </Button>
-                      )}
-                      {item.state === 'hidden' ? null : (
-                        <Button size="sm" variant="ghost" onClick={() => act(item, 'hide')}>
-                          隐藏
-                        </Button>
-                      )}
-                      {item.state === 'default' ? null : (
-                        <Button size="sm" variant="ghost" onClick={() => act(item, 'restore')}>
-                          恢复默认
-                        </Button>
-                      )}
+                      <Button size="sm" variant="ghost" disabled={item.state === 'hidden'} title={item.state === 'hidden' ? '先勾选可见' : undefined} onClick={() => setEditing(item)}>
+                        修改
+                      </Button>
+                      <Button size="sm" variant="ghost" disabled={item.state === 'default' || busy} title={item.state === 'default' ? '已是平台默认' : '恢复为平台默认'} onClick={() => act(item, 'restore')}>
+                        默认
+                      </Button>
                     </span>
                   </td>
                 </tr>
@@ -621,6 +618,19 @@ function ItemsTab(props: { client: McpClientRead; kind: 'semantic' | 'metric' })
           </table>
         </ListStatus>
       </ListCard>
+      {hiding ? (
+        <ConfirmDialog
+          title={`隐藏「${hiding.name}」`}
+          confirmLabel="隐藏"
+          onClose={() => setHiding(null)}
+          onConfirm={() => {
+            act(hiding, 'hide')
+            setHiding(null)
+          }}
+        >
+          这一项在这个接入里改过。隐藏后修改会被丢弃，再勾选可见时恢复为平台默认。
+        </ConfirmDialog>
+      ) : null}
       {editing ? (
         <ItemEditor
           item={editing}

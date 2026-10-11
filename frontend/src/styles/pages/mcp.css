@@ -20,3 +20,7 @@
 .cb-mcp-result .cb-panel-head { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); font: 600 13px/20px var(--font-sans); }
 .cb-mcp-kv { grid-template-columns: 80px minmax(0, 1fr); padding: var(--space-3) var(--space-4); }
 .cb-mcp-json { margin: 0; padding: var(--space-3) var(--space-4); max-height: 480px; overflow: auto; font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* 可见列：勾选框居中；操作按钮位置固定。 */
+.cb-data .cb-mcp-vis { text-align: center; }
+.cb-data .cb-mcp-vis input { vertical-align: middle; }

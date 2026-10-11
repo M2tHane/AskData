@@ -62,9 +62,9 @@ ASKDATA_PROVISION_USERNAME=admin ASKDATA_PROVISION_PASSWORD='你的管理员密�
 
 Claude Code、Cursor 这类 AI Agent 可以通过 MCP 协议用 AskData 问数。每个接入单独设置能查的表和字段、每天的调用次数，语义和指标默认沿用平台的，也可以单独改。
 
-| 勾选能查的表和字段，可设脱敏 | 为这个接入修改或隐藏口径 |
+| 勾选能查的表和字段，可设脱敏 | 为这个接入修改口径，取消勾选「可见」即隐藏 |
 | --- | --- |
-| ![数据权限](docs/readme/mcp-grants.png) | ![语义与指标](docs/readme/mcp-items.png) |
+| ![数据权限](docs/readme/mcp-grants.png) | ![语义](docs/readme/mcp-items.png) |
 | **以接入的身份试问，诊断只有管理员看得到** | **复制配置到 Agent** |
 | ![测试问数](docs/readme/mcp-test.png) | ![接入方式](docs/readme/mcp-connect.png) |
 
@@ -72,7 +72,7 @@ Claude Code、Cursor 这类 AI Agent 可以通过 MCP 协议用 AskData 问数�
 
 1. 管理员打开「MCP 接入」，点「新建接入」，设置每日调用上限和返回行数。创建后会显示一次完整的 API Key，请当场保存。
 2. 在「数据权限」里勾选这个接入能查的表和字段，需要的话设置脱敏。
-3. （可选）在「语义」「指标」里为这个接入修改或隐藏口径；在「测试问数」里以它的身份先试问一次。
+3. （可选）在「语义」「指标」里为这个接入修改口径，或取消勾选「可见」隐藏它；在「测试问数」里以它的身份先试问一次。
 4. 在「接入方式」里复制配置，填进 Agent。
 
 ### 配置

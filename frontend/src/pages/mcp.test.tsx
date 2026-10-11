@@ -143,6 +143,36 @@ describe('MCP page', () => {
     expect(screen.queryByText('含运费')).toBeNull()
   })
 
+  it('shows visibility as a checkbox with fixed edit and default buttons', async () => {
+    const sent = serve({
+      clients: [client()],
+      items: [
+        { kind: 'semantic', item_id: 2, name: '实付金额', state: 'default', platform: {}, effective: { description: '订单实付' } },
+        { kind: 'semantic', item_id: 3, name: '渠道', state: 'edited', platform: {}, effective: { description: '下单渠道' } },
+        { kind: 'semantic', item_id: 4, name: '优惠券', state: 'hidden', platform: {}, effective: { description: '' } },
+      ],
+    })
+    mount()
+    await userEvent.click(await screen.findByRole('button', { name: '管理' }))
+    await userEvent.click(await screen.findByRole('tab', { name: /^语义/ }))
+    expect(await screen.findByText('订单实付')).toBeInTheDocument()
+    // Every row has both buttons in the same place; they are disabled when they do nothing.
+    expect(screen.getAllByRole('button', { name: '修改' })).toHaveLength(3)
+    expect(screen.getAllByRole('button', { name: '默认' }).map((b) => (b as HTMLButtonElement).disabled)).toEqual([true, false, false])
+    expect(screen.queryByRole('button', { name: '隐藏' })).toBeNull()
+    expect(screen.getByLabelText('优惠券 对这个接入可见')).not.toBeChecked()
+    // Unchecking a default item hides it at once.
+    await userEvent.click(screen.getByLabelText('实付金额 对这个接入可见'))
+    await waitFor(() => expect(sent.find((r) => r.method === 'PUT' && r.path.endsWith('/items'))?.body).toEqual({ kind: 'semantic', item_id: 2, action: 'hide', payload: {} }))
+    // Unchecking an edited item asks first: hiding drops the edit.
+    await userEvent.click(screen.getByLabelText('渠道 对这个接入可见'))
+    expect(await screen.findByText(/修改会被丢弃/)).toBeInTheDocument()
+    // Checking a hidden item restores it.
+    await userEvent.click(screen.getByRole('button', { name: '取消' }))
+    await userEvent.click(screen.getByLabelText('优惠券 对这个接入可见'))
+    await waitFor(() => expect(sent.find((r) => r.path.endsWith('/items/restore'))?.body).toEqual({ kind: 'semantic', item_id: 4 }))
+  })
+
   it('is an admin-only entry', () => {
     expect(navFor('admin').routes.map((r) => r.id)).toContain('mcp')
     for (const role of ['leader', 'member'] as const) expect(navFor(role).routes.map((r) => r.id)).not.toContain('mcp')
