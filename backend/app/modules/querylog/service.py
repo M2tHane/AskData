@@ -79,6 +79,8 @@ class QueryLogService:
                     "eval",
                     # How much context the model got: counts and mode only.
                     "retrieval_stats",
+                    # Which MCP connection and tool call asked, if any.
+                    "origin",
                 }
             }
         )

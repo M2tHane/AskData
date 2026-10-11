@@ -32,6 +32,15 @@ import type {
   UploadJob,
   UploadParseConfig,
   UploadPreview,
+  McpClientRead,
+  McpClientWrite,
+  McpKeyCreated,
+  McpKeyRead,
+  ClientGrantsRead,
+  ClientColumnWrite,
+  OverlayItem,
+  OverrideWrite,
+  TestAskReply,
 } from './types'
 
 export const timezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai'
@@ -241,6 +250,10 @@ export interface LogFilter {
   status?: string
   has_feedback?: boolean
   user_id?: number
+  /** 提问来源：网页、MCP 接入、管理员以接入身份测试。 */
+  source?: 'web' | 'mcp' | 'mcp_test'
+  mcp_client_id?: number
+  request_id?: string
   /** ISO 时间，含；until 不含。 */
   since?: string
   until?: string
@@ -256,7 +269,7 @@ export const fetchQuery = (id: number) => api<QueryView>('GET', `/api/querylog/$
 export const useQueryLog = (f: LogFilter) =>
   useQuery({
     queryKey: ['querylog', f],
-    queryFn: () => api<Page<QueryView>>('GET', '/api/querylog', { query: { status: f.status, has_feedback: f.has_feedback, user_id: f.user_id, since: f.since, until: f.until, page: f.page, page_size: 20 } }),
+    queryFn: () => api<Page<QueryView>>('GET', '/api/querylog', { query: { status: f.status, has_feedback: f.has_feedback, user_id: f.user_id, source: f.source, mcp_client_id: f.mcp_client_id, request_id: f.request_id, since: f.since, until: f.until, page: f.page, page_size: 20 } }),
     placeholderData: keepPreviousData,
   })
 
@@ -562,3 +575,42 @@ export const confirmUpload = (id: number, config: UploadParseConfig, mode: 'over
   api<UploadJob>('POST', `/api/upload/${id}/confirm`, { body: { config, mode } })
 export const getUpload = (id: number) => api<UploadJob>('GET', `/api/upload/${id}`)
 export const publishUpload = (id: number) => api<UploadJob>('POST', `/api/upload/${id}/publish`)
+
+/* ---- MCP 接入（管理员） ---- */
+const MCP = '/api/mcp-clients'
+
+export const useMcpClients = (enabled = true) => useQuery({ queryKey: ['mcp'], queryFn: () => api<McpClientRead[]>('GET', MCP), enabled })
+
+export const useMcpClient = (id: number | null) =>
+  useQuery({ queryKey: ['mcp', id], queryFn: () => api<McpClientRead>('GET', `${MCP}/${id}`), enabled: id != null })
+
+/** 新建、修改、启停、删除、轮换和吊销密钥后，列表和详情都要刷新。 */
+function useMcpMutation<V, R>(fn: (v: V) => Promise<R>) {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: fn, onSuccess: () => qc.invalidateQueries({ queryKey: ['mcp'] }) })
+}
+
+export const useCreateMcpClient = () => useMcpMutation((body: McpClientWrite) => api<McpKeyCreated>('POST', MCP, { body }))
+export const useUpdateMcpClient = () => useMcpMutation(({ id, body }: { id: number; body: McpClientWrite }) => api<McpClientRead>('PUT', `${MCP}/${id}`, { body }))
+export const useSetMcpStatus = () => useMcpMutation(({ id, active }: { id: number; active: boolean }) => api<McpClientRead>('POST', `${MCP}/${id}/status`, { body: { active } }))
+export const useDeleteMcpClient = () => useMcpMutation((id: number) => api<unknown>('DELETE', `${MCP}/${id}`))
+export const useRotateMcpKey = () => useMcpMutation(({ id, grace_hours }: { id: number; grace_hours: number }) => api<McpKeyCreated>('POST', `${MCP}/${id}/keys/rotate`, { body: { grace_hours } }))
+export const useRevokeMcpKey = () => useMcpMutation(({ id, keyId }: { id: number; keyId: number }) => api<McpKeyRead>('POST', `${MCP}/${id}/keys/${keyId}/revoke`))
+
+export const useMcpGrants = (id: number, datasourceId: number | null) =>
+  useQuery({ queryKey: ['mcp', id, 'grants', datasourceId], queryFn: () => api<ClientGrantsRead>('GET', `${MCP}/${id}/grants/${datasourceId}`), enabled: datasourceId != null })
+
+export const useSaveMcpGrants = (id: number, datasourceId: number | null) =>
+  useMcpMutation((columns: ClientColumnWrite[]) => api<ClientGrantsRead>('PUT', `${MCP}/${id}/grants/${datasourceId}`, { body: { columns } }))
+
+export const useMcpItems = (id: number, datasourceId: number | null) =>
+  useQuery({ queryKey: ['mcp', id, 'items', datasourceId], queryFn: () => api<OverlayItem[]>('GET', `${MCP}/${id}/items`, { query: { datasource_id: datasourceId } }), enabled: datasourceId != null })
+
+export const useSetMcpItem = (id: number, datasourceId: number | null) =>
+  useMcpMutation((body: OverrideWrite) => api<OverlayItem>('PUT', `${MCP}/${id}/items`, { query: { datasource_id: datasourceId }, body }))
+
+export const useRestoreMcpItems = (id: number) =>
+  useMcpMutation((body: { kind?: 'semantic' | 'metric'; item_id?: number }) => api<{ restored: number }>('POST', `${MCP}/${id}/items/restore`, { body }))
+
+export const testMcpAsk = (id: number, body: { question: string; datasource_id: number; conversation_id?: string | null }) =>
+  api<TestAskReply>('POST', `${MCP}/${id}/test`, { body })

@@ -1,6 +1,6 @@
 import asyncio
 import csv
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime
 from io import BytesIO, StringIO
 from typing import Any, Literal, cast
@@ -20,7 +20,7 @@ from app.core.cache import TextCache
 from app.core.datasource import Datasource
 from app.core.db import AsyncSession, Database
 from app.core.deps import CurrentUser
-from app.core.errors import MESSAGES, AppError, ErrorCode
+from app.core.errors import MESSAGES, AppError, ErrorCode, SqlBlocked
 from app.core.llm import CallContext, CallRecord, LLMClient, RerankClient, UsageRecorder
 from app.core.masking import mask_rows, safe_export_cell
 from app.core.response import Page, PageParams
@@ -35,10 +35,13 @@ from app.modules.chat.pipeline import (
     PipelineDependencies,
     QueryContext,
     QueryPipeline,
+    RecordStage,
     RetrievalIndex,
+    diagnose,
     encode_event,
 )
 from app.modules.chat.pipeline import ScopeOnlyIndex as ScopeOnlyIndex
+from app.modules.chat.pipeline import plain_rows as plain_rows
 from app.modules.chat.repository import ChatRepository
 from app.modules.chat.retrieval import ServiceRetrievalIndex
 from app.modules.chat.schemas import (
@@ -46,15 +49,19 @@ from app.modules.chat.schemas import (
     ContextItemView,
     ContextPreview,
     ContextPreviewRequest,
-    ConversationCreate,
     ConversationRename,
     ConversationView,
     ExportFile,
     MessageView,
     QueryReply,
-    QuestionRequest,
     RerunRequest,
     SuggestedQuestions,
+)
+from app.modules.chat.schemas import (
+    ConversationCreate as ConversationCreate,
+)
+from app.modules.chat.schemas import (
+    QuestionRequest as QuestionRequest,
 )
 from app.modules.chat.suggestions import SuggestionService
 from app.modules.querylog.service import build_service as build_querylog
@@ -242,6 +249,61 @@ class ChatService:
         await self.pipeline.run(ctx)
         await self.repository.commit()
         return await self.finish(ctx)
+
+    async def run_question(
+        self,
+        ctx: QueryContext,
+        emit: Callable[[EventType, dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> QueryReply:
+        """Answer a prepared question without streaming (MCP): ask() with progress events."""
+        ctx.emit = emit
+        try:
+            await self.pipeline.run(ctx)
+        except AppError as error:
+            if error.code == ErrorCode.QUERY_CANCELLED:
+                await self._commit_cancelled()
+            raise
+        finally:
+            ctx.emit = None
+        await self.repository.commit()
+        return await self.finish(ctx)
+
+    async def execute_sql(
+        self, datasource_id: int, sql: str, *, actor: CurrentUser, origin: dict[str, Any]
+    ) -> QueryContext:
+        """Run SQL the caller wrote (MCP run_sql) under the caller's grants and masks.
+
+        The same guard and executor as a generated query; logged, but kept in no conversation.
+        """
+        deps = self.pipeline.deps
+        ctx = QueryContext(
+            user=actor,
+            datasource_id=datasource_id,
+            conversation_id=0,
+            question="执行 SQL",
+            manual_sql=sql,
+            generated_sql=sql,
+            origin=origin,
+        )
+        try:
+            ctx.scope = await deps.permissions.visible_scope(actor, datasource_id)
+            ctx.datasource = await deps.datasource(datasource_id, actor)
+            for stage in (GuardStage(deps), ExecuteStage(deps)):
+                ctx.stage = stage.name
+                await stage.run(ctx)
+        except AppError as error:
+            ctx.diagnostic = diagnose(ctx, error)
+            ctx.error_code = error.code
+            ctx.status = (
+                "blocked"
+                if isinstance(error, SqlBlocked)
+                or error.code.value.startswith("SQL_")
+                and error.code != ErrorCode.SQL_EXECUTION_ERROR
+                else "failed"
+            )
+        await RecordStage(deps).run(ctx)
+        await self.repository.commit()
+        return ctx
 
     async def rerun(
         self, identifier: int, request: RerunRequest, *, actor: CurrentUser

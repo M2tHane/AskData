@@ -95,7 +95,7 @@ describe('navigation by role', () => {
   it('keeps business entries grouped on top and governance entries flat at the bottom', () => {
     const admin = navFor('admin')
     expect(admin.groups.map((g) => g.label)).toEqual(['查数', '数据'])
-    expect(admin.bottom.map((r) => r.id)).toEqual(['feedback', 'logs', 'eval', 'org', 'models', 'prompts', 'usage'])
+    expect(admin.bottom.map((r) => r.id)).toEqual(['feedback', 'logs', 'eval', 'org', 'mcp', 'models', 'prompts', 'usage'])
     expect(navFor('member').bottom).toEqual([])
   })
 })

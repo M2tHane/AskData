@@ -1,13 +1,14 @@
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
 from app.core.db import AsyncSession
 from app.modules.permission.models import (
+    ClientColumnGrant,
     DatasourceTeamScope,
     ScopeOverride,
     TeamColumnGrant,
     TeamTableGrant,
 )
-from app.modules.permission.schemas import TeamGrantsWrite
+from app.modules.permission.schemas import ClientGrantsWrite, TeamGrantsWrite
 
 
 class PermissionRepository:
@@ -36,6 +37,51 @@ class PermissionRepository:
             )
         )
         return tables, columns
+
+    async def client_grants(self, client_id: int, column_ids: list[int]) -> list[ClientColumnGrant]:
+        return list(
+            await self.session.scalars(
+                select(ClientColumnGrant).where(
+                    ClientColumnGrant.client_id == client_id,
+                    ClientColumnGrant.column_id.in_(column_ids),
+                )
+            )
+        )
+
+    async def replace_client(
+        self, client_id: int, column_ids: list[int], data: ClientGrantsWrite, actor_id: int
+    ) -> None:
+        """Replace one datasource's part of a connection's allowlist."""
+        await self.session.execute(
+            delete(ClientColumnGrant).where(
+                ClientColumnGrant.client_id == client_id,
+                ClientColumnGrant.column_id.in_(column_ids),
+            )
+        )
+        for column in data.columns:
+            self.session.add(
+                ClientColumnGrant(
+                    client_id=client_id,
+                    column_id=column.column_id,
+                    mask_rule=column.mask_rule.model_dump(mode="json")
+                    if column.mask_rule
+                    else None,
+                    created_by=actor_id,
+                )
+            )
+        await self.session.flush()
+
+    async def client_column_ids(self, client_id: int) -> list[int]:
+        return list(
+            await self.session.scalars(
+                select(ClientColumnGrant.column_id).where(ClientColumnGrant.client_id == client_id)
+            )
+        )
+
+    async def drop_client(self, client_id: int) -> None:
+        await self.session.execute(
+            delete(ClientColumnGrant).where(ClientColumnGrant.client_id == client_id)
+        )
 
     async def replace(
         self,

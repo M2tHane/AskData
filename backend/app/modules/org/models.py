@@ -22,3 +22,5 @@ class User(AuditFields, SoftDelete, Base):
     role: Mapped[str] = mapped_column(String(20))
     team_id: Mapped[int | None] = mapped_column(ForeignKey("team.id"), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="active")
+    # "service": an MCP connection's account. It cannot log in and is not managed as a person.
+    kind: Mapped[str] = mapped_column(String(10), default="person", server_default="person")

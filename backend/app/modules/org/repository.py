@@ -11,7 +11,14 @@ class OrgRepository:
         self.users = BaseRepository(session, User)
 
     async def by_username(self, username: str) -> User | None:
-        return await self.session.scalar(self.users._select().where(User.username == username))
+        return await self.session.scalar(
+            self.users._select().where(User.username == username, User.kind == "person")
+        )
+
+    async def person(self, user_id: int) -> User | None:
+        """A user who is a person: service accounts are invisible to user management."""
+        row = await self.users.get(user_id)
+        return row if row is not None and row.kind == "person" else None
 
     async def lock_admins(self) -> None:
         await self.session.scalars(
@@ -54,9 +61,17 @@ class OrgRepository:
         return grouped
 
     async def list_users(
-        self, offset: int, limit: int, *, free: bool, team_id: int | None
+        self,
+        offset: int,
+        limit: int,
+        *,
+        free: bool,
+        team_id: int | None,
+        services: bool = False,
     ) -> tuple[list[User], int]:
         query = self.users._select()
+        if not services:
+            query = query.where(User.kind == "person")
         if free:
             query = query.where(User.team_id.is_(None), User.role != "admin")
         if team_id is not None:
@@ -75,9 +90,7 @@ class OrgRepository:
 
     async def count(self, kind: str) -> int:
         model = User if kind == "users" else Team
-        return int(
-            await self.session.scalar(
-                select(func.count()).select_from(model).where(model.deleted_at.is_(None))
-            )
-            or 0
-        )
+        query = select(func.count()).select_from(model).where(model.deleted_at.is_(None))
+        if model is User:
+            query = query.where(User.kind == "person")
+        return int(await self.session.scalar(query) or 0)

@@ -34,13 +34,13 @@ class OrgService:
         return TeamRead.model_validate(row)
 
     async def user(self, user_id: int) -> UserRead:
-        row = await self.repository.users.get(user_id)
+        row = await self.repository.person(user_id)
         if row is None:
             raise AppError(ErrorCode.NOT_FOUND, http_status=404)
         return UserRead.model_validate(row)
 
     async def identity(self, user_id: int) -> CurrentUser:
-        row = await self.repository.users.get(user_id)
+        row = await self.repository.person(user_id)
         if row is None or row.status != "active":
             raise AuthenticationError()
         if row.role != Role.ADMIN and row.team_id is None:
@@ -103,8 +103,35 @@ class OrgService:
         if actor.role == Role.LEADER and actor.team_id is None:
             return []
         team_id = None if actor.role == Role.ADMIN else actor.team_id
-        rows, _ = await self.repository.list_users(0, 1000, free=False, team_id=team_id)
+        # Admins also see MCP connections' accounts, so their queries can be filtered too.
+        rows, _ = await self.repository.list_users(
+            0, 1000, free=False, team_id=team_id, services=team_id is None
+        )
         return [PersonRead.model_validate(row) for row in rows]
+
+    async def create_service_account(self, username: str, *, actor: CurrentUser) -> int:
+        """The account an MCP connection's queries, logs and usage are recorded under."""
+        require_admin(actor)
+        row = await self.repository.users.create(
+            {
+                "username": username,
+                # Not a valid hash: no password ever verifies, so the account cannot log in.
+                "password_hash": "!service",
+                "role": Role.MEMBER.value,
+                "team_id": None,
+                "kind": "service",
+            },
+            actor.id,
+        )
+        return row.id
+
+    async def set_service_status(self, user_id: int, active: bool, *, actor: CurrentUser) -> None:
+        require_admin(actor)
+        row = await self.repository.users.get(user_id)
+        if row is None or row.kind != "service":
+            raise AppError(ErrorCode.NOT_FOUND, http_status=404)
+        row.status = "active" if active else "disabled"
+        await self.repository.session.flush()
 
     async def list_users(
         self,
@@ -147,7 +174,7 @@ class OrgService:
 
     async def _assign_leader(self, team_id: int, user_id: int, actor: CurrentUser) -> None:
         """New leader comes from this team or the free pool; the old leader becomes free."""
-        user = await self.repository.users.get(user_id)
+        user = await self.repository.person(user_id)
         if user is None:
             raise AppError(ErrorCode.NOT_FOUND, http_status=404)
         if (
@@ -176,7 +203,7 @@ class OrgService:
         require_admin(actor)
         await self.ensure_team(team_id)
         for user_id in dict.fromkeys(user_ids):
-            user = await self.repository.users.get(user_id)
+            user = await self.repository.person(user_id)
             if user is None:
                 raise AppError(ErrorCode.NOT_FOUND, http_status=404)
             if user.role != Role.MEMBER or user.team_id is not None or user.status != "active":
@@ -189,7 +216,7 @@ class OrgService:
 
     async def remove_member(self, team_id: int, user_id: int, *, actor: CurrentUser) -> TeamRead:
         require_admin(actor)
-        user = await self.repository.users.get(user_id)
+        user = await self.repository.person(user_id)
         if user is None or user.team_id != team_id:
             raise AppError(ErrorCode.NOT_FOUND, http_status=404)
         if user.role != Role.MEMBER:
@@ -223,7 +250,7 @@ class OrgService:
         require_admin(actor)
         await self.repository.lock_admins()
         await self._validate_user(data.role, data.team_id)
-        row = await self.repository.users.get(target_id)
+        row = await self.repository.person(target_id)
         if row is None:
             raise AppError(ErrorCode.NOT_FOUND, http_status=404)
         if target_id == actor.id and (data.role != Role.ADMIN or data.status != "active"):

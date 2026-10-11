@@ -457,6 +457,8 @@ class QueryContext:
     diagnostic: dict[str, Any] | None = None
     # Set by evaluation runs: {"run_id": int, "case_id": str}.
     eval_ref: dict[str, Any] | None = None
+    # Set for MCP calls: {"source": "mcp"|"mcp_test", "client_id", "request_id", "rpc_id"}.
+    origin: dict[str, Any] | None = None
     # The usual reading the model chose for an open dimension or measure, told to the user.
     assumption: str = ""
     warnings: list[str] = field(default_factory=list)
@@ -478,6 +480,7 @@ class QueryContext:
             "question": self.question,
             "user_id": self.user.id,
             "team_id": self.user.team_id,
+            **({"origin": self.origin} if self.origin else {}),
             "datasource_id": self.datasource_id,
             "model_id": self.model_id,
             "visible_schema": self.retrieval.tables,
@@ -876,6 +879,10 @@ class VisibleScopeStage:
                     )
                 except AppError:
                     continue
+                if sql.output_masks:
+                    # The answer was written before today's masks: its text may quote values
+                    # that are masked now. Keep the SQL for follow-ups, never the old text.
+                    item = item.model_copy(update={"content": ""})
                 allowed_history.append(item)
                 if ctx.follow_up:
                     ctx.inherited_sql = sql.normalized_sql

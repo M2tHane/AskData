@@ -7,6 +7,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ASKDATA_", extra="ignore")
     environment: str = "development"
+    # Host headers the MCP endpoint answers (DNS rebinding protection); "host:*" allows any port.
+    mcp_allowed_hosts: list[str] = ["localhost:*", "127.0.0.1:*", "localhost", "127.0.0.1"]
+    # Browser origins allowed to call it; agents outside a browser send none.
+    mcp_allowed_origins: list[str] = []
     database_url: SecretStr | None = None
     redis_url: SecretStr = SecretStr("redis://localhost:6379/0")
     jwt_secret: SecretStr | None = None

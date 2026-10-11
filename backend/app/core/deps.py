@@ -21,10 +21,15 @@ class CurrentUser(BaseModel):
     role: Role
     team_id: int | None = None
     active: bool = True
+    # Set for an MCP connection's service account: its grants, not a team's, define the scope.
+    client_id: int | None = None
 
     @model_validator(mode="after")
     def validate_team(self) -> "CurrentUser":
-        if self.role != Role.ADMIN and self.team_id is None:
+        if self.client_id is not None:
+            if self.role != Role.MEMBER or self.team_id is not None:
+                raise ValueError("A service account is a member without a team")
+        elif self.role != Role.ADMIN and self.team_id is None:
             raise ValueError("Non-admin users require a team")
         return self
 

@@ -19,6 +19,7 @@ from app.modules.org.service import OrgService
 from app.modules.org.service import build_service as build_org
 from app.modules.permission.repository import PermissionRepository
 from app.modules.permission.schemas import (
+    ClientColumnWrite,
     ColumnGrantWrite,
     ColumnVisibility,
     DatasourceVisibilityWrite,
@@ -32,6 +33,12 @@ from app.modules.permission.schemas import (
     TableVisibility,
     TeamGrantsWrite,
     VisibilityRead,
+)
+from app.modules.permission.schemas import (
+    ClientGrantsRead as ClientGrantsRead,
+)
+from app.modules.permission.schemas import (
+    ClientGrantsWrite as ClientGrantsWrite,
 )
 from app.modules.permission.visibility import (
     ColumnNode,
@@ -80,7 +87,7 @@ class GrantService:
     ) -> None:
         self.repository, self.schema, self.org, self.audit = repository, schema, org, audit
         self.permissions = PermissionService(
-            self, SessionScopeCache(repository.session, cache) if cache else None
+            self, SessionScopeCache(repository.session, cache) if cache else None, clients=self
         )
 
     async def snapshot(self, datasource_id: int, team_id: int | None) -> list[TableGrant]:
@@ -113,6 +120,79 @@ class GrantService:
                 )
             )
         return result
+
+    async def client_snapshot(self, datasource_id: int, client_id: int) -> list[TableGrant]:
+        """An MCP connection's allowlist in the shape the scope computation expects."""
+        await self.schema.datasource.connection(datasource_id)
+        catalog = await self.schema.catalog(datasource_id)
+        rows = await self.repository.client_grants(
+            client_id, [c.id for t in catalog for c in t.columns]
+        )
+        granted = {row.column_id: row for row in rows}
+        result = []
+        for table in catalog:
+            columns = frozenset(c.name for c in table.columns if c.id in granted)
+            if not columns:
+                continue
+            result.append(
+                TableGrant(
+                    name=table.qualified_name,
+                    all_columns={c.name: c.data_type for c in table.columns},
+                    team_visible=True,
+                    member_visible=True,
+                    team_columns=columns,
+                    member_columns=columns,
+                    masks={
+                        c.name: MaskRule.model_validate(granted[c.id].mask_rule)
+                        for c in table.columns
+                        if c.id in granted and granted[c.id].mask_rule
+                    },
+                )
+            )
+        return result
+
+    async def read_client(
+        self, datasource_id: int, client_id: int, *, actor: CurrentUser
+    ) -> ClientGrantsRead:
+        require_admin(actor)
+        catalog = await self.schema.catalog(datasource_id)
+        rows = await self.repository.client_grants(
+            client_id, [c.id for t in catalog for c in t.columns]
+        )
+        return ClientGrantsRead(
+            datasource_id=datasource_id,
+            client_id=client_id,
+            columns=[
+                ClientColumnWrite(
+                    column_id=row.column_id,
+                    mask_rule=MaskRule.model_validate(row.mask_rule) if row.mask_rule else None,
+                )
+                for row in sorted(rows, key=lambda row: row.column_id)
+            ],
+        )
+
+    async def replace_client(
+        self, datasource_id: int, client_id: int, data: ClientGrantsWrite, *, actor: CurrentUser
+    ) -> ClientGrantsRead:
+        """The caller (the MCP connection service) checks the connection exists and audits."""
+        require_admin(actor)
+        await self.schema.lock_catalog(datasource_id)
+        catalog = await self.schema.catalog(datasource_id)
+        column_ids = [c.id for t in catalog for c in t.columns]
+        chosen = [column.column_id for column in data.columns]
+        if len(set(chosen)) != len(chosen) or not set(chosen) <= set(column_ids):
+            raise AppError(ErrorCode.VALIDATION_ERROR)
+        await self.repository.replace_client(client_id, column_ids, data, actor.id)
+        await self._invalidate(datasource_id)
+        return await self.read_client(datasource_id, client_id, actor=actor)
+
+    async def client_column_ids(self, client_id: int) -> list[int]:
+        return await self.repository.client_column_ids(client_id)
+
+    async def drop_client(self, client_id: int, datasource_ids: list[int]) -> None:
+        await self.repository.drop_client(client_id)
+        for datasource_id in datasource_ids:
+            await self._invalidate(datasource_id)
 
     def _manage(self, team_id: int, actor: CurrentUser) -> None:
         if not actor.active or (

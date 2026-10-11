@@ -10,7 +10,8 @@ from app.core.scope import ScopedQuery, ScopeLevel, ScopeMixin
 from app.modules.embedding.service import build_outbox
 from app.modules.schema.service import SchemaService
 from app.modules.semantic.repository import SemanticTermRepository
-from app.modules.semantic.schemas import SemanticInput, SemanticView, TargetReference
+from app.modules.semantic.schemas import SemanticInput, TargetReference
+from app.modules.semantic.schemas import SemanticView as SemanticView
 
 
 class TargetResolver(Protocol):

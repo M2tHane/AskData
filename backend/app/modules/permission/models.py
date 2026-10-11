@@ -41,3 +41,14 @@ class ScopeOverride(AuditFields, Base):
     __table_args__ = (UniqueConstraint("object_type", "object_id"),)
     object_type: Mapped[str] = mapped_column(String(10))
     object_id: Mapped[int] = mapped_column()
+
+
+class ClientColumnGrant(AuditFields, Base):
+    """An MCP connection's explicit allowlist. A table is visible when any column is granted;
+    nothing is inherited, so new columns from a sync stay hidden until granted."""
+
+    __tablename__ = "mcp_column_grant"
+    __table_args__ = (UniqueConstraint("client_id", "column_id"),)
+    client_id: Mapped[int] = mapped_column(ForeignKey("mcp_client.id"), index=True)
+    column_id: Mapped[int] = mapped_column(ForeignKey("meta_column.id"))
+    mask_rule: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)

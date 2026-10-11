@@ -33,6 +33,20 @@ class GrantRead(TeamGrantsWrite):
     team_id: int
 
 
+class ClientColumnWrite(BaseModel):
+    column_id: int = Field(ge=1)
+    mask_rule: MaskRule | None = None
+
+
+class ClientGrantsWrite(BaseModel):
+    columns: list[ClientColumnWrite] = Field(default_factory=list)
+
+
+class ClientGrantsRead(ClientGrantsWrite):
+    datasource_id: int
+    client_id: int
+
+
 class PublicTableScope(BaseModel):
     columns: list[str]
     masks: dict[str, MaskRule] = Field(default_factory=dict)

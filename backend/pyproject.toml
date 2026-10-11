@@ -29,6 +29,7 @@ dependencies = [
   "charset-normalizer",
   "pyyaml>=6,<7",
   "clickhouse-connect",
+  "mcp>=2,<3",
 ]
 
 [dependency-groups]

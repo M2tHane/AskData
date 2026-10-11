@@ -65,6 +65,17 @@ class QueryLogRepository:
             query = query.where(
                 QueryRun.payload["blocked_code"].as_string() == filters.blocked_code
             )
+        if filters.source is not None:
+            # Runs logged before sources existed all came from the web app.
+            query = query.where(
+                func.coalesce(QueryRun.payload["source"].as_string(), "web") == filters.source
+            )
+        if filters.mcp_client_id is not None:
+            query = query.where(
+                QueryRun.payload["mcp_client_id"].as_integer() == filters.mcp_client_id
+            )
+        if filters.request_id is not None:
+            query = query.where(QueryRun.payload["request_id"].as_string() == filters.request_id)
         if filters.has_feedback is not None:
             query = query.where(
                 func.coalesce(QueryRun.payload["has_feedback"].as_boolean(), False)

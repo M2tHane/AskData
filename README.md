@@ -13,6 +13,7 @@
 - **安全**：只允许读数据。写入、删除、危险函数、系统表都会被拦下，并记录原因。
 - **上传文件**：上传 Excel 或 CSV 后，也能直接提问。
 - **管理**：查询日志、用户反馈、评测、用量统计，方便排查问题和持续改进。
+- **MCP 接入**：让 Claude Code、Cursor 等 AI Agent 直接用 AskData 问数。每个接入单独设置能查哪些表和字段、每天能调用几次。
 
 ## 预览
 
@@ -56,6 +57,27 @@ ASKDATA_PROVISION_USERNAME=admin ASKDATA_PROVISION_PASSWORD='你的管理员密�
 ```
 
 演示账号的密码会写进 `deploy/.env.demo-accounts`，不会打印出来。
+
+## 给 AI Agent 用（MCP）
+
+管理员在「MCP 接入」里新建一个接入，勾选它能查的表和字段，然后把生成的配置复制到 Agent 里。以 Claude Code 为例：
+
+```bash
+claude mcp add --transport http askdata http://127.0.0.1:5173/mcp \
+  --header "Authorization: Bearer <你的 API Key>"
+```
+
+Agent 能用的工具：
+
+| 工具 | 作用 |
+|---|---|
+| `list_datasources` / `list_tables` / `describe_table` | 看有哪些数据，以及字段含义 |
+| `search_schema` | 按问题找相关的表、字段和指标 |
+| `list_metrics` / `list_glossary` | 看指标和业务词的口径 |
+| `ask` | 用一句话问数，返回结论、SQL 和数据；带上 `conversation_id` 可以接着追问 |
+| `run_sql` | 直接执行只读 SQL，默认关闭，需要管理员为该接入单独开启 |
+
+接入默认使用平台的语义和指标，也可以为某个接入单独修改或隐藏，随时恢复默认。权限变了以后，旧会话里涉及的数据也会按新权限处理。
 
 ## Benchmark
 

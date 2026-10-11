@@ -2,7 +2,7 @@
 
 import json
 import re
-from typing import Any
+from typing import Any, Protocol
 
 from app.core.deps import CurrentUser
 from app.core.errors import AppError, ErrorCode
@@ -13,9 +13,9 @@ from app.modules.chat.ranking import Doc, DocKey, fuse, join_paths, keyword_scor
 from app.modules.chat.schemas import ContextItem, RetrievalBundle
 from app.modules.embedding.service import EmbeddingService
 from app.modules.feedback.service import FeedbackService
-from app.modules.metric.service import MetricService, render_template
+from app.modules.metric.service import MetricService, MetricView, render_template
 from app.modules.schema.service import SchemaService
-from app.modules.semantic.service import SemanticService
+from app.modules.semantic.service import SemanticService, SemanticView
 
 # One table or column description in the prompt; longer comments are cut.
 NOTE_LIMIT = 200
@@ -34,6 +34,18 @@ VECTOR_SCHEMA, VECTOR_ITEMS, RERANK_TOP = 10, 6, 30
 _TIME_TYPES = ("date", "time")
 
 
+class ItemOverlay(Protocol):
+    """An MCP connection's edits to the platform terms and metrics it inherits."""
+
+    async def semantics(
+        self, user: CurrentUser, datasource_id: int, items: list[SemanticView]
+    ) -> list[SemanticView]: ...
+
+    async def metrics(
+        self, user: CurrentUser, datasource_id: int, items: list[MetricView]
+    ) -> list[MetricView]: ...
+
+
 class _NoTable:
     columns: list[Any] = []
 
@@ -50,9 +62,10 @@ class ServiceRetrievalIndex:
         feedback: FeedbackService,
         embedding: EmbeddingService | None = None,
         rerank: RerankClient | None = None,
+        overlay: ItemOverlay | None = None,
     ) -> None:
         self.schema, self.semantic, self.metric, self.feedback = schema, semantic, metric, feedback
-        self.embedding, self.rerank = embedding, rerank
+        self.embedding, self.rerank, self.overlay = embedding, rerank, overlay
         # Request-scoped instance: browse the authorized schema once per question.
         self._browsed: dict[tuple[int, int], Any] = {}
 
@@ -63,6 +76,19 @@ class ServiceRetrievalIndex:
                 datasource_id, self.semantic.permissions, actor=user
             )
         return self._browsed[key]
+
+    async def semantics(self, user: CurrentUser, datasource_id: int) -> list[SemanticView]:
+        """Terms the user may use; an MCP connection's edits and hidden items applied."""
+        items = await self.semantic.list(user, datasource_id)
+        if self.overlay is not None and user.client_id is not None:
+            items = await self.overlay.semantics(user, datasource_id, items)
+        return items
+
+    async def metrics(self, user: CurrentUser, datasource_id: int) -> list[MetricView]:
+        items = await self.metric.list(user, datasource_id)
+        if self.overlay is not None and user.client_id is not None:
+            items = await self.overlay.metrics(user, datasource_id, items)
+        return items
 
     async def retrieve(
         self,
@@ -78,7 +104,7 @@ class ServiceRetrievalIndex:
         docs: list[Doc] = []
         # Aliases defined on a table or column make it findable by business words.
         aliases: dict[tuple[str, str], list[str]] = {}
-        for term in await self.semantic.list(user, scope.datasource_id):
+        for term in await self.semantics(user, scope.datasource_id):
             target = await self.semantic.targets.resolve_target(
                 term.datasource_id, term.target_type, term.target_id
             )
@@ -122,11 +148,17 @@ class ServiceRetrievalIndex:
                     tables={target.table: columns},
                 )
             )
-        for metric in await self.metric.list(user, scope.datasource_id):
+        for metric in await self.metrics(user, scope.datasource_id):
             datasource = await self.metric.datasources.resolve(metric.datasource_id, user)
-            checked = self.metric.guard.check(
-                render_template(metric.sql_template, metric.params), datasource.dialect, scope
-            )
+            try:
+                checked = self.metric.guard.check(
+                    render_template(metric.sql_template, metric.params), datasource.dialect, scope
+                )
+            except AppError as error:
+                # A definition that reads withheld columns is not offered, not fatal.
+                if not error.code.value.startswith("SQL_"):
+                    raise
+                continue
             items.append(
                 ContextItem(
                     **metric.model_dump(

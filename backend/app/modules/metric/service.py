@@ -16,7 +16,8 @@ from app.core.sql.guard import SqlGuard
 from app.modules.datasource.service import DatasourceService
 from app.modules.embedding.service import build_outbox
 from app.modules.metric.repository import MetricRepository
-from app.modules.metric.schemas import MetricInput, MetricView
+from app.modules.metric.schemas import MetricInput
+from app.modules.metric.schemas import MetricView as MetricView
 from app.modules.semantic.service import IndexPublisher, creation_scope, require_edit
 
 

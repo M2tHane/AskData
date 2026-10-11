@@ -36,3 +36,6 @@ class QueryFilter(PageParams):
     status: Literal["success", "blocked", "failed", "clarify", "cancelled"] | None = None
     blocked_code: str | None = None
     has_feedback: bool | None = None
+    source: Literal["web", "mcp", "mcp_test"] | None = None
+    mcp_client_id: int | None = Field(default=None, ge=1)
+    request_id: str | None = Field(default=None, max_length=64)

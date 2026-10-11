@@ -79,6 +79,7 @@ from app.modules.eval.repository import EvalRepository
 from app.modules.eval.schemas import EvalCaseInput, PipelineOutcome, RunRequest
 from app.modules.eval.service import EvalQuestion, EvalService
 from app.modules.feedback import service as feedback
+from app.modules.mcpaccess import service as mcpaccess
 from app.modules.metric import service as metric
 from app.modules.modelcfg import service as modelcfg
 from app.modules.org import service as org
@@ -239,6 +240,9 @@ class Services:
             session, self.querylog, self.permissions, self.datasources, None
         )
         self.promotion = promotion.build_service(session, self.semantic, self.metric)
+        self.mcp = mcpaccess.build_service(
+            session, self.org, self.grants, self.datasource, self.semantic, self.metric, self.audit
+        )
         self.embedding = EmbeddingService(
             EmbeddingRepository(session),
             self.permissions,
@@ -263,6 +267,7 @@ class Services:
                     self.feedback,
                     self.embedding,
                     RerankClient(self.models.registry, self.usage, self.runtime.transport),
+                    overlay=self.mcp,
                 ),
                 threshold=0,
             ),
@@ -293,6 +298,9 @@ class Services:
             export_max_rows=self.runtime.settings.export_max_rows,
             export_max_bytes=self.runtime.settings.export_max_mb * 1024 * 1024,
         )
+
+    def agent(self) -> mcpaccess.AgentService:
+        return mcpaccess.AgentService(self.mcp, self.chat())
 
     def upload(self) -> UploadService:
         runtime = self.runtime
@@ -568,6 +576,9 @@ def configure_dependencies(application: FastAPI) -> None:
     ):
         module = import_module(f"app.modules.{name}.api")
         application.dependency_overrides[module.get_service] = dependency(name)
+    from app.modules.mcpaccess import api as mcp_api
+
+    application.dependency_overrides[mcp_api.get_service] = dependency("mcp")
 
     from app.modules.audit import api as audit_api
     from app.modules.audit.service import build_service as build_audit
@@ -593,3 +604,4 @@ def configure_dependencies(application: FastAPI) -> None:
     application.dependency_overrides[chat.get_service] = independent_dependency("chat")
     application.dependency_overrides[upload_service] = independent_dependency("upload")
     application.dependency_overrides[eval_service] = independent_dependency("evaluation")
+    application.dependency_overrides[mcp_api.agent_service] = independent_dependency("agent")

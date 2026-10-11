@@ -693,6 +693,167 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/mcp-clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Clients */
+        get: operations["list_clients_api_mcp_clients_get"];
+        put?: never;
+        /**
+         * Create Client
+         * @description The response carries the connection's first key; it is never shown again.
+         */
+        post: operations["create_client_api_mcp_clients_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/mcp-clients/{client_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Client */
+        get: operations["get_client_api_mcp_clients__client_id__get"];
+        /** Update Client */
+        put: operations["update_client_api_mcp_clients__client_id__put"];
+        post?: never;
+        /** Delete Client */
+        delete: operations["delete_client_api_mcp_clients__client_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/mcp-clients/{client_id}/grants/{datasource_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Grants */
+        get: operations["read_grants_api_mcp_clients__client_id__grants__datasource_id__get"];
+        /** Replace Grants */
+        put: operations["replace_grants_api_mcp_clients__client_id__grants__datasource_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/mcp-clients/{client_id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Items */
+        get: operations["list_items_api_mcp_clients__client_id__items_get"];
+        /** Set Item */
+        put: operations["set_item_api_mcp_clients__client_id__items_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/mcp-clients/{client_id}/items/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore Items */
+        post: operations["restore_items_api_mcp_clients__client_id__items_restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/mcp-clients/{client_id}/keys/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rotate Key */
+        post: operations["rotate_key_api_mcp_clients__client_id__keys_rotate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/mcp-clients/{client_id}/keys/{key_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Key */
+        post: operations["revoke_key_api_mcp_clients__client_id__keys__key_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/mcp-clients/{client_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set Status */
+        post: operations["set_status_api_mcp_clients__client_id__status_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/mcp-clients/{client_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Ask */
+        post: operations["test_ask_api_mcp_clients__client_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/metric": {
         parameters: {
             query?: never;
@@ -1749,6 +1910,26 @@ export interface components {
             /** Question */
             question: string;
         };
+        /** ClientColumnWrite */
+        ClientColumnWrite: {
+            /** Column Id */
+            column_id: number;
+            mask_rule?: components["schemas"]["MaskRule"] | null;
+        };
+        /** ClientGrantsRead */
+        ClientGrantsRead: {
+            /** Client Id */
+            client_id: number;
+            /** Columns */
+            columns?: components["schemas"]["ClientColumnWrite"][];
+            /** Datasource Id */
+            datasource_id: number;
+        };
+        /** ClientGrantsWrite */
+        ClientGrantsWrite: {
+            /** Columns */
+            columns?: components["schemas"]["ClientColumnWrite"][];
+        };
         /** ColumnGrantWrite */
         ColumnGrantWrite: {
             /** Column Id */
@@ -1931,6 +2112,8 @@ export interface components {
              * @default true
              */
             active: boolean;
+            /** Client Id */
+            client_id?: number | null;
             /** Id */
             id: number;
             role: components["schemas"]["Role"];
@@ -2043,6 +2226,17 @@ export interface components {
             /** @default OK */
             code: components["schemas"]["ErrorCode"];
             data?: components["schemas"]["ChatLimits"] | null;
+            /**
+             * Message
+             * @default Success
+             */
+            message: string;
+        };
+        /** Envelope[ClientGrantsRead] */
+        Envelope_ClientGrantsRead_: {
+            /** @default OK */
+            code: components["schemas"]["ErrorCode"];
+            data?: components["schemas"]["ClientGrantsRead"] | null;
             /**
              * Message
              * @default Success
@@ -2170,6 +2364,39 @@ export interface components {
              */
             message: string;
         };
+        /** Envelope[McpClientRead] */
+        Envelope_McpClientRead_: {
+            /** @default OK */
+            code: components["schemas"]["ErrorCode"];
+            data?: components["schemas"]["McpClientRead"] | null;
+            /**
+             * Message
+             * @default Success
+             */
+            message: string;
+        };
+        /** Envelope[McpKeyCreated] */
+        Envelope_McpKeyCreated_: {
+            /** @default OK */
+            code: components["schemas"]["ErrorCode"];
+            data?: components["schemas"]["McpKeyCreated"] | null;
+            /**
+             * Message
+             * @default Success
+             */
+            message: string;
+        };
+        /** Envelope[McpKeyRead] */
+        Envelope_McpKeyRead_: {
+            /** @default OK */
+            code: components["schemas"]["ErrorCode"];
+            data?: components["schemas"]["McpKeyRead"] | null;
+            /**
+             * Message
+             * @default Success
+             */
+            message: string;
+        };
         /** Envelope[MetricView] */
         Envelope_MetricView_: {
             /** @default OK */
@@ -2209,6 +2436,17 @@ export interface components {
             code: components["schemas"]["ErrorCode"];
             /** Data */
             data?: null;
+            /**
+             * Message
+             * @default Success
+             */
+            message: string;
+        };
+        /** Envelope[OverlayItem] */
+        Envelope_OverlayItem_: {
+            /** @default OK */
+            code: components["schemas"]["ErrorCode"];
+            data?: components["schemas"]["OverlayItem"] | null;
             /**
              * Message
              * @default Success
@@ -2512,6 +2750,17 @@ export interface components {
              */
             message: string;
         };
+        /** Envelope[TestAskReply] */
+        Envelope_TestAskReply_: {
+            /** @default OK */
+            code: components["schemas"]["ErrorCode"];
+            data?: components["schemas"]["TestAskReply"] | null;
+            /**
+             * Message
+             * @default Success
+             */
+            message: string;
+        };
         /** Envelope[TokenPair] */
         Envelope_TokenPair_: {
             /** @default OK */
@@ -2564,6 +2813,20 @@ export interface components {
             /** Data */
             data?: {
                 [key: string]: boolean;
+            } | null;
+            /**
+             * Message
+             * @default Success
+             */
+            message: string;
+        };
+        /** Envelope[dict[str, int]] */
+        Envelope_dict_str__int__: {
+            /** @default OK */
+            code: components["schemas"]["ErrorCode"];
+            /** Data */
+            data?: {
+                [key: string]: number;
             } | null;
             /**
              * Message
@@ -2657,6 +2920,18 @@ export interface components {
              */
             message: string;
         };
+        /** Envelope[list[McpClientRead]] */
+        Envelope_list_McpClientRead__: {
+            /** @default OK */
+            code: components["schemas"]["ErrorCode"];
+            /** Data */
+            data?: components["schemas"]["McpClientRead"][] | null;
+            /**
+             * Message
+             * @default Success
+             */
+            message: string;
+        };
         /** Envelope[list[MetricView]] */
         Envelope_list_MetricView__: {
             /** @default OK */
@@ -2687,6 +2962,18 @@ export interface components {
             code: components["schemas"]["ErrorCode"];
             /** Data */
             data?: components["schemas"]["MyFeedback"][] | null;
+            /**
+             * Message
+             * @default Success
+             */
+            message: string;
+        };
+        /** Envelope[list[OverlayItem]] */
+        Envelope_list_OverlayItem__: {
+            /** @default OK */
+            code: components["schemas"]["ErrorCode"];
+            /** Data */
+            data?: components["schemas"]["OverlayItem"][] | null;
             /**
              * Message
              * @default Success
@@ -3323,6 +3610,146 @@ export interface components {
              */
             suffix: number;
         };
+        /** McpClientRead */
+        McpClientRead: {
+            /**
+             * Allow Run Sql
+             * @default false
+             */
+            allow_run_sql: boolean;
+            /**
+             * Ask Timeout Seconds
+             * @default 60
+             */
+            ask_timeout_seconds: number;
+            /** Calls Today */
+            calls_today: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Daily Call Limit
+             * @default 2000
+             */
+            daily_call_limit: number;
+            /** Datasource Ids */
+            datasource_ids?: number[];
+            /**
+             * Default Rows
+             * @default 100
+             */
+            default_rows: number;
+            /** Expires At */
+            expires_at?: string | null;
+            /** Id */
+            id: number;
+            /** Keys */
+            keys?: components["schemas"]["McpKeyRead"][];
+            /** Last Used At */
+            last_used_at: string | null;
+            /**
+             * Max Rows
+             * @default 1000
+             */
+            max_rows: number;
+            /** Name */
+            name: string;
+            /**
+             * Override Count
+             * @default 0
+             */
+            override_count: number;
+            /** Public Id */
+            public_id: string;
+            /**
+             * Stale Grants
+             * @default 0
+             */
+            stale_grants: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "disabled";
+            /** User Id */
+            user_id: number;
+        };
+        /** McpClientStatus */
+        McpClientStatus: {
+            /** Active */
+            active: boolean;
+        };
+        /** McpClientWrite */
+        McpClientWrite: {
+            /**
+             * Allow Run Sql
+             * @default false
+             */
+            allow_run_sql: boolean;
+            /**
+             * Ask Timeout Seconds
+             * @default 60
+             */
+            ask_timeout_seconds: number;
+            /**
+             * Daily Call Limit
+             * @default 2000
+             */
+            daily_call_limit: number;
+            /**
+             * Default Rows
+             * @default 100
+             */
+            default_rows: number;
+            /** Expires At */
+            expires_at?: string | null;
+            /**
+             * Max Rows
+             * @default 1000
+             */
+            max_rows: number;
+            /** Name */
+            name: string;
+        };
+        /**
+         * McpKeyCreated
+         * @description The full key appears here once; only its hash is kept.
+         */
+        McpKeyCreated: {
+            /** Client Id */
+            client_id?: number | null;
+            detail: components["schemas"]["McpKeyRead"];
+            /** Key */
+            key: string;
+        };
+        /** McpKeyRead */
+        McpKeyRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expires At */
+            expires_at: string | null;
+            /** Id */
+            id: number;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Prefix */
+            prefix: string;
+            /** Revoked At */
+            revoked_at: string | null;
+        };
+        /** McpKeyRotate */
+        McpKeyRotate: {
+            /**
+             * Grace Hours
+             * @default 0
+             */
+            grace_hours: number;
+        };
         /** MemberGrantsWrite */
         MemberGrantsWrite: {
             /** Tables */
@@ -3568,6 +3995,63 @@ export interface components {
             inherit: boolean;
             /** Team Ids */
             team_ids?: number[];
+        };
+        /**
+         * OverlayItem
+         * @description A platform item as one connection sees it.
+         */
+        OverlayItem: {
+            /** Effective */
+            effective: {
+                [key: string]: unknown;
+            };
+            /** Item Id */
+            item_id: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "semantic" | "metric";
+            /** Name */
+            name: string;
+            /** Platform */
+            platform: {
+                [key: string]: unknown;
+            };
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "default" | "edited" | "hidden";
+        };
+        /**
+         * OverrideRestore
+         * @description Restore platform defaults: one item, one kind, or (both empty) everything.
+         */
+        OverrideRestore: {
+            /** Item Id */
+            item_id?: number | null;
+            /** Kind */
+            kind?: ("semantic" | "metric") | null;
+        };
+        /** OverrideWrite */
+        OverrideWrite: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "edit" | "hide";
+            /** Item Id */
+            item_id: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "semantic" | "metric";
+            /** Payload */
+            payload?: {
+                [key: string]: unknown;
+            };
         };
         /** Page[AuditView] */
         Page_AuditView_: {
@@ -3982,6 +4466,8 @@ export interface components {
             has_feedback: boolean;
             /** Id */
             id: number;
+            /** Mcp Client Id */
+            mcp_client_id?: number | null;
             /** Message Id */
             message_id?: number | null;
             /**
@@ -4002,6 +4488,8 @@ export interface components {
              * @default
              */
             question: string;
+            /** Request Id */
+            request_id?: string | null;
             /** Result Preview */
             result_preview?: {
                 [key: string]: unknown;
@@ -4016,6 +4504,11 @@ export interface components {
              * @default 0
              */
             row_count: number;
+            /**
+             * Source
+             * @default web
+             */
+            source: string;
             /** Stage Timings */
             stage_timings?: {
                 [key: string]: number;
@@ -4588,6 +5081,76 @@ export interface components {
              * @enum {string}
              */
             status: "active" | "disabled";
+        };
+        /** TestAskReply */
+        TestAskReply: {
+            /** Agent */
+            agent: {
+                [key: string]: unknown;
+            };
+            diagnostics: components["schemas"]["TestDiagnostics"];
+            /** Is Error */
+            is_error: boolean;
+        };
+        /** TestAskRequest */
+        TestAskRequest: {
+            /** Conversation Id */
+            conversation_id?: string | null;
+            /** Datasource Id */
+            datasource_id: number;
+            /** Question */
+            question: string;
+        };
+        /**
+         * TestDiagnostics
+         * @description What only the admin sees: where the answer came from and why it failed.
+         */
+        TestDiagnostics: {
+            /** Columns */
+            columns?: {
+                [key: string]: string[];
+            };
+            /** Datasource Id */
+            datasource_id: number;
+            /**
+             * Guard
+             * @default not_reached
+             * @enum {string}
+             */
+            guard: "passed" | "blocked" | "not_reached";
+            /**
+             * Input Tokens
+             * @default 0
+             */
+            input_tokens: number;
+            /** Items */
+            items?: {
+                [key: string]: unknown;
+            }[];
+            /** Masked */
+            masked?: string[];
+            /**
+             * Output Tokens
+             * @default 0
+             */
+            output_tokens: number;
+            /** Principal */
+            principal: string;
+            /** Query Run Id */
+            query_run_id?: number | null;
+            /** Rule */
+            rule?: string | null;
+            /**
+             * Stage
+             * @default
+             */
+            stage: string;
+            /** Tables */
+            tables?: string[];
+            /** Timings */
+            timings?: {
+                [key: string]: number;
+            };
         };
         /** TokenPair */
         TokenPair: {
@@ -6277,6 +6840,466 @@ export interface operations {
             };
         };
     };
+    list_clients_api_mcp_clients_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_list_McpClientRead__"];
+                };
+            };
+        };
+    };
+    create_client_api_mcp_clients_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["McpClientWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_McpKeyCreated_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_client_api_mcp_clients__client_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_McpClientRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_client_api_mcp_clients__client_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["McpClientWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_McpClientRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_client_api_mcp_clients__client_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_dict_str__bool__"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_grants_api_mcp_clients__client_id__grants__datasource_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: number;
+                datasource_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_ClientGrantsRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replace_grants_api_mcp_clients__client_id__grants__datasource_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: number;
+                datasource_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientGrantsWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_ClientGrantsRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_items_api_mcp_clients__client_id__items_get: {
+        parameters: {
+            query: {
+                datasource_id: number;
+            };
+            header?: never;
+            path: {
+                client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_list_OverlayItem__"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_item_api_mcp_clients__client_id__items_put: {
+        parameters: {
+            query: {
+                datasource_id: number;
+            };
+            header?: never;
+            path: {
+                client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OverrideWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_OverlayItem_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_items_api_mcp_clients__client_id__items_restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OverrideRestore"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_dict_str__int__"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rotate_key_api_mcp_clients__client_id__keys_rotate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["McpKeyRotate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_McpKeyCreated_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_key_api_mcp_clients__client_id__keys__key_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: number;
+                key_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_McpKeyRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_status_api_mcp_clients__client_id__status_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["McpClientStatus"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_McpClientRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_ask_api_mcp_clients__client_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestAskRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_TestAskReply_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_items_api_metric_get: {
         parameters: {
             query: {
@@ -7674,6 +8697,9 @@ export interface operations {
                 status?: ("success" | "blocked" | "failed" | "clarify" | "cancelled") | null;
                 blocked_code?: string | null;
                 has_feedback?: boolean | null;
+                source?: ("web" | "mcp" | "mcp_test") | null;
+                mcp_client_id?: number | null;
+                request_id?: string | null;
             };
             header?: never;
             path?: never;

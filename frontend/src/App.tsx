@@ -11,6 +11,7 @@ import { EvalPage } from './pages/EvalPage'
 import { FeedbackPage } from './pages/FeedbackPage'
 import { LoginPage } from './pages/LoginPage'
 import { LogsPage } from './pages/LogsPage'
+import { McpPage } from './pages/McpPage'
 import { MetricsPage } from './pages/MetricsPage'
 import { ModelsPage } from './pages/ModelsPage'
 import { OrgPage } from './pages/OrgPage'
@@ -54,8 +55,9 @@ export function App() {
     semantic: <SemanticPage role={user.role} />,
     metrics: <MetricsPage role={user.role} />,
     feedback: <FeedbackPage />,
-    logs: <LogsPage />,
+    logs: <LogsPage role={user.role} />,
     eval: <EvalPage role={user.role} />,
+    mcp: <McpPage />,
   }
 
   return (

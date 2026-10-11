@@ -1,0 +1,22 @@
+/* MCP 接入 page — page-specific rules only; shared rules live in components.css. */
+.cb-mcp-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); }
+.cb-mcp-title { display: inline-flex; align-items: center; gap: var(--space-2); }
+.cb-mcp-tab { display: flex; flex-direction: column; gap: var(--space-4); padding-top: var(--space-4); }
+.cb-mcp-tree .cb-pm-head, .cb-mcp-tree .cb-pm-row { grid-template-columns: minmax(0, 1fr) 104px 128px 40px; }
+.cb-mcp-tree .cb-sel-trigger { width: 100%; }
+.cb-mcp-item { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.cb-mcp-item .cb-mcp-name { min-width: 0; }
+.cb-mcp-item .cb-badge, .cb-mcp-item .cb-scope { flex: none; }
+.cb-mcp-def { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-mcp-key, .cb-mcp-endpoint { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--bg-subtle); }
+.cb-mcp-key code, .cb-mcp-endpoint code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; color: var(--text-1); }
+.cb-mcp-snippet { position: relative; }
+.cb-mcp-snippet pre { margin: 0; padding: var(--space-3) var(--space-4); padding-right: 96px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--bg-subtle); font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-1); }
+.cb-mcp-snippet > .cb-btn { position: absolute; top: var(--space-2); right: var(--space-2); }
+.cb-mcp-danger { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); margin-top: var(--space-6); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-panel); }
+.cb-mcp-ask { display: flex; gap: var(--space-3); align-items: flex-start; }
+.cb-mcp-ask > :first-child { flex: 1; }
+.cb-mcp-result { display: grid; gap: var(--space-4); }
+.cb-mcp-result .cb-panel-head { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); font: 600 13px/20px var(--font-sans); }
+.cb-mcp-kv { grid-template-columns: 80px minmax(0, 1fr); padding: var(--space-3) var(--space-4); }
+.cb-mcp-json { margin: 0; padding: var(--space-3) var(--space-4); max-height: 480px; overflow: auto; font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -35,6 +35,7 @@ export const ROUTES: Route[] = [
   { id: 'eval', path: '/eval', label: '评测', placement: 'bottom', icon: 'flask', roles: ['admin', 'leader'] },
   { id: 'permissions', path: '/permissions', label: '权限', placement: 'bottom', icon: 'shield', roles: ['leader'] },
   { id: 'org', path: '/org', label: '团队与成员', placement: 'bottom', icon: 'users', roles: ['admin'] },
+  { id: 'mcp', path: '/mcp-clients', label: 'MCP 接入', placement: 'bottom', icon: 'plug', roles: ['admin'] },
   { id: 'models', path: '/models', label: '模型配置', placement: 'bottom', icon: 'cpu', roles: ['admin', 'leader'] },
   { id: 'prompts', path: '/prompts', label: '提示词', placement: 'bottom', icon: 'sparkle', roles: ['admin'] },
   { id: 'usage', path: '/usage', label: '用量与审计', placement: 'bottom', icon: 'chart', roles: ['admin'] },

@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
-import { fetchQuery, useDatasources, useModels } from '../api/hooks'
-import type { Page, QueryView } from '../api/types'
+import { fetchQuery, useDatasources, useMcpClients, useModels } from '../api/hooks'
+import type { Page, QueryView, Role } from '../api/types'
 import { Badge, Button, Callout } from '../components/basic'
 import { SqlBlock } from '../components/chat'
 import { Drawer } from '../components/Dialog'
@@ -52,16 +52,23 @@ const PAGE = 10
 /** 统计和导出最多取最近这么多条。 */
 const CAP = 500
 
+type Source = '' | 'web' | 'mcp' | 'mcp_test'
+
+/** 提问来源：员工在网页上问，外部 Agent 通过 MCP 接入问，或管理员以接入身份测试。 */
+export const SOURCE_LABEL: Record<Exclude<Source, ''>, string> = { web: '网页', mcp: 'MCP', mcp_test: 'MCP 测试' }
+
 interface Filters {
   range: ReviewRange
   datasource: number
   feedbackOnly: boolean
+  source: Source
 }
 
 const queryOf = (f: Filters, extra: Record<string, string | number | boolean | undefined>) => ({
   ...rangeQuery(f.range),
   datasource_id: f.datasource || undefined,
   has_feedback: f.feedbackOnly || undefined,
+  source: f.source || undefined,
   ...extra,
 })
 
@@ -97,24 +104,32 @@ function useLogStats(f: Filters) {
   })
 }
 
-export function LogsPage() {
+export function LogsPage(props: { role?: Role }) {
   const toast = useToast()
   const [status, setStatus] = useState('')
   const [page, setPage] = useState(1)
   const [range, setRange] = useState<ReviewRange>({})
   const [datasource, setDatasource] = useState(0)
   const [feedbackOnly, setFeedbackOnly] = useState(false)
+  const [source, setSource] = useState<Source>('')
   const [open, setOpen] = useState<QueryView | null>(null)
   const [exporting, setExporting] = useState(false)
-  const filters: Filters = { range, datasource, feedbackOnly }
+  const filters: Filters = { range, datasource, feedbackOnly, source }
+  const admin = props.role === 'admin'
+  const mcp = useMcpClients(admin)
 
   const list = useLogList(status, filters, page)
   const stats = useLogStats(filters)
   const datasources = useDatasources()
-  const personName = usePersonName()
+  const accountName = usePersonName()
+  // An MCP connection asks as its own service account: show the connection, not the account.
+  const personName = (id: number) => {
+    const client = mcp.data?.find((c) => c.user_id === id)
+    return client ? `MCP · ${client.name}` : accountName(id)
+  }
   const items = list.data?.items ?? []
   const dsName = (id: number) => datasources.data?.items.find((d) => d.id === id)?.name ?? `数据源 ${id}`
-  const filtered = !!status || datasource !== 0 || feedbackOnly || range.userId != null || !!range.from || !!range.to
+  const filtered = !!status || datasource !== 0 || feedbackOnly || !!source || range.userId != null || !!range.from || !!range.to
   const s = stats.data
   const approx = s?.capped ? `最近 ${CAP} 条` : undefined
   const reset = (fn: () => void) => {
@@ -171,6 +186,14 @@ export function LogsPage() {
           onChange={(v) => reset(() => setDatasource(v))}
           options={[{ value: 0, label: '全部数据源' }, ...(datasources.data?.items ?? []).map((d) => ({ value: d.id, label: d.name }))]}
         />
+        {admin ? (
+          <Select
+            ariaLabel="按来源筛选"
+            value={source}
+            onChange={(v) => reset(() => setSource(v))}
+            options={[{ value: '' as Source, label: '全部来源' }, ...(Object.keys(SOURCE_LABEL) as Exclude<Source, ''>[]).map((k) => ({ value: k, label: SOURCE_LABEL[k] }))]}
+          />
+        ) : null}
         <ReviewFilter value={range} onChange={(r) => reset(() => setRange(r))} />
         <label className="cb-lg-check">
           <input type="checkbox" checked={feedbackOnly} onChange={(e) => reset(() => setFeedbackOnly(e.target.checked))} />
@@ -185,7 +208,7 @@ export function LogsPage() {
           what="查询日志"
           count={items.length}
           filtered={filtered}
-          onClear={() => reset(() => { setStatus(''); setRange({}); setDatasource(0); setFeedbackOnly(false) })}
+          onClear={() => reset(() => { setStatus(''); setRange({}); setDatasource(0); setFeedbackOnly(false); setSource('') })}
           cols={7}
           empty={<EmptyState icon="log" title="还没有查询记录">员工在对话里提问后，每次查询都会记录在这里。</EmptyState>}
         >
@@ -292,6 +315,15 @@ function QueryDetail(props: { query: QueryView; personName: (id: number) => stri
         {q.status === 'success' ? (<><dt>结果</dt><dd>{formatInt(q.row_count)} 行{q.retry_count ? ` · 自动纠错 ${q.retry_count} 次` : ''}</dd></>) : null}
         {interpretation ? (<><dt>理解</dt><dd>{interpretation}</dd></>) : null}
         {evalRef ? (<><dt>来源</dt><dd className="cb-m">{evalRef}</dd></>) : null}
+        {q.source && q.source !== 'web' ? (
+          <>
+            <dt>来源</dt>
+            <dd>
+              {SOURCE_LABEL[q.source as 'mcp' | 'mcp_test'] ?? q.source}
+              {q.request_id ? <span className="cb-m cb-faint"> · {q.request_id}</span> : null}
+            </dd>
+          </>
+        ) : null}
       </dl>
 
       {reason ? (

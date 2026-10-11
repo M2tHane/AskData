@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
+from starlette.routing import Route
 
 from app.composition import Composition, configure_dependencies
 from app.core.config import Settings, get_settings
@@ -16,6 +17,7 @@ from app.core.db import Database
 from app.core.errors import AppError, ErrorCode
 from app.core.logging import LogEvent, RequestContextMiddleware, configure_logging, logger
 from app.core.response import Envelope
+from app.mcp_gateway import build_endpoint
 
 
 def mount_modules(application: FastAPI) -> None:
@@ -30,6 +32,14 @@ def mount_modules(application: FastAPI) -> None:
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
+
+    def runtime() -> Composition:
+        composition = getattr(application.state, "composition", None)
+        if composition is None:
+            raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)
+        return cast(Composition, composition)
+
+    mcp_server, mcp_endpoint = build_endpoint(settings, runtime)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -56,7 +66,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 application.state.datasource_inspector = runtime.inspector
                 application.state.sql_executor = runtime.executor
                 application.state.task_manager = runtime.tasks
-            yield
+            # A mounted MCP app's own lifespan never runs; its session manager runs here.
+            async with mcp_server.session_manager.run():
+                yield
         finally:
             if redis:
                 await redis.aclose()
@@ -118,6 +130,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     configure_dependencies(application)
     mount_modules(application)
+    # Streamable HTTP for MCP clients, authenticated by connection API keys (app.mcp_gateway).
+    application.router.routes.append(
+        Route("/mcp", endpoint=mcp_endpoint, methods=["GET", "POST", "DELETE"])
+    )
     return application
 
 

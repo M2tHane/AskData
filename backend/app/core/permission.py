@@ -35,6 +35,12 @@ class PermissionProvider(Protocol):
     async def snapshot(self, datasource_id: int, team_id: int | None) -> list[TableGrant]: ...
 
 
+class ClientGrantProvider(Protocol):
+    """An MCP connection's explicit allowlist: granted columns per table, with masks."""
+
+    async def client_snapshot(self, datasource_id: int, client_id: int) -> list[TableGrant]: ...
+
+
 class ScopeCache(Protocol):
     async def revision(self, datasource_id: int) -> str: ...
     async def get(
@@ -57,7 +63,10 @@ class RedisScopeCache:
 
     @staticmethod
     def _key(user: CurrentUser, datasource_id: int, revision: str) -> str:
-        return f"scope:{datasource_id}:{revision}:{user.id}:{user.role}:{user.team_id}"
+        return (
+            f"scope:{datasource_id}:{revision}:{user.id}:{user.role}:{user.team_id}"
+            f":{user.client_id}"
+        )
 
     async def get(
         self, user: CurrentUser, datasource_id: int, revision: str
@@ -75,9 +84,15 @@ class RedisScopeCache:
 
 
 class PermissionService:
-    def __init__(self, provider: PermissionProvider, cache: ScopeCache | None = None) -> None:
+    def __init__(
+        self,
+        provider: PermissionProvider,
+        cache: ScopeCache | None = None,
+        clients: ClientGrantProvider | None = None,
+    ) -> None:
         self.provider = provider
         self.cache = cache
+        self.clients = clients
 
     async def visible_scope(self, user: CurrentUser, datasource_id: int) -> VisibleScope:
         if not user.active:
@@ -86,7 +101,15 @@ class PermissionService:
             revision = await self.cache.revision(datasource_id) if self.cache else "0"
             cached = await self.cache.get(user, datasource_id, revision) if self.cache else None
             if cached is None:
-                grants = await self.provider.snapshot(datasource_id, user.team_id)
+                if user.client_id is not None:
+                    # A connection sees its allowlist only; without a provider it sees nothing.
+                    grants = (
+                        await self.clients.client_snapshot(datasource_id, user.client_id)
+                        if self.clients
+                        else []
+                    )
+                else:
+                    grants = await self.provider.snapshot(datasource_id, user.team_id)
                 cached = self._compute(user, datasource_id, grants)
                 if self.cache:
                     await self.cache.put(user, cached, revision)

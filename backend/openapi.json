@@ -270,6 +270,68 @@
     "title": "Clarification",
     "type": "object"
    },
+   "ClientColumnWrite": {
+    "properties": {
+     "column_id": {
+      "minimum": 1.0,
+      "title": "Column Id",
+      "type": "integer"
+     },
+     "mask_rule": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/MaskRule"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "column_id"
+    ],
+    "title": "ClientColumnWrite",
+    "type": "object"
+   },
+   "ClientGrantsRead": {
+    "properties": {
+     "client_id": {
+      "title": "Client Id",
+      "type": "integer"
+     },
+     "columns": {
+      "items": {
+       "$ref": "#/components/schemas/ClientColumnWrite"
+      },
+      "title": "Columns",
+      "type": "array"
+     },
+     "datasource_id": {
+      "title": "Datasource Id",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "datasource_id",
+     "client_id"
+    ],
+    "title": "ClientGrantsRead",
+    "type": "object"
+   },
+   "ClientGrantsWrite": {
+    "properties": {
+     "columns": {
+      "items": {
+       "$ref": "#/components/schemas/ClientColumnWrite"
+      },
+      "title": "Columns",
+      "type": "array"
+     }
+    },
+    "title": "ClientGrantsWrite",
+    "type": "object"
+   },
    "ColumnGrantWrite": {
     "properties": {
      "column_id": {
@@ -704,6 +766,17 @@
       "title": "Active",
       "type": "boolean"
      },
+     "client_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Client Id"
+     },
      "id": {
       "title": "Id",
       "type": "integer"
@@ -1005,6 +1078,31 @@
     "title": "Envelope[ChatLimits]",
     "type": "object"
    },
+   "Envelope_ClientGrantsRead_": {
+    "properties": {
+     "code": {
+      "$ref": "#/components/schemas/ErrorCode",
+      "default": "OK"
+     },
+     "data": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ClientGrantsRead"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "message": {
+      "default": "Success",
+      "title": "Message",
+      "type": "string"
+     }
+    },
+    "title": "Envelope[ClientGrantsRead]",
+    "type": "object"
+   },
    "Envelope_ColumnRead_": {
     "properties": {
      "code": {
@@ -1280,6 +1378,81 @@
     "title": "Envelope[JobView]",
     "type": "object"
    },
+   "Envelope_McpClientRead_": {
+    "properties": {
+     "code": {
+      "$ref": "#/components/schemas/ErrorCode",
+      "default": "OK"
+     },
+     "data": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/McpClientRead"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "message": {
+      "default": "Success",
+      "title": "Message",
+      "type": "string"
+     }
+    },
+    "title": "Envelope[McpClientRead]",
+    "type": "object"
+   },
+   "Envelope_McpKeyCreated_": {
+    "properties": {
+     "code": {
+      "$ref": "#/components/schemas/ErrorCode",
+      "default": "OK"
+     },
+     "data": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/McpKeyCreated"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "message": {
+      "default": "Success",
+      "title": "Message",
+      "type": "string"
+     }
+    },
+    "title": "Envelope[McpKeyCreated]",
+    "type": "object"
+   },
+   "Envelope_McpKeyRead_": {
+    "properties": {
+     "code": {
+      "$ref": "#/components/schemas/ErrorCode",
+      "default": "OK"
+     },
+     "data": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/McpKeyRead"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "message": {
+      "default": "Success",
+      "title": "Message",
+      "type": "string"
+     }
+    },
+    "title": "Envelope[McpKeyRead]",
+    "type": "object"
+   },
    "Envelope_MetricView_": {
     "properties": {
      "code": {
@@ -1372,6 +1545,31 @@
      }
     },
     "title": "Envelope[NoneType]",
+    "type": "object"
+   },
+   "Envelope_OverlayItem_": {
+    "properties": {
+     "code": {
+      "$ref": "#/components/schemas/ErrorCode",
+      "default": "OK"
+     },
+     "data": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/OverlayItem"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "message": {
+      "default": "Success",
+      "title": "Message",
+      "type": "string"
+     }
+    },
+    "title": "Envelope[OverlayItem]",
     "type": "object"
    },
    "Envelope_Page_AuditView__": {
@@ -2049,6 +2247,31 @@
     "title": "Envelope[TeamRead]",
     "type": "object"
    },
+   "Envelope_TestAskReply_": {
+    "properties": {
+     "code": {
+      "$ref": "#/components/schemas/ErrorCode",
+      "default": "OK"
+     },
+     "data": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/TestAskReply"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "message": {
+      "default": "Success",
+      "title": "Message",
+      "type": "string"
+     }
+    },
+    "title": "Envelope[TestAskReply]",
+    "type": "object"
+   },
    "Envelope_TokenPair_": {
     "properties": {
      "code": {
@@ -2177,6 +2400,35 @@
      }
     },
     "title": "Envelope[dict[str, bool]]",
+    "type": "object"
+   },
+   "Envelope_dict_str__int__": {
+    "properties": {
+     "code": {
+      "$ref": "#/components/schemas/ErrorCode",
+      "default": "OK"
+     },
+     "data": {
+      "anyOf": [
+       {
+        "additionalProperties": {
+         "type": "integer"
+        },
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Data"
+     },
+     "message": {
+      "default": "Success",
+      "title": "Message",
+      "type": "string"
+     }
+    },
+    "title": "Envelope[dict[str, int]]",
     "type": "object"
    },
    "Envelope_dict_str__str__": {
@@ -2379,6 +2631,35 @@
     "title": "Envelope[list[JobView]]",
     "type": "object"
    },
+   "Envelope_list_McpClientRead__": {
+    "properties": {
+     "code": {
+      "$ref": "#/components/schemas/ErrorCode",
+      "default": "OK"
+     },
+     "data": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/McpClientRead"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Data"
+     },
+     "message": {
+      "default": "Success",
+      "title": "Message",
+      "type": "string"
+     }
+    },
+    "title": "Envelope[list[McpClientRead]]",
+    "type": "object"
+   },
    "Envelope_list_MetricView__": {
     "properties": {
      "code": {
@@ -2464,6 +2745,35 @@
      }
     },
     "title": "Envelope[list[MyFeedback]]",
+    "type": "object"
+   },
+   "Envelope_list_OverlayItem__": {
+    "properties": {
+     "code": {
+      "$ref": "#/components/schemas/ErrorCode",
+      "default": "OK"
+     },
+     "data": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/OverlayItem"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Data"
+     },
+     "message": {
+      "default": "Success",
+      "title": "Message",
+      "type": "string"
+     }
+    },
+    "title": "Envelope[list[OverlayItem]]",
     "type": "object"
    },
    "Envelope_list_PersonRead__": {
@@ -4053,6 +4363,316 @@
     "title": "MaskRule",
     "type": "object"
    },
+   "McpClientRead": {
+    "properties": {
+     "allow_run_sql": {
+      "default": false,
+      "title": "Allow Run Sql",
+      "type": "boolean"
+     },
+     "ask_timeout_seconds": {
+      "default": 60,
+      "maximum": 120.0,
+      "minimum": 10.0,
+      "title": "Ask Timeout Seconds",
+      "type": "integer"
+     },
+     "calls_today": {
+      "title": "Calls Today",
+      "type": "integer"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "daily_call_limit": {
+      "default": 2000,
+      "maximum": 1000000.0,
+      "minimum": 1.0,
+      "title": "Daily Call Limit",
+      "type": "integer"
+     },
+     "datasource_ids": {
+      "items": {
+       "type": "integer"
+      },
+      "title": "Datasource Ids",
+      "type": "array"
+     },
+     "default_rows": {
+      "default": 100,
+      "maximum": 1000.0,
+      "minimum": 1.0,
+      "title": "Default Rows",
+      "type": "integer"
+     },
+     "expires_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expires At"
+     },
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "keys": {
+      "items": {
+       "$ref": "#/components/schemas/McpKeyRead"
+      },
+      "title": "Keys",
+      "type": "array"
+     },
+     "last_used_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Used At"
+     },
+     "max_rows": {
+      "default": 1000,
+      "maximum": 1000.0,
+      "minimum": 1.0,
+      "title": "Max Rows",
+      "type": "integer"
+     },
+     "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "override_count": {
+      "default": 0,
+      "title": "Override Count",
+      "type": "integer"
+     },
+     "public_id": {
+      "title": "Public Id",
+      "type": "string"
+     },
+     "stale_grants": {
+      "default": 0,
+      "title": "Stale Grants",
+      "type": "integer"
+     },
+     "status": {
+      "enum": [
+       "active",
+       "disabled"
+      ],
+      "title": "Status",
+      "type": "string"
+     },
+     "user_id": {
+      "title": "User Id",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "name",
+     "id",
+     "public_id",
+     "user_id",
+     "status",
+     "created_at",
+     "last_used_at",
+     "calls_today"
+    ],
+    "title": "McpClientRead",
+    "type": "object"
+   },
+   "McpClientStatus": {
+    "properties": {
+     "active": {
+      "title": "Active",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "active"
+    ],
+    "title": "McpClientStatus",
+    "type": "object"
+   },
+   "McpClientWrite": {
+    "properties": {
+     "allow_run_sql": {
+      "default": false,
+      "title": "Allow Run Sql",
+      "type": "boolean"
+     },
+     "ask_timeout_seconds": {
+      "default": 60,
+      "maximum": 120.0,
+      "minimum": 10.0,
+      "title": "Ask Timeout Seconds",
+      "type": "integer"
+     },
+     "daily_call_limit": {
+      "default": 2000,
+      "maximum": 1000000.0,
+      "minimum": 1.0,
+      "title": "Daily Call Limit",
+      "type": "integer"
+     },
+     "default_rows": {
+      "default": 100,
+      "maximum": 1000.0,
+      "minimum": 1.0,
+      "title": "Default Rows",
+      "type": "integer"
+     },
+     "expires_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expires At"
+     },
+     "max_rows": {
+      "default": 1000,
+      "maximum": 1000.0,
+      "minimum": 1.0,
+      "title": "Max Rows",
+      "type": "integer"
+     },
+     "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "McpClientWrite",
+    "type": "object"
+   },
+   "McpKeyCreated": {
+    "description": "The full key appears here once; only its hash is kept.",
+    "properties": {
+     "client_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Client Id"
+     },
+     "detail": {
+      "$ref": "#/components/schemas/McpKeyRead"
+     },
+     "key": {
+      "title": "Key",
+      "type": "string"
+     }
+    },
+    "required": [
+     "key",
+     "detail"
+    ],
+    "title": "McpKeyCreated",
+    "type": "object"
+   },
+   "McpKeyRead": {
+    "properties": {
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "expires_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expires At"
+     },
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "last_used_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Used At"
+     },
+     "prefix": {
+      "title": "Prefix",
+      "type": "string"
+     },
+     "revoked_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Revoked At"
+     }
+    },
+    "required": [
+     "id",
+     "prefix",
+     "created_at",
+     "expires_at",
+     "revoked_at",
+     "last_used_at"
+    ],
+    "title": "McpKeyRead",
+    "type": "object"
+   },
+   "McpKeyRotate": {
+    "properties": {
+     "grace_hours": {
+      "default": 0,
+      "maximum": 24.0,
+      "minimum": 0.0,
+      "title": "Grace Hours",
+      "type": "integer"
+     }
+    },
+    "title": "McpKeyRotate",
+    "type": "object"
+   },
    "MemberGrantsWrite": {
     "properties": {
      "tables": {
@@ -4685,6 +5305,127 @@
      }
     },
     "title": "ObjectVisibilityWrite",
+    "type": "object"
+   },
+   "OverlayItem": {
+    "description": "A platform item as one connection sees it.",
+    "properties": {
+     "effective": {
+      "additionalProperties": true,
+      "title": "Effective",
+      "type": "object"
+     },
+     "item_id": {
+      "title": "Item Id",
+      "type": "integer"
+     },
+     "kind": {
+      "enum": [
+       "semantic",
+       "metric"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "platform": {
+      "additionalProperties": true,
+      "title": "Platform",
+      "type": "object"
+     },
+     "state": {
+      "enum": [
+       "default",
+       "edited",
+       "hidden"
+      ],
+      "title": "State",
+      "type": "string"
+     }
+    },
+    "required": [
+     "kind",
+     "item_id",
+     "name",
+     "platform",
+     "effective",
+     "state"
+    ],
+    "title": "OverlayItem",
+    "type": "object"
+   },
+   "OverrideRestore": {
+    "description": "Restore platform defaults: one item, one kind, or (both empty) everything.",
+    "properties": {
+     "item_id": {
+      "anyOf": [
+       {
+        "minimum": 1.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Item Id"
+     },
+     "kind": {
+      "anyOf": [
+       {
+        "enum": [
+         "semantic",
+         "metric"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Kind"
+     }
+    },
+    "title": "OverrideRestore",
+    "type": "object"
+   },
+   "OverrideWrite": {
+    "properties": {
+     "action": {
+      "enum": [
+       "edit",
+       "hide"
+      ],
+      "title": "Action",
+      "type": "string"
+     },
+     "item_id": {
+      "minimum": 1.0,
+      "title": "Item Id",
+      "type": "integer"
+     },
+     "kind": {
+      "enum": [
+       "semantic",
+       "metric"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+     }
+    },
+    "required": [
+     "kind",
+     "item_id",
+     "action"
+    ],
+    "title": "OverrideWrite",
     "type": "object"
    },
    "Page_AuditView_": {
@@ -5774,6 +6515,17 @@
       "title": "Id",
       "type": "integer"
      },
+     "mcp_client_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Mcp Client Id"
+     },
      "message_id": {
       "anyOf": [
        {
@@ -5826,6 +6578,18 @@
       "title": "Question",
       "type": "string"
      },
+     "request_id": {
+      "anyOf": [
+       {
+        "maxLength": 64,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Request Id"
+     },
      "result_preview": {
       "items": {
        "additionalProperties": true,
@@ -5844,6 +6608,11 @@
       "default": 0,
       "title": "Row Count",
       "type": "integer"
+     },
+     "source": {
+      "default": "web",
+      "title": "Source",
+      "type": "string"
      },
      "stage_timings": {
       "additionalProperties": {
@@ -7256,6 +8025,167 @@
      "name"
     ],
     "title": "TeamWrite",
+    "type": "object"
+   },
+   "TestAskReply": {
+    "properties": {
+     "agent": {
+      "additionalProperties": true,
+      "title": "Agent",
+      "type": "object"
+     },
+     "diagnostics": {
+      "$ref": "#/components/schemas/TestDiagnostics"
+     },
+     "is_error": {
+      "title": "Is Error",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "agent",
+     "is_error",
+     "diagnostics"
+    ],
+    "title": "TestAskReply",
+    "type": "object"
+   },
+   "TestAskRequest": {
+    "properties": {
+     "conversation_id": {
+      "anyOf": [
+       {
+        "maxLength": 40,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Conversation Id"
+     },
+     "datasource_id": {
+      "minimum": 1.0,
+      "title": "Datasource Id",
+      "type": "integer"
+     },
+     "question": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Question",
+      "type": "string"
+     }
+    },
+    "required": [
+     "question",
+     "datasource_id"
+    ],
+    "title": "TestAskRequest",
+    "type": "object"
+   },
+   "TestDiagnostics": {
+    "description": "What only the admin sees: where the answer came from and why it failed.",
+    "properties": {
+     "columns": {
+      "additionalProperties": {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      "title": "Columns",
+      "type": "object"
+     },
+     "datasource_id": {
+      "title": "Datasource Id",
+      "type": "integer"
+     },
+     "guard": {
+      "default": "not_reached",
+      "enum": [
+       "passed",
+       "blocked",
+       "not_reached"
+      ],
+      "title": "Guard",
+      "type": "string"
+     },
+     "input_tokens": {
+      "default": 0,
+      "title": "Input Tokens",
+      "type": "integer"
+     },
+     "items": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "title": "Items",
+      "type": "array"
+     },
+     "masked": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Masked",
+      "type": "array"
+     },
+     "output_tokens": {
+      "default": 0,
+      "title": "Output Tokens",
+      "type": "integer"
+     },
+     "principal": {
+      "title": "Principal",
+      "type": "string"
+     },
+     "query_run_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Query Run Id"
+     },
+     "rule": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rule"
+     },
+     "stage": {
+      "default": "",
+      "title": "Stage",
+      "type": "string"
+     },
+     "tables": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Tables",
+      "type": "array"
+     },
+     "timings": {
+      "additionalProperties": {
+       "type": "integer"
+      },
+      "title": "Timings",
+      "type": "object"
+     }
+    },
+    "required": [
+     "principal",
+     "datasource_id"
+    ],
+    "title": "TestDiagnostics",
     "type": "object"
    },
    "TokenPair": {
@@ -10142,6 +11072,748 @@
     "summary": "Health"
    }
   },
+  "/api/mcp-clients": {
+   "get": {
+    "operationId": "list_clients_api_mcp_clients_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_list_McpClientRead__"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "List Clients",
+    "tags": [
+     "mcp"
+    ]
+   },
+   "post": {
+    "description": "The response carries the connection's first key; it is never shown again.",
+    "operationId": "create_client_api_mcp_clients_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/McpClientWrite"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_McpKeyCreated_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Create Client",
+    "tags": [
+     "mcp"
+    ]
+   }
+  },
+  "/api/mcp-clients/{client_id}": {
+   "delete": {
+    "operationId": "delete_client_api_mcp_clients__client_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "client_id",
+      "required": true,
+      "schema": {
+       "title": "Client Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_dict_str__bool__"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Delete Client",
+    "tags": [
+     "mcp"
+    ]
+   },
+   "get": {
+    "operationId": "get_client_api_mcp_clients__client_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "client_id",
+      "required": true,
+      "schema": {
+       "title": "Client Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_McpClientRead_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Client",
+    "tags": [
+     "mcp"
+    ]
+   },
+   "put": {
+    "operationId": "update_client_api_mcp_clients__client_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "client_id",
+      "required": true,
+      "schema": {
+       "title": "Client Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/McpClientWrite"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_McpClientRead_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Update Client",
+    "tags": [
+     "mcp"
+    ]
+   }
+  },
+  "/api/mcp-clients/{client_id}/grants/{datasource_id}": {
+   "get": {
+    "operationId": "read_grants_api_mcp_clients__client_id__grants__datasource_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "client_id",
+      "required": true,
+      "schema": {
+       "title": "Client Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "path",
+      "name": "datasource_id",
+      "required": true,
+      "schema": {
+       "title": "Datasource Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_ClientGrantsRead_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Read Grants",
+    "tags": [
+     "mcp"
+    ]
+   },
+   "put": {
+    "operationId": "replace_grants_api_mcp_clients__client_id__grants__datasource_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "client_id",
+      "required": true,
+      "schema": {
+       "title": "Client Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "path",
+      "name": "datasource_id",
+      "required": true,
+      "schema": {
+       "title": "Datasource Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ClientGrantsWrite"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_ClientGrantsRead_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Replace Grants",
+    "tags": [
+     "mcp"
+    ]
+   }
+  },
+  "/api/mcp-clients/{client_id}/items": {
+   "get": {
+    "operationId": "list_items_api_mcp_clients__client_id__items_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "client_id",
+      "required": true,
+      "schema": {
+       "title": "Client Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "datasource_id",
+      "required": true,
+      "schema": {
+       "title": "Datasource Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_list_OverlayItem__"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "List Items",
+    "tags": [
+     "mcp"
+    ]
+   },
+   "put": {
+    "operationId": "set_item_api_mcp_clients__client_id__items_put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "client_id",
+      "required": true,
+      "schema": {
+       "title": "Client Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "datasource_id",
+      "required": true,
+      "schema": {
+       "title": "Datasource Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/OverrideWrite"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_OverlayItem_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Set Item",
+    "tags": [
+     "mcp"
+    ]
+   }
+  },
+  "/api/mcp-clients/{client_id}/items/restore": {
+   "post": {
+    "operationId": "restore_items_api_mcp_clients__client_id__items_restore_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "client_id",
+      "required": true,
+      "schema": {
+       "title": "Client Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/OverrideRestore"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_dict_str__int__"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Restore Items",
+    "tags": [
+     "mcp"
+    ]
+   }
+  },
+  "/api/mcp-clients/{client_id}/keys/rotate": {
+   "post": {
+    "operationId": "rotate_key_api_mcp_clients__client_id__keys_rotate_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "client_id",
+      "required": true,
+      "schema": {
+       "title": "Client Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/McpKeyRotate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_McpKeyCreated_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Rotate Key",
+    "tags": [
+     "mcp"
+    ]
+   }
+  },
+  "/api/mcp-clients/{client_id}/keys/{key_id}/revoke": {
+   "post": {
+    "operationId": "revoke_key_api_mcp_clients__client_id__keys__key_id__revoke_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "client_id",
+      "required": true,
+      "schema": {
+       "title": "Client Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "path",
+      "name": "key_id",
+      "required": true,
+      "schema": {
+       "title": "Key Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_McpKeyRead_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Revoke Key",
+    "tags": [
+     "mcp"
+    ]
+   }
+  },
+  "/api/mcp-clients/{client_id}/status": {
+   "post": {
+    "operationId": "set_status_api_mcp_clients__client_id__status_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "client_id",
+      "required": true,
+      "schema": {
+       "title": "Client Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/McpClientStatus"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_McpClientRead_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Set Status",
+    "tags": [
+     "mcp"
+    ]
+   }
+  },
+  "/api/mcp-clients/{client_id}/test": {
+   "post": {
+    "operationId": "test_ask_api_mcp_clients__client_id__test_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "client_id",
+      "required": true,
+      "schema": {
+       "title": "Client Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TestAskRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_TestAskReply_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Test Ask",
+    "tags": [
+     "mcp"
+    ]
+   }
+  },
   "/api/metric": {
    "get": {
     "operationId": "list_items_api_metric_get",
@@ -12594,6 +14266,61 @@
         }
        ],
        "title": "Has Feedback"
+      }
+     },
+     {
+      "in": "query",
+      "name": "source",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "enum": [
+          "web",
+          "mcp",
+          "mcp_test"
+         ],
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Source"
+      }
+     },
+     {
+      "in": "query",
+      "name": "mcp_client_id",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "minimum": 1,
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Mcp Client Id"
+      }
+     },
+     {
+      "in": "query",
+      "name": "request_id",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "maxLength": 64,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Request Id"
       }
      }
     ],

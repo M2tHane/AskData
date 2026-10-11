@@ -53,6 +53,11 @@ class QueryLogRecord(BaseModel):
     chart_spec: dict[str, Any] = Field(default_factory=dict)
     retry_count: int = 0
     context_snapshot: dict[str, Any] = Field(default_factory=dict)
+    # Where the question came from: the web app, an MCP connection, or an admin's test of one.
+    source: str = "web"
+    mcp_client_id: int | None = None
+    # The MCP tool call's request id, returned to the agent so a run can be found from it.
+    request_id: str | None = Field(default=None, max_length=64)
     expires_at: datetime = Field(default_factory=lambda: datetime.now(UTC) + timedelta(days=90))
 
 
@@ -191,6 +196,7 @@ class QueryLogWriter:
         if result is not None and sql is None:
             raise AppError(ErrorCode.SQL_NOT_SELECT)
         preview = mask_rows(result.rows[:5], sql.output_masks) if result and sql else []
+        origin = (details or {}).get("origin") or {}
         return await self.store.append(
             QueryLogRecord(
                 user_id=user.id,
@@ -216,6 +222,9 @@ class QueryLogWriter:
                 chart_spec=(details or {}).get("chart") or {},
                 retry_count=len((details or {}).get("retries", [])),
                 context_snapshot=redact(details or {}),
+                source=origin.get("source", "web"),
+                mcp_client_id=origin.get("client_id"),
+                request_id=origin.get("request_id"),
                 prompt_versions=prompt_versions or {},
                 tokens_in=tokens_in,
                 tokens_out=tokens_out,
