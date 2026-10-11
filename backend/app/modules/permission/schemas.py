@@ -1,14 +1,12 @@
 from pydantic import BaseModel, Field
 
 from app.core.masking import MaskRule
-from app.core.permission import RowFilter
 
 
 class ColumnGrantWrite(BaseModel):
     column_id: int = Field(ge=1)
     member_visible: bool = False
     mask_rule: MaskRule | None = None
-    row_filters: list[RowFilter] = Field(default_factory=list)
 
 
 class TableGrantWrite(BaseModel):

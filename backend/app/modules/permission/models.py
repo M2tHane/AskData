@@ -23,7 +23,6 @@ class TeamColumnGrant(AuditFields, Base):
     member_visible: Mapped[bool] = mapped_column(Boolean, default=False)
     valid: Mapped[bool] = mapped_column(Boolean, default=True)
     mask_rule: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    row_filter: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
 
 
 class DatasourceTeamScope(AuditFields, Base):

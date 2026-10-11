@@ -10,8 +10,6 @@ from app.core.errors import AppError, ErrorCode, PermissionDenied
 from app.core.masking import MaskRule
 from app.core.permission import (
     PermissionService,
-    RowFilter,
-    RowOperator,
     ScopeCache,
     TableGrant,
     VisibleScope,
@@ -112,11 +110,6 @@ class GrantService:
                         for c in cols
                         if by_column[c.id].mask_rule
                     },
-                    row_filters=tuple(
-                        RowFilter.model_validate(rule)
-                        for c in cols
-                        for rule in by_column[c.id].row_filter
-                    ),
                 )
             )
         return result
@@ -149,10 +142,6 @@ class GrantService:
                             mask_rule=MaskRule.model_validate(by_column[c.id].mask_rule)
                             if by_column[c.id].mask_rule
                             else None,
-                            row_filters=[
-                                RowFilter.model_validate(rule)
-                                for rule in by_column[c.id].row_filter
-                            ],
                         )
                         for c in t.columns
                         if c.id in by_column
@@ -192,25 +181,12 @@ class GrantService:
                 raise AppError(ErrorCode.VALIDATION_ERROR)
             seen_tables.add(table.table_id)
             columns = {c.id: c for c in by_table[table.table_id].columns}
-            granted_names = {
-                columns[c.column_id].name for c in table.columns if c.column_id in columns
-            }
             for column in table.columns:
                 if column.column_id not in columns or column.column_id in seen_columns:
                     raise AppError(ErrorCode.VALIDATION_ERROR)
                 if column.member_visible and not table.member_visible:
                     raise AppError(ErrorCode.VALIDATION_ERROR)
                 seen_columns.add(column.column_id)
-                for rule in column.row_filters:
-                    if (
-                        rule.column not in granted_names
-                        or (
-                            rule.operator == RowOperator.IN
-                            and (not isinstance(rule.value, list) or not rule.value)
-                        )
-                        or (rule.operator != RowOperator.IN and isinstance(rule.value, list))
-                    ):
-                        raise AppError(ErrorCode.VALIDATION_ERROR)
         table_ids, column_ids = self._ids(catalog)
         await self.repository.replace(team_id, table_ids, column_ids, data, actor.id)
         await self._normalize(datasource_id, actor)

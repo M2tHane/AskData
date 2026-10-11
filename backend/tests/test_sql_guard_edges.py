@@ -2,7 +2,6 @@ import pytest
 
 from app.core.errors import ErrorCode, SqlBlocked
 from app.core.masking import MaskKind
-from app.core.permission import RowFilter
 
 
 @pytest.mark.parametrize(
@@ -34,17 +33,6 @@ def test_adversarial_edges(guard, scope, sql):
 )
 def test_transformed_masks_through_derived_aliases_are_full(guard, scope, sql):
     assert guard.check(sql, "postgres", scope).output_masks["p"].kind == MaskKind.FULL
-
-
-def test_row_policy_in_self_join_and_cte(guard, scope):
-    scope.tables["orders"].row_filters = (RowFilter(column="tenant_id", value=7),)
-    result = guard.check(
-        "WITH x AS (SELECT id FROM orders) SELECT a.id FROM orders a "
-        "JOIN orders b ON a.id=b.id WHERE a.id IN (SELECT id FROM x)",
-        "postgres",
-        scope,
-    )
-    assert result.normalized_sql.count('"tenant_id" = 7') == 3
 
 
 def test_raw_or_malformed_guard_inputs_are_registered_errors(guard, scope):

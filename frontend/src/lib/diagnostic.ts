@@ -62,7 +62,6 @@ export const RULE_NAME: Record<string, string> = {
   star_projection: '使用了 SELECT *',
   duplicate_output: '输出列重名',
   lineage_unknown: '无法确认输出列来源',
-  row_filter_invalid: '行级权限配置无效',
   not_guarded: '未经安全校验',
   datasource_mismatch: '数据源不匹配',
   not_read_only: '数据源不是只读账号',

@@ -76,7 +76,6 @@ class BlockRule(StrEnum):
     STAR_PROJECTION = "star_projection"
     DUPLICATE_OUTPUT = "duplicate_output"
     LINEAGE_UNKNOWN = "lineage_unknown"
-    ROW_FILTER_INVALID = "row_filter_invalid"
     NOT_GUARDED = "not_guarded"
     DATASOURCE_MISMATCH = "datasource_mismatch"
     NOT_READ_ONLY = "not_read_only"

@@ -1,6 +1,6 @@
 import type { ColumnGrantWrite, GrantRead, MaskRule, TableGrantWrite, TableRead } from '../api/types'
 
-export type ColState = { granted: boolean; member_visible: boolean; mask_rule?: MaskRule | null; row_filters: ColumnGrantWrite['row_filters'] }
+export type ColState = { granted: boolean; member_visible: boolean; mask_rule?: MaskRule | null }
 export type TableState = { granted: boolean; member_visible: boolean; columns: Record<number, ColState> }
 export type Grid = Record<number, TableState>
 
@@ -16,7 +16,7 @@ export function buildGrid(tables: TableRead[], grants: GrantRead | undefined): G
       columns: Object.fromEntries(
         (t.columns ?? []).map((c) => {
           const cg = byCol.get(c.id)
-          return [c.id, { granted: !!cg, member_visible: cg?.member_visible ?? false, mask_rule: cg?.mask_rule ?? null, row_filters: cg?.row_filters ?? [] }]
+          return [c.id, { granted: !!cg, member_visible: cg?.member_visible ?? false, mask_rule: cg?.mask_rule ?? null }]
         }),
       ),
     }
@@ -47,7 +47,7 @@ export function gridToTeamPayload(grid: Grid): TableGrantWrite[] {
       member_visible: t.member_visible,
       columns: Object.entries(t.columns)
         .filter(([, c]) => c.granted)
-        .map(([cid, c]) => ({ column_id: Number(cid), member_visible: c.member_visible, mask_rule: c.mask_rule ?? null, row_filters: c.row_filters })),
+        .map(([cid, c]) => ({ column_id: Number(cid), member_visible: c.member_visible, mask_rule: c.mask_rule ?? null })),
     }))
 }
 

@@ -291,13 +291,6 @@
       "default": false,
       "title": "Member Visible",
       "type": "boolean"
-     },
-     "row_filters": {
-      "items": {
-       "$ref": "#/components/schemas/RowFilter"
-      },
-      "title": "Row Filters",
-      "type": "array"
      }
     },
     "required": [
@@ -6295,66 +6288,6 @@
      "member"
     ],
     "title": "Role",
-    "type": "string"
-   },
-   "RowFilter": {
-    "properties": {
-     "column": {
-      "title": "Column",
-      "type": "string"
-     },
-     "operator": {
-      "$ref": "#/components/schemas/RowOperator",
-      "default": "eq"
-     },
-     "value": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "integer"
-       },
-       {
-        "type": "number"
-       },
-       {
-        "type": "boolean"
-       },
-       {
-        "items": {
-         "anyOf": [
-          {
-           "type": "string"
-          },
-          {
-           "type": "integer"
-          }
-         ]
-        },
-        "type": "array"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Value"
-     }
-    },
-    "required": [
-     "column",
-     "value"
-    ],
-    "title": "RowFilter",
-    "type": "object"
-   },
-   "RowOperator": {
-    "enum": [
-     "eq",
-     "ne",
-     "in"
-    ],
-    "title": "RowOperator",
     "type": "string"
    },
    "RunComparison": {

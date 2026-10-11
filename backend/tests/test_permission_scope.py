@@ -3,7 +3,7 @@ import pytest
 from app.core.deps import CurrentUser, Role
 from app.core.errors import AppError
 from app.core.masking import MaskKind, MaskRule
-from app.core.permission import PermissionService, RowFilter, TableGrant
+from app.core.permission import PermissionService, TableGrant
 from app.core.scope import PromotionService, ScopedQuery, ScopeLevel, ScopeMixin
 from tests.fakes import FakePermissions, MemoryScopeCache
 
@@ -19,7 +19,6 @@ def grants():
             team_columns={"id", "phone"},
             member_columns={"id", "phone", "secret", "removed"},
             masks={"phone": MaskRule(kind=MaskKind.PHONE)},
-            row_filters=(RowFilter(column="id", value=7),),
         ),
         TableGrant(name="new_table", all_columns={"id": "INT"}),
     ]
@@ -31,7 +30,6 @@ async def test_member_is_team_subset_and_keeps_masks(member, grants):
     assert set(scope.tables) == {"orders"}
     assert scope.tables["orders"].columns == {"id", "phone"}
     assert scope.tables["orders"].masks["phone"].kind == MaskKind.PHONE
-    assert scope.tables["orders"].row_filters
     grants[0].all_columns.pop("phone")
     scope = await service.visible_scope(member, 1)
     assert scope.tables["orders"].columns == {"id"}
@@ -44,7 +42,6 @@ async def test_role_scope(grants, role):
     if role == Role.ADMIN:
         assert set(scope.tables) == {"orders", "new_table"}
         assert "secret" in scope.tables["orders"].columns
-        assert not scope.tables["orders"].row_filters
     else:
         assert set(scope.tables) == {"orders"}
         assert scope.tables["orders"].columns == {"id", "phone"}

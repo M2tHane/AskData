@@ -4,7 +4,7 @@ from sqlglot import exp
 
 from app.core.errors import ErrorCode, SqlBlocked
 from app.core.masking import MaskKind
-from app.core.permission import RowFilter, RowOperator, TableScope, VisibleScope
+from app.core.permission import TableScope, VisibleScope
 
 
 @pytest.mark.parametrize("dialect", ["postgres", "mysql"])
@@ -225,36 +225,11 @@ def test_transformed_sensitive_output_is_fully_masked(guard, scope):
     assert result.output_masks["suffix"].kind == MaskKind.FULL
 
 
-@pytest.mark.parametrize("dialect", ["postgres", "mysql"])
-def test_row_filters_wrap_every_reference_and_outer_join(guard, scope, dialect):
-    scope.tables["orders"].row_filters = (
-        RowFilter(column="tenant_id", value=7),
-        RowFilter(column="id", operator=RowOperator.IN, value=[1, 2]),
-    )
-    result = guard.check(
-        "SELECT c.id, o.amount FROM customers c LEFT JOIN orders o ON o.customer_id=c.id "
-        "WHERE c.id=1 OR c.id=2",
-        dialect,
-        scope,
-    )
-    tree = sqlglot.parse_one(result.normalized_sql, read=dialect)
-    inner = next(tree.find_all(exp.Subquery)).this
-    assert inner.args["where"]
-    assert "tenant_id" in inner.sql() and "7" in inner.sql()
-    assert isinstance(tree.args["joins"][0].this, exp.Subquery)
-    assert result.authentic()
-
-
-def test_row_filter_value_is_not_executable(guard, scope):
-    scope.tables["orders"].row_filters = (RowFilter(column="phone", value="'; DROP TABLE x;--"),)
+def test_guard_adds_no_row_conditions_of_its_own(guard, scope):
+    # Row-level permissions were removed: visibility is tables and columns only.
+    assert not hasattr(scope.tables["orders"], "row_filters")
     result = guard.check("SELECT id FROM orders", "postgres", scope)
-    assert len(sqlglot.parse(result.normalized_sql, read="postgres")) == 1
-
-
-def test_invalid_row_policy_fails_closed(guard, scope):
-    scope.tables["orders"].row_filters = (RowFilter(column="unknown", value=1),)
-    with pytest.raises(SqlBlocked):
-        guard.check("SELECT id FROM orders", "postgres", scope)
+    assert "WHERE" not in result.normalized_sql.upper()
 
 
 def test_tampered_capability_loses_authenticity(guard, scope):

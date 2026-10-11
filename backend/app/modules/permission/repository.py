@@ -72,7 +72,6 @@ class PermissionRepository:
                 col.mask_rule = (
                     column.mask_rule.model_dump(mode="json") if column.mask_rule else None
                 )
-                col.row_filter = [rule.model_dump(mode="json") for rule in column.row_filters]
         await self.session.flush()
 
     async def expire(
@@ -118,7 +117,6 @@ class PermissionRepository:
                             column_id=column_id,
                             member_visible=True,
                             valid=True,
-                            row_filter=[],
                             created_by=actor_id,
                         )
                     )
@@ -285,7 +283,6 @@ class PermissionRepository:
                             column_id=identifier,
                             member_visible=True,
                             valid=True,
-                            row_filter=[],
                             created_by=actor_id,
                         )
                     )

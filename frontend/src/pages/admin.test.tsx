@@ -15,8 +15,8 @@ const grants: GrantRead = {
       table_id: 1,
       member_visible: true,
       columns: [
-        { column_id: 10, member_visible: true, row_filters: [{ column: 'region', operator: 'eq', value: '华东' }] },
-        { column_id: 11, member_visible: false, mask_rule: { kind: 'phone', prefix: 3, suffix: 4 }, row_filters: [] },
+        { column_id: 10, member_visible: true },
+        { column_id: 11, member_visible: false, mask_rule: { kind: 'phone', prefix: 3, suffix: 4 } },
       ],
     },
   ],
@@ -29,11 +29,11 @@ describe('permission grid', () => {
     expect(grid[2]?.granted).toBe(false)
     expect(grid[2]?.columns[20]?.granted).toBe(false)
   })
-  it('round-trips masks and row filters when saving team grants', () => {
+  it('round-trips masks when saving team grants', () => {
     const payload = gridToTeamPayload(buildGrid(tables, grants))
     expect(payload).toHaveLength(1)
     const cols = payload[0]?.columns ?? []
-    expect(cols[0]?.row_filters).toEqual([{ column: 'region', operator: 'eq', value: '华东' }])
+    expect(cols[0]).toEqual({ column_id: 10, member_visible: true, mask_rule: null })
     expect(cols[1]?.mask_rule).toEqual({ kind: 'phone', prefix: 3, suffix: 4 })
   })
   it('member payload only lists member-visible columns of member-visible tables', () => {
@@ -136,12 +136,12 @@ describe('leader employee visibility only touches granted objects', () => {
       granted: true,
       member_visible: true,
       columns: {
-        10: { granted: true, member_visible: true, row_filters: [] },
-        11: { granted: true, member_visible: false, row_filters: [] },
-        12: { granted: false, member_visible: false, row_filters: [] },
+        10: { granted: true, member_visible: true },
+        11: { granted: true, member_visible: false },
+        12: { granted: false, member_visible: false },
       },
     },
-    2: { granted: false, member_visible: false, columns: { 20: { granted: false, member_visible: false, row_filters: [] } } },
+    2: { granted: false, member_visible: false, columns: { 20: { granted: false, member_visible: false } } },
   })
   it('never exposes ungranted columns or tables', () => {
     const g = grid()

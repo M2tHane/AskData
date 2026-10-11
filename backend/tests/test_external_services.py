@@ -24,7 +24,6 @@ from app.core.errors import AppError
 from app.core.permission import (
     PermissionService,
     RedisScopeCache,
-    RowFilter,
     TableGrant,
     TableScope,
     VisibleScope,
@@ -121,7 +120,6 @@ async def test_real_postgres_guard_executor_metadata_and_readonly(guard):
                             "secret": "TEXT",
                         },
                         columns={"id", "phone"},
-                        row_filters=(RowFilter(column="tenant_id", value=7),),
                     )
                 },
             )
@@ -131,7 +129,7 @@ async def test_real_postgres_guard_executor_metadata_and_readonly(guard):
                 sql,
                 QueryLimits(user_id=3),
             )
-            assert result.rows == [{"id": 1}]
+            assert sorted(row["id"] for row in result.rows) == [1, 2]
             # A privileged login still cannot write inside the connector's transaction.
             with pytest.raises(asyncpg.ReadOnlySQLTransactionError):
                 async with connector.read_session(admin, 10) as session:

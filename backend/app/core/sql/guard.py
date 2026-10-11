@@ -18,7 +18,7 @@ from sqlglot.schema import MappingSchema
 
 from app.core.errors import BlockRule, ErrorCode, SqlBlocked, UnresolvedReference
 from app.core.masking import MaskKind, MaskRule
-from app.core.permission import RowFilter, RowOperator, VisibleScope
+from app.core.permission import VisibleScope
 from app.core.sql.dialect import Dialect
 
 _SYSTEM_SCHEMAS = {
@@ -246,14 +246,12 @@ class SqlGuard:
         except (OptimizeError, SchemaError, ValueError, TypeError) as error:
             raise UnresolvedReference(_unresolved(str(error))) from None
         used: dict[str, set[str]] = {}
-        tables: dict[int, tuple[exp.Table, str]] = {}
         for query_scope in traverse_scope(tree):
             for source in query_scope.sources.values():
                 if isinstance(source, exp.Table):
                     name = _table_name(source)
                     if name not in scope.tables:
                         raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.TABLE_NOT_VISIBLE)
-                    tables[id(source)] = (source, name)
                     used.setdefault(name, set())
             for column in query_scope.columns:
                 if column.is_star:
@@ -293,21 +291,6 @@ class SqlGuard:
             if any(projection.is_star for projection in select.selects):
                 raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.STAR_PROJECTION)
         masks = self._output_masks(tree, scope, schema, target)
-        for table, name in tables.values():
-            filters = scope.tables[name].row_filters
-            if not filters:
-                continue
-            alias = table.alias_or_name
-            inner_table = table.copy()
-            inner_table.set("alias", None)
-            conditions = [
-                self._row_condition(rule, scope.tables[name].all_columns) for rule in filters
-            ]
-            inner = exp.select(
-                *[exp.column(column, quoted=True) for column in sorted(scope.tables[name].columns)]
-            )
-            inner = inner.from_(inner_table).where(exp.and_(*conditions))
-            table.replace(inner.subquery(alias=exp.to_identifier(alias, quoted=True)))
         normalized = tree.sql(
             dialect=target.sqlglot, comments=False, unsupported_level=sqlglot.ErrorLevel.RAISE
         )
@@ -320,23 +303,6 @@ class SqlGuard:
             "output_masks": masks,
         }
         return GuardedSql(**payload, seal=_signature(payload))
-
-    @staticmethod
-    def _row_condition(rule: RowFilter, columns: dict[str, str]) -> exp.Expression:
-        if rule.column not in columns:
-            raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.ROW_FILTER_INVALID)
-        column = exp.column(rule.column, quoted=True)
-        if rule.operator == RowOperator.IN:
-            if not isinstance(rule.value, list) or not rule.value:
-                raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.ROW_FILTER_INVALID)
-            return exp.In(this=column, expressions=[exp.convert(value) for value in rule.value])
-        if isinstance(rule.value, list):
-            raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.ROW_FILTER_INVALID)
-        if rule.value is None:
-            condition: exp.Expression = exp.Is(this=column, expression=exp.Null())
-            return exp.Not(this=condition) if rule.operator == RowOperator.NE else condition
-        cls = exp.EQ if rule.operator == RowOperator.EQ else exp.NEQ
-        return cls(this=column, expression=exp.convert(rule.value))
 
     @staticmethod
     def _output_masks(

@@ -1,4 +1,3 @@
-from enum import StrEnum
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -9,24 +8,11 @@ from app.core.errors import PermissionDenied
 from app.core.masking import MaskRule
 
 
-class RowOperator(StrEnum):
-    EQ = "eq"
-    NE = "ne"
-    IN = "in"
-
-
-class RowFilter(BaseModel):
-    column: str
-    operator: RowOperator = RowOperator.EQ
-    value: str | int | float | bool | list[str | int] | None
-
-
 class TableScope(BaseModel):
     # Complete metadata is essential for SELECT *; columns are the granted subset.
     all_columns: dict[str, str]
     columns: frozenset[str]
     masks: dict[str, MaskRule] = Field(default_factory=dict)
-    row_filters: tuple[RowFilter, ...] = ()
 
 
 class VisibleScope(BaseModel):
@@ -43,7 +29,6 @@ class TableGrant(BaseModel):
     team_visible: bool = False
     member_visible: bool = False
     masks: dict[str, MaskRule] = Field(default_factory=dict)
-    row_filters: tuple[RowFilter, ...] = ()
 
 
 class PermissionProvider(Protocol):
@@ -131,7 +116,6 @@ class PermissionService:
                     all_columns=grant.all_columns,
                     columns=columns,
                     masks={key: rule for key, rule in grant.masks.items() if key in columns},
-                    row_filters=() if user.role == Role.ADMIN else grant.row_filters,
                 )
         return VisibleScope(datasource_id=datasource_id, tables=tables)
 

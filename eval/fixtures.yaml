@@ -168,8 +168,6 @@ grants:
       budget:
         leader_columns: [department, month, amount]
         member_columns: [department, month, amount]
-# P1 row policies intentionally empty: baseline tests only P0 table/column scope.
-row_policies: []
 semantics:
   - id: paid_status
     scope: platform

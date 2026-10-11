@@ -1759,8 +1759,6 @@ export interface components {
              * @default false
              */
             member_visible: boolean;
-            /** Row Filters */
-            row_filters?: components["schemas"]["RowFilter"][];
         };
         /** ColumnRead */
         ColumnRead: {
@@ -4205,20 +4203,6 @@ export interface components {
          * @enum {string}
          */
         Role: "admin" | "leader" | "member";
-        /** RowFilter */
-        RowFilter: {
-            /** Column */
-            column: string;
-            /** @default eq */
-            operator: components["schemas"]["RowOperator"];
-            /** Value */
-            value: string | number | boolean | (string | number)[] | null;
-        };
-        /**
-         * RowOperator
-         * @enum {string}
-         */
-        RowOperator: "eq" | "ne" | "in";
         /** RunComparison */
         RunComparison: {
             /** Added */
