@@ -23,6 +23,10 @@ from app.core.permission import RowFilter, RowOperator, TableScope, VisibleScope
         "SELECT a.id FROM orders a JOIN orders b ON a.id=b.id",
         "SELECT id FROM orders UNION ALL SELECT id FROM customers",
         "SELECT id FROM orders UNION SELECT id FROM customers",
+        # ORDER BY on a UNION sorts its own output, by position or by name.
+        "SELECT id AS x FROM orders UNION ALL SELECT id FROM customers ORDER BY 1",
+        "SELECT id AS x FROM orders UNION ALL SELECT id FROM customers ORDER BY x DESC",
+        "SELECT 'a' AS t UNION ALL SELECT 'b' UNION ALL SELECT 'c' ORDER BY 1",
         "SELECT COUNT(*) AS n FROM orders",
         "SELECT customer_id, SUM(amount) AS total FROM orders "
         "GROUP BY customer_id ORDER BY total DESC",
@@ -84,6 +88,15 @@ def test_safe_queries(guard, scope, sql, dialect):
         ("WITH x AS (SELECT * FROM orders) SELECT id FROM x", ErrorCode.SQL_OUT_OF_SCOPE),
         ("WITH x AS (SELECT secret FROM orders) SELECT 1", ErrorCode.SQL_OUT_OF_SCOPE),
         ("SELECT id FROM orders UNION SELECT secret FROM orders", ErrorCode.SQL_OUT_OF_SCOPE),
+        # Sorting a UNION by something that is not one of its outputs still fails.
+        (
+            "SELECT id FROM orders UNION SELECT id FROM customers ORDER BY secret",
+            ErrorCode.SQL_OUT_OF_SCOPE,
+        ),
+        (
+            "SELECT id FROM orders UNION SELECT id FROM customers ORDER BY orders.amount",
+            ErrorCode.SQL_OUT_OF_SCOPE,
+        ),
         ("SELECT id FROM orders o JOIN customers c ON o.secret=c.name", ErrorCode.SQL_OUT_OF_SCOPE),
         (
             "SELECT id FROM orders o JOIN customers c ON o.customer_id=c.id",

@@ -278,6 +278,14 @@ class SqlGuard:
                 elif isinstance(resolved, Scope):
                     if column.name not in cast(exp.Query, resolved.expression).named_selects:
                         raise UnresolvedReference(reference)
+                elif (
+                    isinstance(query_scope.expression, exp.SetOperation)
+                    and not column.table
+                    and column.name in query_scope.expression.named_selects
+                ):
+                    # ORDER BY on a UNION names its own output (qualify turns "ORDER BY 1"
+                    # into the first output's name); each branch was checked on its own.
+                    continue
                 else:
                     raise UnresolvedReference(reference)
         # Unresolved stars in projections (e.g. unknown-schema derived tables) never pass.
