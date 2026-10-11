@@ -30,6 +30,9 @@ class DatasourceRepository(BaseRepository[DatasourceRecord]):
             )
         )
 
+    async def managed(self) -> list[DatasourceRecord]:
+        return list(await self.session.scalars(self._select().order_by(DatasourceRecord.id)))
+
     async def active_ids(self) -> list[int]:
         return list(
             await self.session.scalars(

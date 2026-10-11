@@ -1,10 +1,10 @@
 import { StatCard, Stats } from '../components/StatCard'
 import { useCallback, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQueries, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
-import { runSync, testDatasource, testDatasourceDraft, useDatasources, useMetrics, useSaveDatasource, useSemantics, useSetDatasourceStatus } from '../api/hooks'
-import type { DatasourceRead, DatasourceWrite, JobView, TableRead } from '../api/types'
+import { runSync, testDatasource, testDatasourceDraft, useDatasources, useMetrics, useSaveDatasource, useSemantics, useSetDatasourceStatus, useSetupSummary } from '../api/hooks'
+import type { DatasourceRead, DatasourceWrite, JobView, SetupSummary, TableRead } from '../api/types'
 import { Badge, Button, Callout, Segmented, Switch, TextField } from '../components/basic'
 import { DatasourceDetail } from '../components/DatasourceDetail'
 import { Dialog, DialogFooter, Drawer } from '../components/Dialog'
@@ -16,6 +16,7 @@ import { Select } from '../components/Select'
 import { useToast } from '../components/Toast'
 import { ApiError, describeError } from '../lib/errors'
 import { formatTime } from '../lib/format'
+import { setupNotice } from '../lib/setup'
 import { CHANGE_LABEL, diffTables, useSchemaChanges, type ChangeSet } from '../state/schemaChanges'
 
 type Kind = 'mysql' | 'postgresql' | 'kingbase' | 'gaussdb' | 'clickhouse'
@@ -43,6 +44,8 @@ const blank = (kind: Kind): DatasourceWrite => ({
   username: '',
   password: '',
   tls: false,
+  // 新建的数据源先选表、补齐语义，再对员工开放。
+  require_semantics: true,
 })
 
 export function KindTag({ kind }: { kind: string }) {
@@ -69,7 +72,12 @@ type Filter = 'all' | 'db' | 'upload'
 export function DatasourcesPage() {
   const qc = useQueryClient()
   const toast = useToast()
+  const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
   const list = useDatasources()
+  const summary = useSetupSummary()
+  const noticeOf = (id: number) => setupNotice(summary.data?.find((s) => s.datasource_id === id))
+  const setupPath = (id: number) => `/datasources/${id}/setup`
   const status = useSetDatasourceStatus()
   const changes = useSchemaChanges((s) => s.byDatasource)
   const record = useSchemaChanges((s) => s.record)
@@ -86,7 +94,10 @@ export function DatasourcesPage() {
   const tablesOf = (i: number) => tables[i]?.data
   const lastSync = (ts: TableRead[] | undefined) => ts?.reduce<string | null>((max, t) => (t.synced_at && (!max || t.synced_at > max) ? t.synced_at : max), null) ?? null
   const changeCount = (id: number) => changes[id]?.changes.length ?? 0
-  const needsWork = items.filter((d) => changeCount(d.id) > 0 || (d.type !== 'upload' && !d.read_only_account)).length
+  const needsWork = items.filter((d) => changeCount(d.id) > 0 || (d.type !== 'upload' && !d.read_only_account) || noticeOf(d.id)?.tone === 'warning').length
+  // 「表和语义」页发布后带 ?detail=<id> 回来：直接打开详情，设置哪些团队可见。
+  const detailId = Number(params.get('detail')) || null
+  const detailed = detailId != null ? items.find((d) => d.id === detailId) : undefined
 
   const needle = q.trim().toLowerCase()
   const shown = items
@@ -119,9 +130,13 @@ export function DatasourcesPage() {
       const after = await qc.fetchQuery({ queryKey: ['tables', d.id], queryFn: () => api<TableRead[]>('GET', `/api/schema/${d.id}/tables`), staleTime: 0 })
       const found = r.status === 'success' ? diffTables(before, after) : []
       record(d.id, found)
+      const waiting = r.status === 'success' && d.require_semantics ? await qc.fetchQuery({ queryKey: ['setup-summary'], queryFn: () => api<SetupSummary[]>('GET', '/api/schema/setup-summary'), staleTime: 0 }).then((all) => all.find((x) => x.datasource_id === d.id)) : undefined
+      const held = waiting ? waiting.pending_tables + waiting.pending_columns : 0
       toast(
         r.status !== 'success'
           ? { tone: 'danger', title: `${d.name}：同步失败`, message: r.error ? describeError(r.error) : '请稍后重试。' }
+          : held
+            ? { tone: 'warning', title: `${d.name}：同步完成，有新的表或字段待处理`, message: `${setupNotice(waiting)?.label ?? ''}。补充语义前，员工看不到它们。`, action: { label: '去补充', onClick: () => navigate(setupPath(d.id)) } }
           : found.length
             ? { tone: 'warning', title: `${d.name}：同步完成，发现 ${found.length} 处字段变化`, message: '新增的表和字段默认对团队和员工可见。', action: { label: '查看', onClick: () => setDialog({ kind: 'changes', datasource: d }) } }
             : { tone: 'success', title: `${d.name}：同步完成`, message: '表结构没有变化。' },
@@ -149,14 +164,20 @@ export function DatasourcesPage() {
     setDialog({
       kind: 'form',
       id: d.id,
-      form: { name: d.name, type: d.type as DatasourceWrite['type'], host: d.host, port: d.port, database: d.database, schema_name: d.schema_name, username: d.username, password: '', tls: d.tls },
+      form: { name: d.name, type: d.type as DatasourceWrite['type'], host: d.host, port: d.port, database: d.database, schema_name: d.schema_name, username: d.username, password: '', tls: d.tls, require_semantics: d.require_semantics ?? false },
     })
 
   const statusOf = (d: DatasourceRead) => {
     const n = changeCount(d.id)
+    const notice = d.type === 'upload' ? null : noticeOf(d.id)
     return (
       <span className="cb-status">
-        {d.status === 'pending' ? <Badge tone="info">导入中</Badge> : d.status === 'disabled' ? <Badge>已停用</Badge> : n === 0 && (d.type === 'upload' || d.read_only_account) ? <Badge tone="success">正常</Badge> : null}
+        {notice ? (
+          <button type="button" className={`cb-badge cb-badge-${notice.tone}`} title="打开「表和语义」处理" onClick={() => navigate(setupPath(d.id))}>
+            {notice.label}
+          </button>
+        ) : null}
+        {d.status === 'pending' ? <Badge tone="info">导入中</Badge> : d.status === 'disabled' ? <Badge>已停用</Badge> : n === 0 && !notice && (d.type === 'upload' || d.read_only_account) ? <Badge tone="success">正常</Badge> : null}
         {n ? (
           <button type="button" className="cb-badge cb-badge-warning" onClick={() => setDialog({ kind: 'changes', datasource: d })}>
             字段变化 {n}
@@ -406,6 +427,7 @@ export function DatasourcesPage() {
       ) : null}
 
       {dialog?.kind === 'detail' ? <DatasourceDetail datasource={dialog.datasource} onClose={() => setDialog(null)} /> : null}
+      {detailed && !dialog ? <DatasourceDetail datasource={detailed} onClose={() => setParams({}, { replace: true })} /> : null}
     </div>
   )
 }
@@ -489,6 +511,7 @@ function ChangesDrawer(props: { datasource: DatasourceRead; set?: ChangeSet; onC
 
 function DatasourceForm(props: { id?: number; value: DatasourceWrite; onBack?: () => void; onClose: () => void }) {
   const toast = useToast()
+  const navigate = useNavigate()
   const save = useSaveDatasource()
   const [f, setF] = useState(props.value)
   const [testing, setTesting] = useState(false)
@@ -541,7 +564,22 @@ function DatasourceForm(props: { id?: number; value: DatasourceWrite; onBack?: (
       <DialogFooter left={<Button icon="play" disabled={testing || !f.host || !f.username} onClick={() => void test()}>测试连接</Button>}>
         {props.onBack ? <Button variant="ghost" onClick={props.onBack}>上一步</Button> : null}
         <Button onClick={props.onClose}>取消</Button>
-        <Button variant="primary" disabled={save.isPending || !f.name || !f.host} onClick={() => save.mutate({ id: props.id, body: f }, { onSuccess: () => { toast({ tone: 'success', title: '数据源已保存', message: props.id ? undefined : '点「同步」获取表结构。' }); props.onClose() } })}>保存</Button>
+        <Button variant="primary" disabled={save.isPending || !f.name || !f.host} onClick={() =>
+            save.mutate(
+              { id: props.id, body: f },
+              {
+                onSuccess: (saved) => {
+                  props.onClose()
+                  if (props.id) toast({ tone: 'success', title: '数据源已保存' })
+                  // 新数据源：接着读取表结构，选表、补齐语义。
+                  else navigate(`/datasources/${saved.id}/setup`, { state: { sync: true } })
+                },
+              },
+            )
+          }
+        >
+          {props.id ? '保存' : '保存并读取表结构'}
+        </Button>
       </DialogFooter>
     </Dialog>
   )

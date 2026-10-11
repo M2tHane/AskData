@@ -58,6 +58,19 @@ export function SemanticPage({ role }: { role: Role }) {
     }
     return m
   }, [list.data])
+  /** 没有语义定义时的平台默认：字段说明，没有就用数据库注释（接入数据源时补齐的就是它）。 */
+  const baseline = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const t of all) {
+      const tb = (t.description || t.comment || '').trim()
+      if (tb) m.set(keyOf('table', t.id), tb)
+      for (const c of t.columns ?? []) {
+        const cb = (c.description || c.comment || '').trim()
+        if (cb) m.set(keyOf('column', c.id), cb)
+      }
+    }
+    return m
+  }, [all])
   const viewOf = useCallback((key: string) => levelView(byTarget.get(key) ?? [], level), [byTarget, level])
   const draftOf = (key: string) => edits[key] ?? toDraft(viewOf(key).base)
 
@@ -125,7 +138,7 @@ export function SemanticPage({ role }: { role: Role }) {
   }
 
   const changeCount = (t: TableRead) => (changes?.changes ?? []).filter((c) => c.table === t.name).length
-  const filled = (t: TableRead) => [keyOf('table', t.id), ...(t.columns ?? []).map((c) => keyOf('column', c.id))].filter((k) => viewOf(k).base).length
+  const filled = (t: TableRead) => (t.columns ?? []).map((c) => keyOf('column', c.id)).filter((k) => viewOf(k).base || baseline.has(k)).length
 
   const setDraft = (key: string, patch: Partial<SemanticDraft>) => setEdits((cur) => ({ ...cur, [key]: { ...(cur[key] ?? toDraft(viewOf(key).base)), ...patch } }))
   const ask = (key: string, name: string) => setRestoring({ key, name, view: viewOf(key) })
@@ -146,7 +159,8 @@ export function SemanticPage({ role }: { role: Role }) {
         </>
       )
     }
-    return <span>{src.kind === 'inherit' ? `沿用${LEVEL_SHORT[src.from]}` : '未设置'}</span>
+    if (src.kind === 'inherit') return <span>沿用{LEVEL_SHORT[src.from]}</span>
+    return <span title={baseline.get(key)}>{baseline.has(key) ? '沿用字段说明' : '未设置'}</span>
   }
 
   const tkey = table ? keyOf('table', table.id) : ''
@@ -215,7 +229,7 @@ export function SemanticPage({ role }: { role: Role }) {
                 </label>
                 <label className="cb-sem-lab cb-sem-lab-grow">
                   说明
-                  <input className="cb-sem-in" value={tdraft.description} placeholder="这张表记录什么" onChange={(e) => setDraft(tkey, { description: e.target.value })} />
+                  <input className="cb-sem-in" value={tdraft.description} placeholder={baseline.get(tkey) ?? '这张表记录什么'} onChange={(e) => setDraft(tkey, { description: e.target.value })} />
                 </label>
                 <span className="cb-sem-end">{sourceCell(tkey, table.name)}</span>
               </div>
@@ -259,6 +273,7 @@ export function SemanticPage({ role }: { role: Role }) {
                       draft={d}
                       overridden={!!view.own}
                       source={sourceCell(key, c.name)}
+                      fallback={viewOf(key).base ? undefined : baseline.get(key)}
                       enumSource={view.own ? `${SCOPE_NAME[level]}已修改` : view.upper ? `沿用${LEVEL_SHORT[view.upper.scope]}` : ''}
                       onChange={(patch) => setDraft(key, patch)}
                     />
@@ -311,6 +326,8 @@ function FieldRows(props: {
   draft: SemanticDraft
   overridden: boolean
   source: ReactNode
+  /** 没有任何级别的语义时显示的平台默认（字段说明或注释）。 */
+  fallback?: string
   enumSource: string
   onChange: (patch: Partial<SemanticDraft>) => void
 }) {
@@ -324,7 +341,7 @@ function FieldRows(props: {
           <span className="cb-sub cb-sem-src">{props.type} · {props.source}</span>
         </td>
         <td><input className="cb-sem-in" aria-label={`${name} 别名`} value={draft.alias} placeholder="用顿号分隔" onChange={(e) => onChange({ alias: e.target.value })} /></td>
-        <td><input className="cb-sem-in" aria-label={`${name} 说明`} value={draft.description} placeholder="这个字段是什么" onChange={(e) => onChange({ description: e.target.value })} /></td>
+        <td><input className="cb-sem-in" aria-label={`${name} 说明`} value={draft.description} placeholder={props.fallback ?? '这个字段是什么'} title={props.fallback} onChange={(e) => onChange({ description: e.target.value })} /></td>
         <td>
           <label className="cb-sem-check">
             <input type="checkbox" checked={draft.enumOn} onChange={(e) => onChange({ enumOn: e.target.checked, enums: e.target.checked && !draft.enums.length ? [{ key: '', value: '' }] : draft.enums })} />

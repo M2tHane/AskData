@@ -873,6 +873,11 @@
       "title": "Read Only Account",
       "type": "boolean"
      },
+     "require_semantics": {
+      "default": false,
+      "title": "Require Semantics",
+      "type": "boolean"
+     },
      "schema_name": {
       "title": "Schema Name",
       "type": "string"
@@ -984,6 +989,11 @@
       "title": "Port",
       "type": "integer"
      },
+     "require_semantics": {
+      "default": false,
+      "title": "Require Semantics",
+      "type": "boolean"
+     },
      "schema_name": {
       "default": "public",
       "maxLength": 255,
@@ -1038,6 +1048,40 @@
      "description"
     ],
     "title": "DescriptionWrite",
+    "type": "object"
+   },
+   "DraftRequest": {
+    "properties": {
+     "column_ids": {
+      "items": {
+       "type": "integer"
+      },
+      "maxItems": 300,
+      "minItems": 1,
+      "title": "Column Ids",
+      "type": "array"
+     }
+    },
+    "required": [
+     "column_ids"
+    ],
+    "title": "DraftRequest",
+    "type": "object"
+   },
+   "DraftResult": {
+    "properties": {
+     "descriptions": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "title": "Descriptions",
+      "type": "object"
+     }
+    },
+    "required": [
+     "descriptions"
+    ],
+    "title": "DraftResult",
     "type": "object"
    },
    "EnabledWrite": {
@@ -1251,6 +1295,31 @@
      }
     },
     "title": "Envelope[DatasourceRead]",
+    "type": "object"
+   },
+   "Envelope_DraftResult_": {
+    "properties": {
+     "code": {
+      "$ref": "#/components/schemas/ErrorCode",
+      "default": "OK"
+     },
+     "data": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/DraftResult"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "message": {
+      "default": "Success",
+      "title": "Message",
+      "type": "string"
+     }
+    },
+    "title": "Envelope[DraftResult]",
     "type": "object"
    },
    "Envelope_EvalCaseInput_": {
@@ -2147,6 +2216,56 @@
     "title": "Envelope[SemanticView]",
     "type": "object"
    },
+   "Envelope_SetupRead_": {
+    "properties": {
+     "code": {
+      "$ref": "#/components/schemas/ErrorCode",
+      "default": "OK"
+     },
+     "data": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/SetupRead"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "message": {
+      "default": "Success",
+      "title": "Message",
+      "type": "string"
+     }
+    },
+    "title": "Envelope[SetupRead]",
+    "type": "object"
+   },
+   "Envelope_SetupResult_": {
+    "properties": {
+     "code": {
+      "$ref": "#/components/schemas/ErrorCode",
+      "default": "OK"
+     },
+     "data": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/SetupResult"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "message": {
+      "default": "Success",
+      "title": "Message",
+      "type": "string"
+     }
+    },
+    "title": "Envelope[SetupResult]",
+    "type": "object"
+   },
    "Envelope_SuggestedQuestions_": {
     "properties": {
      "code": {
@@ -2977,6 +3096,35 @@
      }
     },
     "title": "Envelope[list[SemanticView]]",
+    "type": "object"
+   },
+   "Envelope_list_SetupSummary__": {
+    "properties": {
+     "code": {
+      "$ref": "#/components/schemas/ErrorCode",
+      "default": "OK"
+     },
+     "data": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/SetupSummary"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Data"
+     },
+     "message": {
+      "default": "Success",
+      "title": "Message",
+      "type": "string"
+     }
+    },
+    "title": "Envelope[list[SetupSummary]]",
     "type": "object"
    },
    "Envelope_list_TableRead__": {
@@ -7593,6 +7741,176 @@
      "updated_at"
     ],
     "title": "SemanticView",
+    "type": "object"
+   },
+   "SetupColumnWrite": {
+    "properties": {
+     "column_id": {
+      "minimum": 1.0,
+      "title": "Column Id",
+      "type": "integer"
+     },
+     "description": {
+      "maxLength": 2000,
+      "title": "Description",
+      "type": "string"
+     }
+    },
+    "required": [
+     "column_id",
+     "description"
+    ],
+    "title": "SetupColumnWrite",
+    "type": "object"
+   },
+   "SetupRead": {
+    "properties": {
+     "datasource_id": {
+      "title": "Datasource Id",
+      "type": "integer"
+     },
+     "require_semantics": {
+      "title": "Require Semantics",
+      "type": "boolean"
+     },
+     "tables": {
+      "items": {
+       "$ref": "#/components/schemas/TableRead"
+      },
+      "title": "Tables",
+      "type": "array"
+     }
+    },
+    "required": [
+     "datasource_id",
+     "require_semantics",
+     "tables"
+    ],
+    "title": "SetupRead",
+    "type": "object"
+   },
+   "SetupResult": {
+    "properties": {
+     "excluded_tables": {
+      "default": 0,
+      "title": "Excluded Tables",
+      "type": "integer"
+     },
+     "imported_tables": {
+      "default": 0,
+      "title": "Imported Tables",
+      "type": "integer"
+     },
+     "published": {
+      "title": "Published",
+      "type": "boolean"
+     },
+     "released_columns": {
+      "default": 0,
+      "title": "Released Columns",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "published"
+    ],
+    "title": "SetupResult",
+    "type": "object"
+   },
+   "SetupSummary": {
+    "properties": {
+     "datasource_id": {
+      "title": "Datasource Id",
+      "type": "integer"
+     },
+     "pending_columns": {
+      "title": "Pending Columns",
+      "type": "integer"
+     },
+     "pending_tables": {
+      "title": "Pending Tables",
+      "type": "integer"
+     },
+     "require_semantics": {
+      "title": "Require Semantics",
+      "type": "boolean"
+     },
+     "tables": {
+      "title": "Tables",
+      "type": "integer"
+     },
+     "undocumented_columns": {
+      "title": "Undocumented Columns",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "datasource_id",
+     "require_semantics",
+     "tables",
+     "pending_tables",
+     "pending_columns",
+     "undocumented_columns"
+    ],
+    "title": "SetupSummary",
+    "type": "object"
+   },
+   "SetupTableWrite": {
+    "properties": {
+     "columns": {
+      "items": {
+       "$ref": "#/components/schemas/SetupColumnWrite"
+      },
+      "maxItems": 2000,
+      "title": "Columns",
+      "type": "array"
+     },
+     "description": {
+      "anyOf": [
+       {
+        "maxLength": 2000,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Description"
+     },
+     "include": {
+      "title": "Include",
+      "type": "boolean"
+     },
+     "table_id": {
+      "minimum": 1.0,
+      "title": "Table Id",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "table_id",
+     "include"
+    ],
+    "title": "SetupTableWrite",
+    "type": "object"
+   },
+   "SetupWrite": {
+    "properties": {
+     "publish": {
+      "default": false,
+      "title": "Publish",
+      "type": "boolean"
+     },
+     "tables": {
+      "items": {
+       "$ref": "#/components/schemas/SetupTableWrite"
+      },
+      "maxItems": 5000,
+      "title": "Tables",
+      "type": "array"
+     }
+    },
+    "title": "SetupWrite",
     "type": "object"
    },
    "SuggestedQuestion": {
@@ -14468,6 +14786,33 @@
     ]
    }
   },
+  "/api/schema/setup-summary": {
+   "get": {
+    "description": "Per datasource: tables waiting to be imported and columns waiting for a semantic.",
+    "operationId": "setup_summary_api_schema_setup_summary_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_list_SetupSummary__"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Setup Summary",
+    "tags": [
+     "schema"
+    ]
+   }
+  },
   "/api/schema/tables/{target_id}": {
    "patch": {
     "operationId": "describe_table_api_schema_tables__target_id__patch",
@@ -14614,6 +14959,166 @@
      }
     ],
     "summary": "Relations",
+    "tags": [
+     "schema"
+    ]
+   }
+  },
+  "/api/schema/{datasource_id}/setup": {
+   "get": {
+    "operationId": "setup_api_schema__datasource_id__setup_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "datasource_id",
+      "required": true,
+      "schema": {
+       "title": "Datasource Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_SetupRead_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Setup",
+    "tags": [
+     "schema"
+    ]
+   },
+   "put": {
+    "operationId": "save_setup_api_schema__datasource_id__setup_put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "datasource_id",
+      "required": true,
+      "schema": {
+       "title": "Datasource Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SetupWrite"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_SetupResult_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Save Setup",
+    "tags": [
+     "schema"
+    ]
+   }
+  },
+  "/api/schema/{datasource_id}/setup/draft": {
+   "post": {
+    "description": "Model-proposed semantics for columns; nothing is saved.",
+    "operationId": "draft_semantics_api_schema__datasource_id__setup_draft_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "datasource_id",
+      "required": true,
+      "schema": {
+       "title": "Datasource Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DraftRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Envelope_DraftResult_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Draft Semantics",
     "tags": [
      "schema"
     ]

@@ -88,6 +88,7 @@ from app.modules.promotion import service as promotion
 from app.modules.promptcfg import service as promptcfg
 from app.modules.querylog import service as querylog
 from app.modules.schema import service as schema
+from app.modules.schema.drafting import ModelDescriptionDrafter
 from app.modules.semantic import service as semantic
 from app.modules.upload.repository import UploadRepository
 from app.modules.upload.service import UploadService
@@ -227,6 +228,7 @@ class Services:
         self.promptcfg = promptcfg.build_service(session)
         self.models = modelcfg.build_service(session, box, runtime.transport, self.usage)
         self.llm = LLMClient(self.models.registry, self.usage, runtime.transport)
+        self.schema.drafter = ModelDescriptionDrafter(self.llm, overrides=self.promptcfg)
         self.embeddings = EmbeddingClient(self.models.registry, self.usage, runtime.transport)
         self.datasources = metric.QueryDatasources(self.datasource, self.permissions)
         self.semantic = semantic.build_service(
@@ -564,6 +566,7 @@ def configure_dependencies(application: FastAPI) -> None:
         application.dependency_overrides[module.get_service] = dependency(attribute)
     application.dependency_overrides[identity_resolver] = dependency("auth")
     application.dependency_overrides[schema.get_permissions] = dependency("permissions")
+    application.dependency_overrides[schema.get_grants] = dependency("grants")
     for name in (
         "semantic",
         "metric",

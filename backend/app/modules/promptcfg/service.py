@@ -38,6 +38,10 @@ LABELS: dict[str, tuple[str, str]] = {
     PromptId.CORRECT.value: ("SQL 自动纠错", "执行报错后让模型修正 SQL，最多重试三次。"),
     PromptId.ANSWER.value: ("生成回答", "根据查询结果写 1～3 句结论，流式返回给用户。"),
     PromptId.SUGGEST.value: ("猜你想问", "根据可见范围生成示例问题。"),
+    PromptId.DESCRIBE.value: (
+        "AI 补全字段语义",
+        "接入数据源时，根据表名、字段名和类型为缺少注释的字段起草语义，管理员确认后保存。",
+    ),
     "mysql": (
         "MySQL 方言",
         "MySQL 的引号、日期、字符串、类型转换等书写规则，拼进生成 SQL 的提示词。",

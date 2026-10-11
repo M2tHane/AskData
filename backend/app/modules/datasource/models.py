@@ -21,5 +21,8 @@ class DatasourceRecord(AuditFields, SoftDelete, Base):
     tls: Mapped[bool] = mapped_column(Boolean, default=True)
     read_only_account: Mapped[bool] = mapped_column(Boolean, default=False)
     owner_team_id: Mapped[int | None] = mapped_column(ForeignKey("team.id"), nullable=True)
+    # Set up through table selection: new tables wait to be imported, new columns for a
+    # semantic, and neither reaches anyone before an administrator has described it.
+    require_semantics: Mapped[bool] = mapped_column(Boolean, default=False)
     upload_initialized: Mapped[bool] = mapped_column(Boolean, default=False)
     upload_publications: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)

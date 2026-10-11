@@ -1,0 +1,32 @@
+/* datasource setup — choose tables, give every column a semantic. */
+.cb-setup-crumb { display: flex; align-items: center; gap: var(--space-2); color: var(--text-2); font: 400 13px/20px var(--font-sans); }
+.cb-setup-crumb b { color: var(--text-1); font-weight: 500; }
+.cb-setup-crumb .cb-icon { color: var(--text-3); }
+
+.cb-setup-reading { max-width: 640px; padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-4); }
+.cb-setup-reading h2 { margin: 0; font: 600 16px/24px var(--font-sans); }
+.cb-setup-reading p { margin: 0; }
+.cb-setup-reading .cb-meter { flex: 1; }
+.cb-setup-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); font: 400 13px/20px var(--font-sans); }
+.cb-setup-steps li { display: flex; align-items: center; gap: var(--space-2); color: var(--text-3); }
+.cb-setup-steps li[data-state='done'] { color: var(--text-2); }
+.cb-setup-steps li[data-state='done'] .cb-icon { color: var(--success); }
+.cb-setup-steps li[data-state='now'] { color: var(--text-1); font-weight: 500; }
+
+.cb-setup-gap { color: var(--danger); font: 500 13px/20px var(--font-sans); white-space: nowrap; }
+
+.cb-setup-tree .cb-pm-head, .cb-setup-tree .cb-pm-row { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1.4fr) 40px; }
+.cb-setup-tree .cb-pm-row { min-height: 48px; }
+.cb-setup-tree .cb-pm-toggle .cb-pm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-setup-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.cb-setup-field { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.cb-setup-field > .cb-m { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-setup-input { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.cb-setup-input .cb-sem-in[aria-invalid='true'] { border-color: var(--danger); }
+.cb-setup-input .cb-sem-in[aria-invalid='true']::placeholder { color: var(--danger); }
+
+/* 不导入的表：整组变淡，仍可编辑，方便以后再导入。 */
+.cb-setup-tree .cb-row-off .cb-pm-name,
+.cb-setup-tree .cb-row-off .cb-setup-note,
+.cb-setup-tree .cb-row-off .cb-m,
+.cb-setup-tree .cb-row-off .cb-sem-in { color: var(--text-3); }

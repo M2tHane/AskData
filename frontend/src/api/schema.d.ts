@@ -1476,6 +1476,26 @@ export interface paths {
         patch: operations["describe_column_api_schema_columns__target_id__patch"];
         trace?: never;
     };
+    "/api/schema/setup-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Setup Summary
+         * @description Per datasource: tables waiting to be imported and columns waiting for a semantic.
+         */
+        get: operations["setup_summary_api_schema_setup_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/schema/tables/{target_id}": {
         parameters: {
             query?: never;
@@ -1521,6 +1541,44 @@ export interface paths {
         get: operations["relations_api_schema__datasource_id__relations_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schema/{datasource_id}/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Setup */
+        get: operations["setup_api_schema__datasource_id__setup_get"];
+        /** Save Setup */
+        put: operations["save_setup_api_schema__datasource_id__setup_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schema/{datasource_id}/setup/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Draft Semantics
+         * @description Model-proposed semantics for columns; nothing is saved.
+         */
+        post: operations["draft_semantics_api_schema__datasource_id__setup_draft_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2152,6 +2210,11 @@ export interface components {
             port: number;
             /** Read Only Account */
             read_only_account: boolean;
+            /**
+             * Require Semantics
+             * @default false
+             */
+            require_semantics: boolean;
             /** Schema Name */
             schema_name: string;
             /** Status */
@@ -2194,6 +2257,11 @@ export interface components {
             /** Port */
             port: number;
             /**
+             * Require Semantics
+             * @default false
+             */
+            require_semantics: boolean;
+            /**
              * Schema Name
              * @default public
              */
@@ -2215,6 +2283,18 @@ export interface components {
         DescriptionWrite: {
             /** Description */
             description: string;
+        };
+        /** DraftRequest */
+        DraftRequest: {
+            /** Column Ids */
+            column_ids: number[];
+        };
+        /** DraftResult */
+        DraftResult: {
+            /** Descriptions */
+            descriptions: {
+                [key: string]: string;
+            };
         };
         /** EnabledWrite */
         EnabledWrite: {
@@ -2303,6 +2383,17 @@ export interface components {
             /** @default OK */
             code: components["schemas"]["ErrorCode"];
             data?: components["schemas"]["DatasourceRead"] | null;
+            /**
+             * Message
+             * @default Success
+             */
+            message: string;
+        };
+        /** Envelope[DraftResult] */
+        Envelope_DraftResult_: {
+            /** @default OK */
+            code: components["schemas"]["ErrorCode"];
+            data?: components["schemas"]["DraftResult"] | null;
             /**
              * Message
              * @default Success
@@ -2706,6 +2797,28 @@ export interface components {
              */
             message: string;
         };
+        /** Envelope[SetupRead] */
+        Envelope_SetupRead_: {
+            /** @default OK */
+            code: components["schemas"]["ErrorCode"];
+            data?: components["schemas"]["SetupRead"] | null;
+            /**
+             * Message
+             * @default Success
+             */
+            message: string;
+        };
+        /** Envelope[SetupResult] */
+        Envelope_SetupResult_: {
+            /** @default OK */
+            code: components["schemas"]["ErrorCode"];
+            data?: components["schemas"]["SetupResult"] | null;
+            /**
+             * Message
+             * @default Success
+             */
+            message: string;
+        };
         /** Envelope[SuggestedQuestions] */
         Envelope_SuggestedQuestions_: {
             /** @default OK */
@@ -3058,6 +3171,18 @@ export interface components {
             code: components["schemas"]["ErrorCode"];
             /** Data */
             data?: components["schemas"]["SemanticView"][] | null;
+            /**
+             * Message
+             * @default Success
+             */
+            message: string;
+        };
+        /** Envelope[list[SetupSummary]] */
+        Envelope_list_SetupSummary__: {
+            /** @default OK */
+            code: components["schemas"]["ErrorCode"];
+            /** Data */
+            data?: components["schemas"]["SetupSummary"][] | null;
             /**
              * Message
              * @default Success
@@ -4912,6 +5037,78 @@ export interface components {
             updated_at: string;
             /** Version */
             version: number;
+        };
+        /** SetupColumnWrite */
+        SetupColumnWrite: {
+            /** Column Id */
+            column_id: number;
+            /** Description */
+            description: string;
+        };
+        /** SetupRead */
+        SetupRead: {
+            /** Datasource Id */
+            datasource_id: number;
+            /** Require Semantics */
+            require_semantics: boolean;
+            /** Tables */
+            tables: components["schemas"]["TableRead"][];
+        };
+        /** SetupResult */
+        SetupResult: {
+            /**
+             * Excluded Tables
+             * @default 0
+             */
+            excluded_tables: number;
+            /**
+             * Imported Tables
+             * @default 0
+             */
+            imported_tables: number;
+            /** Published */
+            published: boolean;
+            /**
+             * Released Columns
+             * @default 0
+             */
+            released_columns: number;
+        };
+        /** SetupSummary */
+        SetupSummary: {
+            /** Datasource Id */
+            datasource_id: number;
+            /** Pending Columns */
+            pending_columns: number;
+            /** Pending Tables */
+            pending_tables: number;
+            /** Require Semantics */
+            require_semantics: boolean;
+            /** Tables */
+            tables: number;
+            /** Undocumented Columns */
+            undocumented_columns: number;
+        };
+        /** SetupTableWrite */
+        SetupTableWrite: {
+            /** Columns */
+            columns?: components["schemas"]["SetupColumnWrite"][];
+            /** Description */
+            description?: string | null;
+            /** Include */
+            include: boolean;
+            /** Table Id */
+            table_id: number;
+        };
+        /** SetupWrite */
+        SetupWrite: {
+            /**
+             * Publish
+             * @default false
+             */
+            publish: boolean;
+            /** Tables */
+            tables?: components["schemas"]["SetupTableWrite"][];
         };
         /**
          * SuggestedQuestion
@@ -8797,6 +8994,26 @@ export interface operations {
             };
         };
     };
+    setup_summary_api_schema_setup_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_list_SetupSummary__"];
+                };
+            };
+        };
+    };
     describe_table_api_schema_tables__target_id__patch: {
         parameters: {
             query?: never;
@@ -8881,6 +9098,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Envelope_list_RelationRead__"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    setup_api_schema__datasource_id__setup_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                datasource_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_SetupRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_setup_api_schema__datasource_id__setup_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                datasource_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetupWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_SetupResult_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    draft_semantics_api_schema__datasource_id__setup_draft_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                datasource_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_DraftResult_"];
                 };
             };
             /** @description Validation Error */

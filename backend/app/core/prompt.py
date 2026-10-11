@@ -18,6 +18,8 @@ class PromptId(StrEnum):
     # One call writes the data-grounded answer after execution.
     ANSWER = "answer"
     SUGGEST = "suggestion"
+    # Proposed semantics for columns during datasource setup; an administrator reviews them.
+    DESCRIBE = "column_description"
 
 
 DIALECT_NAMES = ("mysql", "postgresql", "kingbase", "gaussdb", "clickhouse")
@@ -99,6 +101,7 @@ class PromptRegistry:
             PromptId.CORRECT: "v3",
             PromptId.ANSWER: "v3",
             PromptId.SUGGEST: "v2",
+            PromptId.DESCRIBE: "v1",
         }
         self._templates: dict[PromptId, tuple[_LoadedPrompt, Template]] = {
             prompt: self._load(prompt, self.directory / f"{prompt.value}.{version}.yaml")

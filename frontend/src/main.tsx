@@ -21,6 +21,7 @@ import './styles/pages/usage.css'
 import './styles/pages/prompts.css'
 import './styles/pages/permissions.css'
 import './styles/pages/mcp.css'
+import './styles/pages/setup.css'
 
 initTheme()
 

@@ -6,6 +6,7 @@ import { navFor, ROUTES } from './lib/nav'
 import { useAuth } from './state/auth'
 import { ChatPage } from './pages/ChatPage'
 import { DashboardPage } from './pages/DashboardPage'
+import { DatasourceSetupPage } from './pages/DatasourceSetupPage'
 import { DatasourcesPage } from './pages/DatasourcesPage'
 import { EvalPage } from './pages/EvalPage'
 import { FeedbackPage } from './pages/FeedbackPage'
@@ -74,6 +75,7 @@ export function App() {
       <Routes>
         <Route path="/chat" element={<Chat />} />
         <Route path="/chat/:id" element={<Chat />} />
+        {user.role === 'admin' ? <Route path="/datasources/:id/setup" element={<DatasourceSetupPage />} /> : null}
         {routes
           .filter((r) => r.id !== 'chat')
           .map((r) => (

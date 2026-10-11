@@ -104,6 +104,7 @@ def test_prompt_registry_versions_and_injection_delimiters(prompt):
             PromptId.CORRECT: "v3",
             PromptId.ANSWER: "v3",
             PromptId.SUGGEST: "v2",
+            PromptId.DESCRIBE: "v1",
         }[prompt]
     )
     assert result.content.count("</untrusted_data>") == 1

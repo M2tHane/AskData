@@ -13,6 +13,8 @@ class DatasourceWrite(BaseModel):
     password: SecretStr
     schema_name: str = Field(default="public", min_length=1, max_length=255)
     tls: bool = True
+    # Only read on create: the setup flow in the admin UI sends true.
+    require_semantics: bool = False
 
 
 class DatasourceRead(BaseModel):
@@ -28,6 +30,7 @@ class DatasourceRead(BaseModel):
     tls: bool
     status: str
     read_only_account: bool
+    require_semantics: bool = False
     password: str = "********"
     warning: str | None = None
     owner_team_id: int | None = None

@@ -105,6 +105,23 @@ class DatasourceService:
             page_size=page.page_size,
         )
 
+    async def requires_semantics(self, datasource_id: int) -> bool:
+        row = await self.repository.get(datasource_id)
+        if row is None:
+            raise AppError(ErrorCode.NOT_FOUND, http_status=404)
+        return bool(row.require_semantics)
+
+    async def semantics_flags(self) -> dict[int, bool]:
+        """Every database datasource and whether it requires semantics, for admin summaries.
+
+        Uploads are left out: their columns come from file headers, not database comments.
+        """
+        return {
+            row.id: bool(row.require_semantics)
+            for row in await self.repository.managed()
+            if row.type != "upload"
+        }
+
     async def active_ids(self) -> list[int]:
         return await self.repository.active_ids()
 
@@ -164,7 +181,8 @@ class DatasourceService:
         result = await self.inspector.test(self._draft(data))
         if not result.available:
             raise DatasourceUnavailable()
-        values = data.model_dump(exclude={"password"})
+        # How a datasource was set up is fixed at creation.
+        values = data.model_dump(exclude={"password", "require_semantics"})
         values.update(
             secret_enc=self.box.encrypt(data.password), read_only_account=result.read_only_account
         )

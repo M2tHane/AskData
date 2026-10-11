@@ -49,6 +49,34 @@ class SchemaRepository:
             for table in tables
         ]
 
+    async def setup_rows(self, datasource_id: int) -> tuple[list[MetaTable], list[MetaColumn]]:
+        """Everything an administrator decides on: imported, pending and excluded tables with
+        their active and pending columns (missing ones are gone from the database)."""
+        tables = list(
+            await self.session.scalars(
+                select(MetaTable)
+                .where(
+                    MetaTable.datasource_id == datasource_id,
+                    MetaTable.status.in_(("active", "pending", "excluded")),
+                    MetaTable.deleted_at.is_(None),
+                )
+                .order_by(MetaTable.schema_name, MetaTable.name)
+            )
+        )
+        columns = list(
+            await self.session.scalars(
+                select(MetaColumn)
+                .join(MetaTable)
+                .where(
+                    MetaTable.datasource_id == datasource_id,
+                    MetaColumn.status.in_(("active", "pending")),
+                    MetaColumn.deleted_at.is_(None),
+                )
+                .order_by(MetaColumn.ordinal)
+            )
+        )
+        return tables, columns
+
     async def lock(self, datasource_id: int) -> None:
         # Lock metadata as well as authorization writers' catalog reads.
         await self.session.scalars(
@@ -65,7 +93,15 @@ class SchemaRepository:
         actor_id: int,
         *,
         partial: bool = False,
+        strict: bool = False,
     ) -> SyncResult:
+        """Bring the catalog in line with the database.
+
+        strict (a datasource set up with required semantics): a new table waits to be
+        imported ("pending"), a new column without a comment waits for a semantic
+        ("pending"), a table left out ("excluded") stays out, and one that went missing
+        and came back is confirmed again. Nothing pending or excluded is in the catalog.
+        """
         now = datetime.now(UTC)
         await self.lock(datasource_id)
         tables = list(
@@ -91,6 +127,8 @@ class SchemaRepository:
         seen_columns = set(untouched_columns)
         added_tables: list[int] = []
         added_columns: list[int] = []
+        pending_tables: list[int] = []
+        pending_columns: list[int] = []
         column_names: dict[tuple[str, str], int] = {}
         for incoming in snapshot.tables:
             key = (incoming.schema_name, incoming.name)
@@ -103,27 +141,40 @@ class SchemaRepository:
                         "name": incoming.name,
                         "comment": incoming.comment,
                         "synced_at": now,
-                        "status": "active",
+                        "status": "pending" if strict else "active",
                     },
                     actor_id,
                 )
-                added_tables.append(table.id)
+                (pending_tables if strict else added_tables).append(table.id)
             else:
-                table.comment, table.status, table.synced_at = incoming.comment, "active", now
+                if table.status in {"pending", "excluded"}:
+                    status = table.status
+                else:
+                    status = "pending" if strict and table.status == "missing" else "active"
+                table.comment, table.status, table.synced_at = incoming.comment, status, now
             seen_tables.add(table.id)
             for incoming_column in incoming.columns:
                 column = by_column.get((table.id, incoming_column.name))
                 values = incoming_column.model_dump()
+                described = bool(
+                    incoming_column.comment.strip() or (column and column.description.strip())
+                )
+                waiting = column is None or column.status in {"pending", "missing"}
+                status = "pending" if strict and waiting and not described else "active"
                 if column is None:
                     column = await self.columns.create(
-                        {**values, "table_id": table.id, "status": "active"}, actor_id
+                        {**values, "table_id": table.id, "status": status}, actor_id
                     )
-                    added_columns.append(column.id)
+                    if table.status == "active":
+                        (added_columns if status == "active" else pending_columns).append(column.id)
                 else:
-                    await self.columns.update(column, {**values, "status": "active"})
+                    await self.columns.update(column, {**values, "status": status})
                 seen_columns.add(column.id)
                 column_names[(f"{incoming.schema_name}.{incoming.name}", column.name)] = column.id
-        removed_tables = [t.id for t in tables if t.id not in seen_tables]
+        # A table left out on purpose stays left out, present or not.
+        removed_tables = [
+            t.id for t in tables if t.id not in seen_tables and t.status != "excluded"
+        ]
         removed_columns = [c.id for c in columns if c.id not in seen_columns]
         for table in tables:
             if table.id in removed_tables:
@@ -173,6 +224,8 @@ class SchemaRepository:
             table_count=len(seen_tables),
             added_tables=added_tables,
             added_columns=added_columns,
+            pending_tables=pending_tables,
+            pending_columns=pending_columns,
         )
 
     async def relations(self, column_ids: list[int]) -> list[MetaRelation]:

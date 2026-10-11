@@ -311,7 +311,7 @@ export const useEvalRuns = () =>
   })
 
 /* ---- org ---- */
-import type { AuditView, ModelChoice, GrantRead, TeamCreate, VisibilityRead, FullVisibilityWrite, ModelRead, ModelWrite, PromptDetail, PromptSummary, QuotaUsage, QuotaView, RevisionRead, RevisionWrite, TrendPoint, TaskRecord, TeamRead, TeamWrite, UsageView, UserRead, UserUpdate, UserWrite } from './types'
+import type { AuditView, ModelChoice, GrantRead, TeamCreate, VisibilityRead, FullVisibilityWrite, ModelRead, ModelWrite, PromptDetail, PromptSummary, QuotaUsage, QuotaView, RevisionRead, RevisionWrite, TrendPoint, TaskRecord, TeamRead, TeamWrite, UsageView, UserRead, UserUpdate, UserWrite, SetupRead, SetupResult, SetupSummary, SetupWrite, DraftResult } from './types'
 
 /** 团队列表只有管理员能读；其他角色的页面传 enabled=false。 */
 export const useTeams = (enabled = true) =>
@@ -538,10 +538,11 @@ export const testDatasourceDraft = (body: DatasourceWrite) => api<ConnectionTest
 export const testModelDraft = (body: ModelWrite) => api<{ available: boolean }>('POST', '/api/models/test', { body })
 
 /** 触发元数据同步并等到任务结束；返回最终状态和错误码。 */
-export async function runSync(datasourceId: number): Promise<{ status: string; error: string | null }> {
+export async function runSync(datasourceId: number, onProgress?: (percent: number) => void): Promise<{ status: string; error: string | null }> {
   const task = await syncSchema(datasourceId)
   for (let i = 0; i < 120; i++) {
     const t = await api<TaskRecord>('GET', `/api/schema/tasks/${task.id}`)
+    onProgress?.(t.progress ?? 0)
     if (t.status === 'success' || t.status === 'failed') return { status: t.status, error: t.error ?? null }
     await new Promise((r) => setTimeout(r, 1000))
   }
@@ -614,3 +615,24 @@ export const useRestoreMcpItems = (id: number) =>
 
 export const testMcpAsk = (id: number, body: { question: string; datasource_id: number; conversation_id?: string | null }) =>
   api<TestAskReply>('POST', `${MCP}/${id}/test`, { body })
+
+/* ---- 数据源接入：选表、补语义（管理员） ---- */
+export const useSetup = (datasourceId: number | null) =>
+  useQuery({ queryKey: ['setup', datasourceId], queryFn: () => api<SetupRead>('GET', `/api/schema/${datasourceId}/setup`), enabled: datasourceId != null })
+
+export const useSetupSummary = (enabled = true) =>
+  useQuery({ queryKey: ['setup-summary'], queryFn: () => api<SetupSummary[]>('GET', '/api/schema/setup-summary'), staleTime: 30_000, enabled })
+
+/** 保存后，表结构、可见范围和各处的待办都要刷新。 */
+export function useSaveSetup(datasourceId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: SetupWrite) => api<SetupResult>('PUT', `/api/schema/${datasourceId}/setup`, { body }),
+    onSuccess: () => {
+      for (const key of [['setup', datasourceId], ['setup-summary'], ['tables', datasourceId], ['grants', datasourceId], ['scope', datasourceId]]) void qc.invalidateQueries({ queryKey: key })
+    },
+  })
+}
+
+export const draftSemantics = (datasourceId: number, columnIds: number[]) =>
+  api<DraftResult>('POST', `/api/schema/${datasourceId}/setup/draft`, { body: { column_ids: columnIds } })
