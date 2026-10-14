@@ -2,6 +2,8 @@
 
 自然语言问数（Text-to-SQL）平台：员工用中文提问，系统在**该员工有权看到的表和字段**范围内生成只读 SQL、执行、出图并给出结论；Claude Code、Cursor 等 AI Agent 也可以通过 MCP 用同一套能力。
 
+https://github.com/user-attachments/assets/8a8155ef-3ca6-4730-9f42-0f51564e9af2
+
 ![对话](docs/readme/chat.png)
 
 - **权限先于模型**：先算出提问人的可见范围，检索、提示词、SQL 校验和脱敏都只在这个范围内工作。模型生成什么都越不了权。
