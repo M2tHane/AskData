@@ -391,6 +391,59 @@ def resolve_time_ranges(question: str, timezone: str, now: datetime) -> dict[str
             "end_exclusive": (last_day + timedelta(days=1)).isoformat(),
         }
     ranges.update(month_ranges(question, today))
+    ranges.update(complete_ranges(question, today))
+    return ranges
+
+
+_CN_DIGITS = {
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+# "最近4个完整的周", "近七个完整自然日", "最近3个完整月": whole periods before the current one.
+_COMPLETE = re.compile(
+    r"(?:近|最近)\s*(\d{1,3}|[一二两三四五六七八九十]{1,3})\s*个?\s*完整的?\s*(?:自然)?"
+    r"(日|天|周|星期|月)"
+)
+
+
+def _count(text: str) -> int:
+    if text.isdigit():
+        return int(text)
+    if "十" not in text:
+        return _CN_DIGITS[text]
+    tens, _, ones = text.partition("十")
+    return (_CN_DIGITS[tens] if tens else 1) * 10 + (_CN_DIGITS[ones] if ones else 0)
+
+
+def complete_ranges(question: str, today: date) -> dict[str, dict[str, str]]:
+    """Resolve "the last N complete days/weeks/months": they end where the current one starts.
+
+    Weeks run Monday to Sunday.
+    """
+    ranges: dict[str, dict[str, str]] = {}
+    for match in _COMPLETE.finditer(question):
+        count, unit = _count(match[1]), match[2]
+        if count < 1:
+            raise AppError(ErrorCode.VALIDATION_ERROR)
+        if unit in {"日", "天"}:
+            end = today
+            start = end - timedelta(days=count)
+        elif unit in {"周", "星期"}:
+            end = today - timedelta(days=today.weekday())
+            start = end - timedelta(weeks=count)
+        else:
+            end = today.replace(day=1)
+            months = end.year * 12 + end.month - 1 - count
+            start = date(months // 12, months % 12 + 1, 1)
+        ranges[match[0]] = {"start": start.isoformat(), "end_exclusive": end.isoformat()}
     return ranges
 
 

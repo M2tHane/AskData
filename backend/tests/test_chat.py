@@ -34,6 +34,7 @@ from app.modules.chat.pipeline import (
     PipelineDependencies,
     QueryPipeline,
     ScopeOnlyIndex,
+    complete_ranges,
     month_ranges,
     resolve_time_ranges,
 )
@@ -828,6 +829,30 @@ def test_named_months_resolve_to_calendar_months(question, expected):
         start = date.fromisoformat(value["start"])
         end = date.fromisoformat(value["end_exclusive"])
         assert start.day == 1 and end.day == 1 and 28 <= (end - start).days <= 31
+
+
+@pytest.mark.parametrize(
+    "question,expected",
+    [
+        # 2025-03-15 is a Saturday: the current week starts on Monday 2025-03-10.
+        ("最近4个完整的周（周一到周日，不含本周）", ("2025-02-10", "2025-03-10")),
+        ("近两个完整星期", ("2025-02-24", "2025-03-10")),
+        ("最近7个完整自然日（不含今天）", ("2025-03-08", "2025-03-15")),
+        ("最近十个完整的天", ("2025-03-05", "2025-03-15")),
+        ("最近3个完整月", ("2024-12-01", "2025-03-01")),
+        ("近十二个完整的月", ("2024-03-01", "2025-03-01")),
+    ],
+)
+def test_last_complete_periods_end_where_the_current_one_starts(question, expected):
+    ranges = complete_ranges(question, date(2025, 3, 15))
+    assert [(value["start"], value["end_exclusive"]) for value in ranges.values()] == [expected]
+
+
+def test_complete_periods_skip_the_recent_clarification():
+    now = datetime(2025, 3, 15, 4, tzinfo=UTC)
+    ranges = resolve_time_ranges("最近4个完整的周每周的收款", "Asia/Shanghai", now)
+    assert any(isinstance(v, dict) and "end_exclusive" in v for v in ranges.values())
+    assert complete_ranges("最近4周", date(2025, 3, 15)) == {}
 
 
 def test_named_month_reaches_the_model_with_the_relative_ones():
