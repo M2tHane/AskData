@@ -390,6 +390,50 @@ def resolve_time_ranges(question: str, timezone: str, now: datetime) -> dict[str
             "start": date(today.year - 1, 1, 1).isoformat(),
             "end_exclusive": (last_day + timedelta(days=1)).isoformat(),
         }
+    ranges.update(month_ranges(question, today))
+    return ranges
+
+
+_CN_MONTHS = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+_CN_MONTHS |= {"十": 10, "十一": 11, "十二": 12}
+# A named month ("9月", "九月份", "2025年2月", "去年2月"), not a span ("3个月", "近三月") or a
+# day ("6月20日").
+_MONTH = re.compile(
+    r"(?:(\d{4})\s*年\s*|(今年|去年|前年)\s*)?"
+    r"(?<![\d个半每近前后内第上下本这])"
+    r"(1[0-2]|0?[1-9]|十[一二]?|[一二三四五六七八九])\s*月"
+    r"(?!\s*[\d一二三四五六七八九十]+\s*[日号])"
+)
+_YEAR = re.compile(r"(\d{4})\s*年")
+
+
+def month_ranges(question: str, today: date) -> dict[str, dict[str, str]]:
+    """Calendar months named in the question.
+
+    A month without a year takes the year last written before it in the question
+    ("2025年1月、2月"); with none, it is the latest such month that has begun.
+    """
+    ranges: dict[str, dict[str, str]] = {}
+    relative = {"今年": 0, "去年": 1, "前年": 2}
+    # The year written last before this point, as (position, year).
+    stated = [(m.start(), int(m[1])) for m in _YEAR.finditer(question)]
+    for match in _MONTH.finditer(question):
+        number = match[3]
+        month = int(number) if number.isdigit() else _CN_MONTHS[number]
+        earlier = [year for at, year in stated if at < match.start()]
+        if match[1]:
+            year = int(match[1])
+        elif match[2]:
+            year = today.year - relative[match[2]]
+            stated = sorted([*stated, (match.start(), year)])
+        elif earlier:
+            year = earlier[-1]
+        else:
+            year = today.year if month <= today.month else today.year - 1
+        start = date(year, month, 1)
+        end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+        key = re.sub(r"\s+", "", match[0])
+        ranges[key] = {"start": start.isoformat(), "end_exclusive": end.isoformat()}
     return ranges
 
 

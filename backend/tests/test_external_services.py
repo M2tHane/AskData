@@ -242,6 +242,7 @@ async def test_real_redis_scope_invalidation_and_distributed_limits(member):
             await limiter.release(3, await limiter.acquire(3))
             with pytest.raises(AppError):
                 await limiter.acquire(3)
+            await limiter.release(3, await limiter.acquire(3, "replay"))
         finally:
             await redis.aclose()
 

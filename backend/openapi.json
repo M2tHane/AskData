@@ -4914,6 +4914,11 @@
       "title": "Id",
       "type": "integer"
      },
+     "masks_changed": {
+      "default": false,
+      "title": "Masks Changed",
+      "type": "boolean"
+     },
      "meta": {
       "anyOf": [
        {
@@ -4945,6 +4950,18 @@
        }
       ],
       "title": "Query Run Id"
+     },
+     "revoked": {
+      "default": false,
+      "title": "Revoked",
+      "type": "boolean"
+     },
+     "revoked_fields": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Revoked Fields",
+      "type": "array"
      },
      "role": {
       "enum": [
@@ -6488,6 +6505,11 @@
       "title": "Explanation",
       "type": "string"
      },
+     "masks_changed": {
+      "default": false,
+      "title": "Masks Changed",
+      "type": "boolean"
+     },
      "message_id": {
       "anyOf": [
        {
@@ -6514,6 +6536,18 @@
       "title": "Preview Truncated",
       "type": "boolean"
      },
+     "queried_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Queried At"
+     },
      "query_run_id": {
       "anyOf": [
        {
@@ -6524,6 +6558,18 @@
        }
       ],
       "title": "Query Run Id"
+     },
+     "reread": {
+      "default": false,
+      "title": "Reread",
+      "type": "boolean"
+     },
+     "revoked_fields": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Revoked Fields",
+      "type": "array"
      },
      "row_count": {
       "default": 0,

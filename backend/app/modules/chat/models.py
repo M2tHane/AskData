@@ -1,11 +1,14 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    Integer,
     String,
     Text,
 )
@@ -48,10 +51,33 @@ class Message(AuditFields, Base):
         ForeignKey("message.id", ondelete="SET NULL"), nullable=True
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    # Guarded SQL is retained for a repeat execution with fresh authorization, never raw results.
+    # Guarded SQL, re-checked against today's grants before an earlier result is shown again.
     normalized_sql: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Chart configuration only; rows are re-read under fresh authorization when history is opened.
+    # Chart configuration; the rows it draws are in message_result.
     chart_spec: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Structured explanation and model reasoning of an answer (JSON); never result rows.
+    # Structured explanation and model reasoning of an answer (JSON); rows are in message_result.
     answer_meta: Mapped[str | None] = mapped_column(Text, nullable=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+
+
+class MessageResult(Base):
+    """The preview rows an answer showed (at most PREVIEW_ROWS), already masked.
+
+    Shown again only after the SQL passes today's grants; deleted with the message, and at once
+    when its conversation is deleted.
+    """
+
+    __tablename__ = "message_result"
+    message_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("message.id", ondelete="CASCADE"), primary_key=True
+    )
+    conversation_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    columns: Mapped[list[str]] = mapped_column(JSON)
+    rows: Mapped[list[dict[str, object]]] = mapped_column(JSON)
+    row_count: Mapped[int] = mapped_column(Integer)
+    truncated: Mapped[bool] = mapped_column(Boolean)
+    preview_truncated: Mapped[bool] = mapped_column(Boolean)
+    sources: Mapped[dict[str, list[str]]] = mapped_column(JSON)
+    masked: Mapped[list[str]] = mapped_column(JSON)
+    queried_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    reread: Mapped[bool] = mapped_column(Boolean)

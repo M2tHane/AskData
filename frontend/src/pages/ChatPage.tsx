@@ -16,11 +16,11 @@ import { useToast } from '../components/Toast'
 import { extractWhereClause } from '../lib/sql'
 import { ConfirmDialog, Dialog, DialogFooter } from '../components/Dialog'
 import { DEFAULT_LAYOUT, Resizer, loadLayout, saveLayout, type Layout } from '../components/Resizer'
-import { ApiError, codeFromMessage, describeError } from '../lib/errors'
+import { ApiError, codeFromMessage, describeError, friendlyError } from '../lib/errors'
 import { FEATURES } from '../lib/features'
 import { formatMs, formatTime } from '../lib/format'
 import { useDashboard } from '../state/dashboard'
-import { applyEvent, conclusion, explainOf, legacyAnswer, newTurn, STAGE_LABEL, starters, turnFromReply, type Turn } from './turns'
+import { applyEvent, conclusion, explainOf, legacyAnswer, newTurn, provenance, revokedText, STAGE_LABEL, starters, turnFromReply, type Turn } from './turns'
 import { download } from '../api/client'
 import { Select } from '../components/Select'
 
@@ -230,8 +230,6 @@ export function ChatPage(props: { conversationId: number | null; onSelect: (id: 
   // 只有一个数据源时不用再选，直接建；多个时默认选当前会话的数据源。
   const startNew = () => (sources.length === 1 && sources[0] ? void createConversation(sources[0].id) : setDialog(true))
 
-  // 只自动读取最近 3 条带结果的回答，更早的由用户点开，避免打开长会话时一次执行很多查询。
-  const recent = useMemo(() => new Set(messages.filter((m) => m.role === 'assistant' && m.normalized_sql).slice(-3).map((m) => m.id)), [messages])
   const lastMessageId = messages[messages.length - 1]?.id
   const isEmpty = turns.length === 0 && messages.length === 0 && !history.isPending
   const dictShown = current != null && dictOpen
@@ -333,7 +331,6 @@ export function ChatPage(props: { conversationId: number | null; onSelect: (id: 
                       message={m}
                       question={all[i - 1]?.role === 'user' ? all[i - 1]?.content : undefined}
                       conversationId={current.id}
-                      auto={recent.has(m.id)}
                       {...actions}
                       stopped={m.role === 'user' && (all[i + 1]?.role === 'user' || i === all.length - 1)}
                       retry={retry}
@@ -666,12 +663,20 @@ interface Rating {
   isPinned: (messageId: number | null | undefined) => boolean
 }
 
+/** 回答用到的字段已不可见：只说明哪些，回答的其余部分都不显示。 */
+function RevokedNotice(props: { fields: string[] }) {
+  return (
+    <Callout tone="danger" title="权限已变更">
+      {revokedText(props.fields)}
+    </Callout>
+  )
+}
+
 function HistoryMessage(props: {
   message: MessageView
   /** 这条回答对应的提问，失败时用来重新提问。 */
   question?: string
   conversationId: number
-  auto: boolean
   onRun: (sql: string, sourceMessageId?: number | null) => void
   running: boolean
   limits?: ChatLimits
@@ -681,9 +686,8 @@ function HistoryMessage(props: {
   onPick?: (label: string) => void
 } & Rating) {
   const m = props.message
-  const [open, setOpen] = useState(false)
   const hasResult = m.role === 'assistant' && Boolean(m.normalized_sql)
-  const replay = useReplay(props.conversationId, m.id, hasResult && (props.auto || open))
+  const replay = useReplay(props.conversationId, m.id, hasResult)
   if (m.role === 'user')
     return (
       <>
@@ -697,6 +701,11 @@ function HistoryMessage(props: {
         ) : null}
       </>
     )
+  if (m.revoked) return (
+      <ChatMessage>
+        <RevokedNotice fields={m.revoked_fields ?? []} />
+      </ChatMessage>
+    )
   const answer = legacyAnswer(m.content)
   // 历史回答的思考过程默认折叠，点开可看。
   const reasoning = <ReasoningPanel text={m.meta?.reasoning ?? ''} thinking={false} answering />
@@ -707,26 +716,29 @@ function HistoryMessage(props: {
       : null
     return (
       <ChatMessage>
-        {reasoning}
+        {turn?.status === 'blocked' ? null : reasoning}
         {turn?.status === 'success' ? (
           <Answer turn={turn} conversationId={props.conversationId} onRun={props.onRun} running={props.running} limits={props.limits} feedback={props.feedback} onRate={props.onRate} onPin={props.onPin} isPinned={props.isPinned} />
-        ) : turn ? (
+        ) : turn?.status === 'blocked' ? (
+          // 列表加载之后权限才收回：同样什么都不显示。
+          <RevokedNotice fields={reply?.revoked_fields ?? []} />
+        ) : turn || replay.isError ? (
+          // 当时已经答出来了，只是这次没读到数据（超时、数据源暂时不可用）：结论照常显示，提供重新读取。
           <>
-            <ErrorNotice code={turn.errorCode} tone={turn.status === 'blocked' ? 'danger' : 'warning'} />
             {answer ? <div className="cb-answer">{answer}</div> : null}
-            {turn.status === 'failed' ? <RetryBar question={props.question} retry={props.retry} /> : null}
+            <Callout tone="warning" title="结果暂时读取失败">
+              {friendlyError(turn?.errorCode ?? (replay.error instanceof ApiError ? replay.error.code : undefined)).hint}
+            </Callout>
+            <div className="cb-row">
+              <Button size="sm" variant="ghost" icon="refresh" disabled={replay.isFetching} onClick={() => void replay.refetch()}>
+                {replay.isFetching ? '正在读取…' : '重新读取'}
+              </Button>
+            </div>
           </>
-        ) : replay.isPending && replay.fetchStatus !== 'idle' ? (
-          <div className="cb-faint">正在读取结果…</div>
         ) : (
           <>
             {answer ? <div className="cb-answer">{answer}</div> : null}
-            {replay.isError ? <Callout tone="warning">结果暂时读取失败。</Callout> : null}
-            <div className="cb-row">
-              <Button size="sm" variant="ghost" icon="table" onClick={() => setOpen(true)}>
-                {replay.isError ? '重新读取' : '查看结果'}
-              </Button>
-            </div>
+            <div className="cb-faint">正在读取结果…</div>
           </>
         )}
       </ChatMessage>
@@ -828,6 +840,7 @@ function Answer(props: { turn: Turn; conversationId: number; onRun: (sql: string
           {live && turn.answer ? <span className="cb-caret" aria-label="生成中" /> : null}
         </div>
       ) : null}
+      {turn.masksChanged ? <Callout tone="info">有字段现在需要脱敏，原来的结论里可能有明文，已隐藏；下面的数据已按现在的规则脱敏。</Callout> : null}
       {turn.columns.length && turn.rows.length ? (
         <ResultCard
           key={`result:${turn.sql}`}
@@ -838,6 +851,8 @@ function Answer(props: { turn: Turn; conversationId: number; onRun: (sql: string
           truncated={turn.truncated}
           exportLimitHint={exportHint(props.limits)}
           onExport={live || messageId == null ? undefined : (format) => void exportFile(format)}
+          requery={turn.previewTruncated || turn.truncated}
+          note={provenance(turn)}
         />
       ) : null}
       {!live && turn.rows.length === 0 ? <EmptyResultHint where={extractWhereClause(turn.sql)} /> : null}

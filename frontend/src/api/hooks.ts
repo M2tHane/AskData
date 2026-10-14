@@ -1,5 +1,7 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
+import { ApiError } from '../lib/errors'
+import { backoff, createQueue } from '../lib/queue'
 import type {
   PublicScope,
   ChatLimits,
@@ -97,14 +99,20 @@ export async function fetchMessages(conversationId: number, limit = MESSAGE_PAGE
   return { items: items.slice(-limit), total: first.total }
 }
 
-/** 历史回答的结果不落库：打开时按当前权限重新读取。 */
+// 和后端每人同时 2 条查询的限制一致：打开长会话时排队读取，不一次全发出去。
+const replayQueue = createQueue(2)
+
+/** 历史回答的结果不落库：打开时按当前权限重新读取。忙时（RATE_LIMITED）稍后自动再读。 */
 export const useReplay = (conversationId: number, messageId: number, enabled: boolean) =>
   useQuery({
     queryKey: ['replay', conversationId, messageId],
-    queryFn: () => api<QueryReply>('GET', `/api/chat/conversations/${conversationId}/messages/${messageId}/replay`),
+    queryFn: () => replayQueue(() => api<QueryReply>('GET', `/api/chat/conversations/${conversationId}/messages/${messageId}/replay`)),
     enabled,
-    staleTime: 5 * 60_000,
-    retry: false,
+    // 切走再回来直接用读过的结果。
+    staleTime: 30 * 60_000,
+    gcTime: 30 * 60_000,
+    retry: (count, error) => error instanceof ApiError && error.code === 'RATE_LIMITED' && count < 6,
+    retryDelay: backoff,
   })
 
 /** 结果预览与导出的上限，显示在结果卡片底部。 */

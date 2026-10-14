@@ -89,6 +89,9 @@ uv run pytest tests/test_chat.py tests/test_chat_repository.py tests/test_gate1.
 
 ## 历史回放与追问上下文
 
-- 回答消息保存经守卫的 SQL 和图表配置（不含数据）。`GET /conversations/{id}/messages/{message_id}/replay` 按当前权限重新守卫并执行该 SQL，返回行预览、图表和解释；权限已被收回时只返回拦截类别，没有结果。
+- 回答成功时，把当时展示的结果（已脱敏、最多 `PREVIEW_ROWS` 行）连同 SQL 用到的表和字段存进 `message_result`。删除消息时一并删除，删除会话时立即删除。
+- `GET /conversations/{id}/messages/{message_id}/replay` 不再查询数据源：先按当前权限重新守卫 SQL，通过后返回保存的结果，并按现在的规则再脱敏一次，同时带上 `queried_at`。这个功能上线前的旧回答没有保存结果：查询一次并保存，`reread=true`。
+- 权限复核也在消息列表里做：回答用到的字段只要有一个不可见，就不返回正文、思考过程、图表和 SQL，只返回 `revoked_fields`（如 `orders.pay_amount`）。有字段现在要脱敏而当时没有时（`masks_changed`），正文和思考过程不返回，因为里面可能有明文。
+- 导出：保存的结果就是全部数据时，直接用它导出，和页面一致；否则重新查询，界面会提示结果可能不一致。
 - 追问最多带前 5 轮（`HISTORY_ROUNDS`）：用户问题、回答首行，以及每轮经当前权限复核仍通过守卫的 SQL；是否沿用前文由模型判断，当前问题本身不会进入 `history`。
 - 提示词覆盖：`PipelineDependencies.prompt_source` 在每次模型调用前读取管理员发布的版本；没有则用内置模板。

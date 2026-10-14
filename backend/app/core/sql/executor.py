@@ -2,7 +2,7 @@ import asyncio
 import math
 import time
 from collections import defaultdict, deque
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -29,6 +29,9 @@ class QueryLimits(BaseModel):
     max_rows: int = Field(default=10000, ge=1, le=100000)
     max_cost: float = Field(default=100000, gt=0, allow_inf_nan=False)
     user_id: int = Field(ge=1)
+    # Re-reading an earlier answer's rows has its own per-minute budget so that opening
+    # conversations never uses up the user's questions; concurrency is shared.
+    purpose: Literal["query", "replay"] = "query"
 
 
 class QueryResult(BaseModel):
@@ -39,8 +42,12 @@ class QueryResult(BaseModel):
     duration_ms: int
 
 
+type Purpose = Literal["query", "replay"]
+REPLAY_PER_MINUTE = 120
+
+
 class QueryLimiter(Protocol):
-    async def acquire(self, user_id: int) -> str: ...
+    async def acquire(self, user_id: int, purpose: Purpose = "query") -> str: ...
     async def release(self, user_id: int, lease: str) -> None: ...
 
 
@@ -49,16 +56,16 @@ class MemoryQueryLimiter:
 
     def __init__(self, concurrent: int = 2, per_minute: int = 30) -> None:
         self.concurrent = concurrent
-        self.per_minute = per_minute
+        self.per_minute = {"query": per_minute, "replay": REPLAY_PER_MINUTE}
         self.active: dict[int, set[str]] = defaultdict(set)
-        self.history: dict[int, deque[float]] = defaultdict(deque)
+        self.history: dict[tuple[int, str], deque[float]] = defaultdict(deque)
 
-    async def acquire(self, user_id: int) -> str:
+    async def acquire(self, user_id: int, purpose: Purpose = "query") -> str:
         now = time.monotonic()
-        history = self.history[user_id]
+        history = self.history[(user_id, purpose)]
         while history and history[0] <= now - 60:
             history.popleft()
-        if len(self.active[user_id]) >= self.concurrent or len(history) >= self.per_minute:
+        if len(self.active[user_id]) >= self.concurrent or len(history) >= self.per_minute[purpose]:
             raise AppError(ErrorCode.RATE_LIMITED, http_status=429)
         lease = str(uuid4())
         self.active[user_id].add(lease)
@@ -84,17 +91,18 @@ class RedisQueryLimiter:
     """
 
     def __init__(self, redis: Redis, concurrent: int = 2, per_minute: int = 30) -> None:
-        self.redis, self.concurrent, self.per_minute = redis, concurrent, per_minute
+        self.redis, self.concurrent = redis, concurrent
+        self.per_minute = {"query": per_minute, "replay": REPLAY_PER_MINUTE}
 
-    async def acquire(self, user_id: int) -> str:
+    async def acquire(self, user_id: int, purpose: Purpose = "query") -> str:
         lease = str(uuid4())
         result = await cast(Any, self.redis).eval(
             self._ACQUIRE,
             2,
-            f"query-rate:{{{user_id}}}",
+            f"{purpose}-rate:{{{user_id}}}",
             f"query-active:{{{user_id}}}",
             str(time.time()),
-            str(self.per_minute),
+            str(self.per_minute[purpose]),
             str(self.concurrent),
             lease,
         )
@@ -125,7 +133,7 @@ class SqlExecutor:
             raise SqlBlocked(ErrorCode.SQL_OUT_OF_SCOPE, BlockRule.DATASOURCE_MISMATCH)
         if not datasource.read_only:
             raise SqlBlocked(ErrorCode.SQL_NOT_SELECT, BlockRule.NOT_READ_ONLY)
-        lease = await self.limiter.acquire(limits.user_id)
+        lease = await self.limiter.acquire(limits.user_id, limits.purpose)
         start = time.monotonic()
         try:
             async with asyncio.timeout(limits.timeout_seconds):

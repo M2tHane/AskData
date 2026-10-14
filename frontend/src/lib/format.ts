@@ -11,6 +11,20 @@ export function formatTime(iso: string | undefined, now: Date = new Date()): str
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
+/** 带时刻的时间：今天 19:05、昨天 19:05、10-12 19:05，跨年时带年份。 */
+export function formatStamp(iso: string, now: Date = new Date()): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const diff = Math.round((day(now) - day(d)) / 86_400_000)
+  if (diff === 0) return `今天 ${hm}`
+  if (diff === 1) return `昨天 ${hm}`
+  const md = `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`
+  return d.getFullYear() === now.getFullYear() ? md : `${d.getFullYear()}-${md}`
+}
+
 export const formatInt = (n: number) => n.toLocaleString('zh-CN')
 
 export function formatMs(ms: number): string {

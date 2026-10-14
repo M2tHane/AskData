@@ -128,6 +128,20 @@ async def test_concurrency_and_frequency_limits():
     assert await limiter.acquire(4)
 
 
+async def test_replays_have_their_own_rate_but_share_concurrency():
+    limiter = MemoryQueryLimiter(concurrent=1, per_minute=1)
+    await limiter.release(3, await limiter.acquire(3))
+    with pytest.raises(AppError):
+        await limiter.acquire(3)
+    # Questions used up: opening old answers still works, one at a time.
+    lease = await limiter.acquire(3, "replay")
+    with pytest.raises(AppError) as caught:
+        await limiter.acquire(3, "replay")
+    assert caught.value.code == ErrorCode.RATE_LIMITED
+    await limiter.release(3, lease)
+    await limiter.release(3, await limiter.acquire(3, "replay"))
+
+
 @pytest.mark.parametrize(
     ("sqlstate", "code", "subject", "hint"),
     [

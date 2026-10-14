@@ -8,7 +8,7 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import select, text
+from sqlalchemy import MetaData, Table, select, text
 
 from app.core.audit import (
     AuditService,
@@ -22,10 +22,10 @@ from app.core.db import Database
 from app.core.errors import AppError, ErrorCode
 from app.core.llm import CallContext, CallRecord, Usage
 from app.modules.chat.models import Conversation, Message
-from app.modules.datasource.models import DatasourceRecord
+from app.modules.chat.repository import ChatRepository
+from app.modules.chat.schemas import ResultSnapshot
 from app.modules.embedding.models import EmbeddingItem
 from app.modules.embedding.repository import EmbeddingRepository
-from app.modules.org.models import Team, User
 from app.modules.schema.models import MetaColumn, MetaTable
 from app.modules.usage.models import TeamQuota, UsageDaily, UsageQuery
 from app.modules.usage.repository import UsageRepository
@@ -33,6 +33,18 @@ from app.modules.usage.schemas import QuotaInput
 from app.modules.usage.service import UsageService
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+async def insert_as_is(session, table_name, **values):
+    """Insert into a table as the current migration left it, not as the model has it now."""
+    table = await session.run_sync(
+        lambda sync: Table(table_name, MetaData(), autoload_with=sync.connection())
+    )
+    now = datetime.now(UTC)
+    values = {"created_at": now, "updated_at": now, **values}
+    await session.execute(
+        table.insert().values(**{k: v for k, v in values.items() if k in table.c})
+    )
 
 
 def docker(arguments):
@@ -78,21 +90,35 @@ async def test_postgres_monthly_partition_indexes_payload_and_downgrade(monkeypa
         config.set_main_option("script_location", str(ROOT / "migrations"))
         await asyncio.to_thread(command.upgrade, config, "0002")
         async with database.transaction() as session:
-            session.add(Team(id=1, name="test"))
-            await session.flush()
-            session.add(User(id=1, username="test", password_hash="fake", role="member", team_id=1))
-            session.add(
-                DatasourceRecord(
-                    id=1,
-                    name="fake",
-                    type="postgresql",
-                    host="fake",
-                    port=5432,
-                    database="fake",
-                    username="readonly",
-                    secret_enc="fake",
-                    dialect="postgres",
-                )
+            # Rows as of 0002, written through the tables as they are then: the models have
+            # columns that later migrations add.
+            await insert_as_is(session, "team", id=1, name="test", status="active")
+            await insert_as_is(
+                session,
+                "user",
+                id=1,
+                username="test",
+                password_hash="fake",
+                role="member",
+                team_id=1,
+                status="active",
+            )
+            await insert_as_is(
+                session,
+                "datasource",
+                id=1,
+                name="fake",
+                type="postgresql",
+                host="fake",
+                port=5432,
+                database="fake",
+                username="readonly",
+                secret_enc="fake",
+                schema_name="",
+                dialect="postgres",
+                status="active",
+                tls=False,
+                read_only_account=True,
             )
             await session.flush()
             # Old core log shape must survive upgrading to a partitioned table.
@@ -109,7 +135,7 @@ async def test_postgres_monthly_partition_indexes_payload_and_downgrade(monkeypa
                     expires_at=datetime.now(UTC) + timedelta(days=90),
                 )
             )
-        await asyncio.to_thread(command.upgrade, config, "0006_g1")
+        await asyncio.to_thread(command.upgrade, config, "head")
         await database.engine.dispose()
         async with database.transaction() as session:
             partitions = await session.scalar(
@@ -223,6 +249,34 @@ async def test_postgres_monthly_partition_indexes_payload_and_downgrade(monkeypa
             assert await session.scalar(text("SELECT count(*) FROM feedback")) == 0
             await session.refresh(message)
             assert message.query_run_id is None and message.query_run_created_at is None
+            # Kept answer rows: the first save wins, they go with the message, and with the
+            # conversation as soon as it is deleted.
+            chats = ChatRepository(session)
+            kept = ResultSnapshot(
+                columns=["a"], rows=[{"a": 1}], row_count=1, sources={"t": ["a"]}, queried_at=now
+            )
+            await chats.save_result(conversation.id, message.id, kept)
+            await chats.save_result(
+                conversation.id, message.id, kept.model_copy(update={"row_count": 9})
+            )
+            assert (await chats.result(message.id)) == kept
+            assert await chats.result_sources([message.id]) == {message.id: ({"t": ["a"]}, [])}
+            other = Message(
+                conversation_id=conversation.id,
+                user_id=1,
+                role="assistant",
+                content="x",
+                expires_at=now,
+            )
+            session.add(other)
+            await session.flush()
+            conversation_id, message_id, other_id = conversation.id, message.id, other.id
+            await chats.save_result(conversation_id, other_id, kept)
+            assert await chats.purge_before(now + timedelta(seconds=1)) == 1
+            session.expire_all()
+            assert await chats.result(other_id) is None
+            await chats.delete(conversation_id, 1)
+            assert await chats.result(message_id) is None
         async with database.transaction() as session:
             await UsageRepository(session, database.sessions).set_quota(
                 1, QuotaInput(daily_query_limit=1)

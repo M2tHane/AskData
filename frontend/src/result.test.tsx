@@ -36,7 +36,7 @@ describe('ResultCard', () => {
 
   it('switches to a 30-row table with display names, formatted numbers and export', async () => {
     const onExport = vi.fn()
-    render(<ResultCard {...base} spec={spec} exportLimitHint="最多 10 万行、50 MB" onExport={onExport} />)
+    render(<ResultCard {...base} spec={spec} exportLimitHint="最多 10 万行、50 MB" onExport={onExport} requery note="查询于 10月13日 19:05" />)
     await userEvent.click(screen.getByRole('button', { name: /表格/ }))
     const table = screen.getByRole('table')
     expect(table.querySelectorAll('tbody tr')).toHaveLength(30)
@@ -46,9 +46,17 @@ describe('ResultCard', () => {
     // Digit strings such as phone numbers are text, not numbers.
     expect(within(table).getAllByText('13812345678').length).toBeGreaterThan(0)
     expect(screen.getByText(/共 50 行，表格显示前 30 行/)).toBeInTheDocument()
-    expect(screen.getByText(/导出会重新执行查询获取全部数据（最多 10 万行、50 MB）/)).toBeInTheDocument()
+    expect(screen.getByText(/导出会重新查询全部数据，可能与这里显示的不一致（最多 10 万行、50 MB）/)).toBeInTheDocument()
+    expect(screen.getByText(/查询于 10月13日 19:05/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '导出 Excel' }))
     expect(onExport).toHaveBeenCalledWith('xlsx')
+  })
+
+  it('says nothing about a new query when the kept rows are the whole result', async () => {
+    render(<ResultCard {...base} spec={spec} onExport={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: /表格/ }))
+    expect(screen.getByText(/共 50 行，表格显示前 30 行/)).toBeInTheDocument()
+    expect(screen.queryByText(/重新查询/)).toBeNull()
   })
 
   it('shows only the table when nothing is drawable', () => {

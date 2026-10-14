@@ -101,6 +101,13 @@ class MessageView(BaseModel):
     clarification_answered: bool = False
     chart: ChartSpec | None = Field(default=None, validation_alias="chart_spec")
     meta: AnswerMeta | None = Field(default=None, validation_alias="answer_meta")
+    # Under today's grants: the answer used fields the user can no longer read. Its text,
+    # reasoning, chart and SQL are withheld; only the lost fields ("orders.pay_amount") remain,
+    # empty when they cannot be named (an answer saved before results were kept).
+    revoked: bool = False
+    revoked_fields: list[str] = Field(default_factory=list)
+    # A field in the result is masked now but was not when answered: the text may quote it.
+    masks_changed: bool = False
 
     @field_validator("chart", mode="before")
     @classmethod
@@ -207,6 +214,37 @@ class QueryReply(BaseModel):
     meta: AnswerMeta | None = None
     clarification: Clarification | None = None
     title: str | None = None
+    # Earlier answers: when the rows shown were queried, and whether that was a later re-read
+    # (answers from before results were kept) rather than the answer itself.
+    queried_at: datetime | None = None
+    reread: bool = False
+    revoked_fields: list[str] = Field(default_factory=list)
+    masks_changed: bool = False
+
+
+class ResultSnapshot(BaseModel):
+    """The rows an answer showed, kept with it so reopening it shows the same result.
+
+    Read back only after today's grants are checked again; masks are applied again on read.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+    columns: list[str]
+    rows: list[dict[str, Any]]
+    row_count: int
+    truncated: bool = False
+    preview_truncated: bool = False
+    # Table -> columns the SQL read, to name what was lost when a grant is revoked.
+    sources: dict[str, list[str]] = Field(default_factory=dict)
+    # Output columns masked when answered.
+    masked: list[str] = Field(default_factory=list)
+    queried_at: datetime
+    reread: bool = False
+
+    @property
+    def complete(self) -> bool:
+        """Every row of the result is here, so an export needs no new query."""
+        return not self.truncated and not self.preview_truncated
 
 
 class ExportFile(BaseModel):

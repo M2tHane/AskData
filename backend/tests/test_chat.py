@@ -1,7 +1,7 @@
 import asyncio
 import importlib.util
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -20,18 +20,21 @@ from app.core.deps import CurrentUser, Role, current_user, identity_resolver
 from app.core.errors import AppError, ErrorCode
 from app.core.llm import ChatResponse, LLMClient, ModelConfig, ModelRegistry, StreamChunk, Usage
 from app.core.permission import PermissionService, TableGrant
+from app.core.response import PageParams
 from app.core.sql.dialect import Dialect
-from app.core.sql.executor import QueryResult, SqlExecutor
+from app.core.sql.executor import MemoryQueryLimiter, QueryResult, SqlExecutor
 from app.core.sql.guard import SqlGuard
 from app.core.stream import EventType
 from app.main import create_app
 from app.modules.chat.api import chat_service, router
 from app.modules.chat.chart_heuristics import suggest_chart, with_series
 from app.modules.chat.pipeline import (
+    PREVIEW_ROWS,
     ContextBuilder,
     PipelineDependencies,
     QueryPipeline,
     ScopeOnlyIndex,
+    month_ranges,
     resolve_time_ranges,
 )
 from app.modules.chat.schemas import (
@@ -130,6 +133,7 @@ class MemoryChatRepository:
         self.parents = {}
         self.pending = {}
         self.sql_by_message = {}
+        self.results = {}
         self.commits = 0
 
     async def create(self, user_id, team_id, request):
@@ -168,6 +172,21 @@ class MemoryChatRepository:
     async def delete(self, identifier, user_id):
         await self.get(identifier, user_id)
         del self.conversations[identifier]
+        self.results = {k: v for k, v in self.results.items() if v[0] != identifier}
+
+    async def save_result(self, identifier, message_id, snapshot):
+        self.results.setdefault(message_id, (identifier, snapshot))
+
+    async def result(self, message_id):
+        kept = self.results.get(message_id)
+        return kept[1] if kept else None
+
+    async def result_sources(self, message_ids):
+        return {
+            i: (self.results[i][1].sources, self.results[i][1].masked)
+            for i in message_ids
+            if i in self.results
+        }
 
     async def commit(self):
         self.commits += 1
@@ -597,10 +616,10 @@ async def test_export_formula_prefix_masking_headers_and_permission_revocation(
 ):
     service, _, connector, _, audit, _ = system
     conversation = await create_conversation(system, member)
+    connector.rows = [{"p": "13812345678", "id": ' \t=HYPERLINK("bad")'}]
     reply = await service.rerun(
         conversation.id, RerunRequest(sql="SELECT phone AS p, id FROM orders"), actor=member
     )
-    connector.rows = [{"p": "13812345678", "id": ' \t=HYPERLINK("bad")'}]
     exported = await service.export(conversation.id, reply.message_id, format, actor=member)
     if format == "csv":
         text = exported.content.decode("utf-8-sig")
@@ -615,6 +634,27 @@ async def test_export_formula_prefix_masking_headers_and_permission_revocation(
     with pytest.raises(AppError) as caught:
         await service.export(conversation.id, reply.message_id, format, actor=member)
     assert caught.value.code == ErrorCode.SQL_OUT_OF_SCOPE
+
+
+async def test_export_uses_kept_rows_when_complete_and_queries_again_when_not(system, member):
+    service, _, connector, _, audit, _ = system
+    conversation = await create_conversation(system, member)
+    connector.rows = [{"id": 1}, {"id": 2}]
+    small = await service.rerun(
+        conversation.id, RerunRequest(sql="SELECT id FROM orders"), actor=member
+    )
+    connector.rows = [{"id": n} for n in range(PREVIEW_ROWS + 1)]
+    large = await service.rerun(
+        conversation.id, RerunRequest(sql="SELECT id FROM orders"), actor=member
+    )
+    connector.rows = [{"id": 9}]
+    kept = await service.export(conversation.id, small.message_id, "csv", actor=member)
+    # The file matches what the answer showed, though the data has changed since.
+    assert kept.content.decode("utf-8-sig").split() == ["id", "1", "2"]
+    assert audit.records[-1].diff["source"] == "kept"
+    fresh = await service.export(conversation.id, large.message_id, "csv", actor=member)
+    assert fresh.content.decode("utf-8-sig").split() == ["id", "9"]
+    assert audit.records[-1].diff["source"] == "query"
 
 
 async def test_sse_live_stage_events_order_monotonic_ids_and_failure_done(system, member):
@@ -754,6 +794,53 @@ def test_backend_dates_timezone_and_leap_year(question, timezone, expected):
     now = datetime(2024, 2, 29, 23, tzinfo=UTC)
     result = resolve_time_ranges(question, timezone, now)
     assert result[question] == expected
+
+
+@pytest.mark.parametrize(
+    "question,expected",
+    [
+        ("9 月各渠道的销售额", {"9月": "2026-09"}),
+        ("九月份的订单", {"九月": "2026-09"}),
+        # The current month counts as begun; a later month is last year's.
+        ("10月", {"10月": "2026-10"}),
+        ("11月的退款", {"11月": "2025-11"}),
+        ("今年9月", {"今年9月": "2026-09"}),
+        ("去年2月整月", {"去年2月": "2025-02"}),
+        ("2025年2月各渠道", {"2025年2月": "2025-02"}),
+        # A month without a year keeps the one written before it.
+        ("2025年1月、2月环比", {"2025年1月": "2025-01", "2月": "2025-02"}),
+        ("去年1月和2月", {"去年1月": "2025-01", "2月": "2025-02"}),
+        ("2024年每月订单数，1月的变化留空", {"1月": "2024-01"}),
+        ("十二月和一月", {"十二月": "2025-12", "一月": "2026-01"}),
+        # Spans and days are not calendar months.
+        ("上线日期在2022年6月20日之后", {}),
+        ("12月31日", {}),
+        ("近3个月", {}),
+        ("近三月", {}),
+        ("上个月", {}),
+        ("每月订单", {}),
+    ],
+)
+def test_named_months_resolve_to_calendar_months(question, expected):
+    ranges = month_ranges(question, date(2026, 10, 13))
+    assert {key: value["start"][:7] for key, value in ranges.items()} == expected
+    for value in ranges.values():
+        start = date.fromisoformat(value["start"])
+        end = date.fromisoformat(value["end_exclusive"])
+        assert start.day == 1 and end.day == 1 and 28 <= (end - start).days <= 31
+
+
+def test_named_month_reaches_the_model_with_the_relative_ones():
+    now = datetime(2026, 10, 13, 2, tzinfo=UTC)
+    ranges = resolve_time_ranges("上个月和9月的订单", "Asia/Shanghai", now)
+    assert (
+        ranges["上个月"]
+        == ranges["9月"]
+        == {
+            "start": "2026-09-01",
+            "end_exclusive": "2026-10-01",
+        }
+    )
 
 
 def test_chat_openapi_authenticated_api_envelopes_and_sse(system, member):
@@ -1201,15 +1288,97 @@ async def test_replay_rereads_rows_with_stored_chart_and_respects_revocation(sys
     reply = await service.ask(conversation.id, QuestionRequest(question="订单"), actor=member)
     stored = service.repository.messages_by_id[reply.message_id]
     assert stored.chart and stored.chart.stack and stored.chart.x == "id"
+    # The data changes; reopening the answer still shows what it showed, with no query.
     connector.rows = [{"id": 1, "n": "c"}]
+    executed = len(connector.executed)
     again = await service.replay(conversation.id, reply.message_id, actor=member)
-    assert again.status == "success" and [r["id"] for r in again.rows] == [1]
+    assert again.status == "success" and [r["id"] for r in again.rows] == [1, 2]
     assert again.chart == stored.chart and again.explanation == stored.content
+    assert again.queried_at is not None and not again.reread
+    assert len(connector.executed) == executed
     service.pipeline.deps.permissions.provider.grants[0].member_columns = frozenset({"id"})
     blocked = await service.replay(conversation.id, reply.message_id, actor=member)
     assert blocked.status == "blocked" and blocked.rows == [] and blocked.sql is None
+    assert blocked.explanation == "" and blocked.revoked_fields == ["orders.phone"]
+    page = await service.messages(conversation.id, PageParams(), actor=member)
+    answer = next(m for m in page.items if m.id == reply.message_id)
+    assert answer.revoked and answer.revoked_fields == ["orders.phone"]
+    assert answer.content == "" and answer.chart is None and answer.meta is None
+    assert answer.normalized_sql is None
     with pytest.raises(AppError):
         await service.replay(conversation.id, 9999, actor=member)
+
+
+async def test_new_mask_hides_the_old_text_and_masks_kept_rows(system, member):
+    service, transport, connector, *_ = system
+    transport.sql = "select id, phone as n from orders"
+    connector.rows = [{"id": 1, "n": "13812345678"}]
+    grant = service.pipeline.deps.permissions.provider.grants[0]
+    original = grant.masks
+    grant.masks = {}
+    conversation = await create_conversation(system, member)
+    reply = await service.ask(conversation.id, QuestionRequest(question="订单"), actor=member)
+    grant.masks = original
+    again = await service.replay(conversation.id, reply.message_id, actor=member)
+    assert again.masks_changed and again.explanation == ""
+    assert again.rows[0]["n"] != "13812345678"
+    page = await service.messages(conversation.id, PageParams(), actor=member)
+    answer = next(m for m in page.items if m.id == reply.message_id)
+    assert answer.masks_changed and answer.content == "" and not answer.revoked
+
+
+async def test_answers_from_before_results_were_kept_are_read_once_then_kept(system, member):
+    service, transport, connector, *_ = system
+    transport.sql = "select id from orders"
+    connector.rows = [{"id": 1}]
+    conversation = await create_conversation(system, member)
+    reply = await service.ask(conversation.id, QuestionRequest(question="订单"), actor=member)
+    service.repository.results.clear()
+    connector.rows = [{"id": 2}]
+    reread = await service.replay(conversation.id, reply.message_id, actor=member)
+    assert reread.reread and reread.queried_at and [r["id"] for r in reread.rows] == [2]
+    connector.rows = [{"id": 3}]
+    kept = await service.replay(conversation.id, reply.message_id, actor=member)
+    assert kept.reread and [r["id"] for r in kept.rows] == [2]
+    service.pipeline.deps.permissions.provider.grants[0].member_columns = frozenset({"phone"})
+    service.repository.results.clear()
+    blocked = await service.replay(conversation.id, reply.message_id, actor=member)
+    # Nothing of the answer, though which fields were lost cannot be named.
+    assert blocked.status == "blocked" and blocked.explanation == ""
+    page = await service.messages(conversation.id, PageParams(), actor=member)
+    answer = next(m for m in page.items if m.id == reply.message_id)
+    assert answer.revoked and answer.revoked_fields == [] and answer.content == ""
+
+
+async def test_deleting_a_conversation_drops_its_kept_rows(system, member):
+    service, *_ = system
+    conversation = await create_conversation(system, member)
+    reply = await service.ask(conversation.id, QuestionRequest(question="订单"), actor=member)
+    assert await service.repository.result(reply.message_id) is not None
+    await service.delete(conversation.id, actor=member)
+    assert await service.repository.result(reply.message_id) is None
+
+
+async def test_busy_replay_raises_instead_of_answering_and_skips_question_budget(system, member):
+    service, transport, connector, *_ = system
+    transport.sql = "select id from orders"
+    connector.rows = [{"id": 1}]
+    limiter = MemoryQueryLimiter(concurrent=1, per_minute=1)
+    service.pipeline.deps.executor = SqlExecutor(
+        ConnectorRegistry({Dialect.POSTGRES: connector}), limiter
+    )
+    conversation = await create_conversation(system, member)
+    reply = await service.ask(conversation.id, QuestionRequest(question="订单"), actor=member)
+    service.repository.results.clear()  # an answer from before results were kept
+    # The one question this minute is spent; reading the answer back is not a question.
+    again = await service.replay(conversation.id, reply.message_id, actor=member)
+    assert again.status == "success"
+    service.repository.results.clear()
+    lease = await limiter.acquire(member.id, "replay")
+    with pytest.raises(AppError) as caught:
+        await service.replay(conversation.id, reply.message_id, actor=member)
+    assert caught.value.code == ErrorCode.RATE_LIMITED and caught.value.http_status == 429
+    await limiter.release(member.id, lease)
 
 
 async def test_followup_context_carries_sql_and_is_capped_at_five_rounds(system, member):

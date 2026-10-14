@@ -18,11 +18,15 @@ export interface ResultCardProps {
   /** 导出上限说明，例如「最多 10 万行、50 MB」。 */
   exportLimitHint?: string
   onExport?: (format: 'csv' | 'xlsx') => void
+  /** 保存的结果不是全部数据，导出要重新查询，结果可能和这里显示的不同。 */
+  requery?: boolean
+  /** 数据来自哪次查询，例如「查询于 10月13日 19:05」。 */
+  note?: string
 }
 
-/** 一轮回答的结果：左上切换图表/表格，右上是图表类型或导出；导出会重新执行 SQL 取全量。 */
+/** 一轮回答的结果：左上切换图表/表格，右上是图表类型或导出；结果不全时导出会重新查询。 */
 export function ResultCard(props: ResultCardProps) {
-  const { spec, columns, rows, total, truncated, exportLimitHint, onExport } = props
+  const { spec, columns, rows, total, truncated, exportLimitHint, onExport, requery, note } = props
   const limit = props.tableRows ?? TABLE_ROWS
   const plotRef = useRef<HTMLDivElement>(null)
   const width = useWidth(plotRef)
@@ -117,7 +121,7 @@ export function ResultCard(props: ResultCardProps) {
           </div>
         )}
       </div>
-      {kpi && !truncated ? null : (
+      {kpi && !truncated && !note ? null : (
         <div className="cb-result-foot">
           <span className="cb-num">
             共 {total.toLocaleString('zh-CN')} 行
@@ -128,8 +132,9 @@ export function ResultCard(props: ResultCardProps) {
               已达行数上限
             </Badge>
           ) : null}
+          {note ? <span>· {note}</span> : null}
           {/* 导出按钮只在表格视图出现，说明也只在那时显示。 */}
-          {onExport && view === 'table' && (total > shown.length || truncated) ? <span>· 导出会重新执行查询获取全部数据{exportLimitHint ? `（${exportLimitHint}）` : ''}</span> : null}
+          {onExport && view === 'table' && requery ? <span>· 导出会重新查询全部数据，可能与这里显示的不一致{exportLimitHint ? `（${exportLimitHint}）` : ''}</span> : null}
         </div>
       )}
     </section>

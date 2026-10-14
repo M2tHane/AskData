@@ -4,12 +4,13 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import BaseRepository
 from app.core.errors import AppError, ErrorCode
 from app.core.response import PageParams
-from app.modules.chat.models import Conversation, Message
+from app.modules.chat.models import Conversation, Message, MessageResult
 from app.modules.chat.schemas import (
     AnswerMeta,
     ChartSpec,
@@ -17,6 +18,7 @@ from app.modules.chat.schemas import (
     ConversationCreate,
     ConversationView,
     MessageView,
+    ResultSnapshot,
 )
 
 
@@ -90,6 +92,35 @@ class ChatRepository:
         if row is None:
             raise AppError(ErrorCode.NOT_FOUND, http_status=404)
         await self.conversations.soft_delete(row)
+        # Kept rows go with the conversation now, not when its messages expire.
+        await self.session.execute(
+            delete(MessageResult).where(MessageResult.conversation_id == identifier)
+        )
+
+    async def save_result(self, identifier: int, message_id: int, snapshot: ResultSnapshot) -> None:
+        """Keep an answer's rows; the first save wins (two tabs re-reading an old answer)."""
+        await self.session.execute(
+            insert(MessageResult)
+            .values(message_id=message_id, conversation_id=identifier, **snapshot.model_dump())
+            .on_conflict_do_nothing(index_elements=["message_id"])
+        )
+
+    async def result(self, message_id: int) -> ResultSnapshot | None:
+        row = await self.session.get(MessageResult, message_id)
+        return ResultSnapshot.model_validate(row) if row is not None else None
+
+    async def result_sources(
+        self, message_ids: list[int]
+    ) -> dict[int, tuple[dict[str, list[str]], list[str]]]:
+        """Tables, columns and masked outputs behind kept results, without their rows."""
+        if not message_ids:
+            return {}
+        rows = await self.session.execute(
+            select(MessageResult.message_id, MessageResult.sources, MessageResult.masked).where(
+                MessageResult.message_id.in_(message_ids)
+            )
+        )
+        return {row.message_id: (row.sources, row.masked) for row in rows}
 
     async def history(self, identifier: int, limit: int = 11) -> list[MessageView]:
         rows = await self.session.scalars(

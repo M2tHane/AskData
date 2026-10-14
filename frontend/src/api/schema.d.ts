@@ -3914,11 +3914,23 @@ export interface components {
             created_at: string;
             /** Id */
             id: number;
+            /**
+             * Masks Changed
+             * @default false
+             */
+            masks_changed: boolean;
             meta?: components["schemas"]["AnswerMeta"] | null;
             /** Normalized Sql */
             normalized_sql?: string | null;
             /** Query Run Id */
             query_run_id?: number | null;
+            /**
+             * Revoked
+             * @default false
+             */
+            revoked: boolean;
+            /** Revoked Fields */
+            revoked_fields?: string[];
             /**
              * Role
              * @enum {string}
@@ -4516,6 +4528,11 @@ export interface components {
              * @default
              */
             explanation: string;
+            /**
+             * Masks Changed
+             * @default false
+             */
+            masks_changed: boolean;
             /** Message Id */
             message_id?: number | null;
             meta?: components["schemas"]["AnswerMeta"] | null;
@@ -4524,8 +4541,17 @@ export interface components {
              * @default false
              */
             preview_truncated: boolean;
+            /** Queried At */
+            queried_at?: string | null;
             /** Query Run Id */
             query_run_id?: number | null;
+            /**
+             * Reread
+             * @default false
+             */
+            reread: boolean;
+            /** Revoked Fields */
+            revoked_fields?: string[];
             /**
              * Row Count
              * @default 0

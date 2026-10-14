@@ -1,3 +1,4 @@
+import { formatStamp } from '../lib/format'
 import type { AnswerMeta, ChartSpec, Clarification, ErrorCode, QueryReply, StreamEvent, SuggestedQuestion, SuggestedQuestions } from '../api/types'
 
 export type TurnStatus = 'streaming' | QueryReply['status']
@@ -30,6 +31,11 @@ export interface Turn {
   messageId?: number | null
   startedAt: number
   ms?: number
+  /** 历史回答：结果是什么时候查的；reread 表示原结果没保存，是后来重新查的。 */
+  queriedAt?: string
+  reread?: boolean
+  /** 有字段现在要脱敏而当时没有：原结论已隐藏，数据按现在的规则脱敏。 */
+  masksChanged?: boolean
 }
 
 export const STAGE_LABEL: Record<string, string> = {
@@ -121,7 +127,23 @@ export function turnFromReply(question: string, reply: QueryReply, now = Date.no
     queryRunId: reply.query_run_id,
     messageId: reply.message_id,
     ms: 0,
+    queriedAt: reply.queried_at ?? undefined,
+    reread: reply.reread ?? false,
+    masksChanged: reply.masks_changed ?? false,
   }
+}
+
+/** 结果卡片上的数据来源说明；刚答完的回答不需要。 */
+export function provenance(turn: Pick<Turn, 'queriedAt' | 'reread'>, now = new Date()): string | undefined {
+  if (!turn.queriedAt) return undefined
+  const at = formatStamp(turn.queriedAt, now)
+  return turn.reread ? `重新查询于 ${at}（原结果未保存）` : `查询于 ${at}`
+}
+
+/** 权限收回后的说明：列出不可见的表和字段；说不出具体字段时（旧回答）给概括说法。 */
+export function revokedText(fields: string[]): string {
+  const what = fields.length ? `${fields.join('、')} 你已无权查看` : '这条回答用到的部分表或字段你已无权查看'
+  return `${what}，思考过程、结论和图表不再显示。`
 }
 
 /**

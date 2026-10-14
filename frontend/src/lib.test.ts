@@ -8,7 +8,7 @@ import { activeMention, chartData, chartModel, pieEligible, filterMetrics, menti
 import { navFor } from './lib/nav'
 import { formatSpan, formatTime } from './lib/format'
 import { describeError } from './lib/errors'
-import { applyEvent, newTurn, starters, turnFromReply } from './pages/turns'
+import { applyEvent, newTurn, provenance, revokedText, starters, turnFromReply } from './pages/turns'
 
 describe('sse parser', () => {
   it('splits frames and keeps the partial tail', () => {
@@ -66,8 +66,18 @@ describe('turn reducer', () => {
     expect(failed.errorCode).toBe('SQL_OUT_OF_SCOPE')
   })
   it('builds a turn from a rerun reply', () => {
-    const t = turnFromReply('改 SQL', { status: 'blocked', code: 'SQL_NOT_SELECT', explanation: '', truncated: false, row_count: 0, preview_truncated: false })
+    const t = turnFromReply('改 SQL', { status: 'blocked', code: 'SQL_NOT_SELECT', explanation: '', truncated: false, row_count: 0, preview_truncated: false, reread: false, masks_changed: false })
     expect(t).toMatchObject({ status: 'blocked', errorCode: 'SQL_NOT_SELECT', rows: [] })
+  })
+  it('says where an earlier result came from and what was revoked', () => {
+    const now = new Date(2026, 9, 13, 20, 0)
+    expect(provenance({}, now)).toBeUndefined()
+    expect(provenance({ queriedAt: new Date(2026, 9, 13, 19, 5).toISOString() }, now)).toBe('查询于 今天 19:05')
+    expect(provenance({ queriedAt: new Date(2026, 9, 12, 9, 30).toISOString(), reread: true }, now)).toBe('重新查询于 昨天 09:30（原结果未保存）')
+    expect(provenance({ queriedAt: new Date(2026, 8, 1, 8, 0).toISOString() }, now)).toBe('查询于 09-01 08:00')
+    expect(provenance({ queriedAt: new Date(2025, 8, 1, 8, 0).toISOString() }, now)).toBe('查询于 2025-09-01 08:00')
+    expect(revokedText(['orders.pay_amount', 'customers.phone'])).toBe('orders.pay_amount、customers.phone 你已无权查看，思考过程、结论和图表不再显示。')
+    expect(revokedText([])).toBe('这条回答用到的部分表或字段你已无权查看，思考过程、结论和图表不再显示。')
   })
 })
 
