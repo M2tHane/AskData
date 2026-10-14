@@ -1,6 +1,5 @@
 import pytest
 import sqlglot
-from sqlglot import exp
 
 from app.core.errors import ErrorCode, SqlBlocked
 from app.core.masking import MaskKind
@@ -362,6 +361,11 @@ def _orders_scope(dialect):
         ("SELECT LPAD(code, 8, '0') AS c FROM orders", "mysql", None),
         ("SELECT SPLIT_PART(code, '-', 1) AS c FROM orders", "kingbase", None),
         ("SELECT QUARTER(created_at) AS q FROM orders", "mysql", None),
+        (
+            "SELECT EXTRACT(YEAR FROM AGE(DATE '2025-01-01', created_at)) AS y FROM orders",
+            "postgres",
+            None,
+        ),
         # Standard, but not reviewed for this database: may be rewritten once.
         (
             "SELECT REGEXP_REPLACE(code, 'a+', 'b') AS c FROM orders",
@@ -372,6 +376,7 @@ def _orders_scope(dialect):
         ("SELECT SPLIT_PART(code, '-', 1) AS c FROM orders", "mysql", "function_not_reviewed"),
         # Unknown (possibly user-defined), qualified or dangerous: refused outright.
         ("SELECT my_udf(id) AS c FROM orders", "postgres", "function_not_allowed"),
+        ("SELECT AGE(created_at) AS a FROM orders", "mysql", "function_not_allowed"),
         ("SELECT public.lower(code) AS c FROM orders", "postgres", "qualified_function"),
         ("SELECT pg_sleep(10) AS s", "postgres", "dangerous_function"),
         ("SELECT pg_read_file('/etc/passwd') AS f", "postgres", "dangerous_function"),

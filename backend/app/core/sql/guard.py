@@ -100,7 +100,8 @@ array_join
 # Standard functions reviewed for one dialect family: pure, deterministic, no I/O, cost bounded
 # by their arguments. Left out on purpose: regexp_* (backtracking cost), generate_series
 # (row explosion), hashing and formatting functions nobody has needed yet.
-_PG_REVIEWED = {"pad", "split_part", "initcap", "reverse", "str_position", "to_number"}
+# age() is the PostgreSQL way to compute whole years from a birth date.
+_PG_REVIEWED = {"pad", "split_part", "initcap", "reverse", "str_position", "to_number", "age"}
 _REVIEWED_FUNCTIONS: dict[Dialect, set[str]] = {
     Dialect.POSTGRES: _PG_REVIEWED,
     Dialect.KINGBASE: _PG_REVIEWED,

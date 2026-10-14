@@ -17,17 +17,13 @@ depends_on = None
 def upgrade() -> None:
     with op.batch_alter_table("datasource") as batch:
         batch.add_column(
-            sa.Column(
-                "require_semantics", sa.Boolean(), nullable=False, server_default=sa.false()
-            )
+            sa.Column("require_semantics", sa.Boolean(), nullable=False, server_default=sa.false())
         )
 
 
 def downgrade() -> None:
     # Nothing set up this way may surface half-described after a downgrade.
     op.execute("UPDATE meta_column SET status = 'missing' WHERE status = 'pending'")
-    op.execute(
-        "UPDATE meta_table SET status = 'missing' WHERE status IN ('pending', 'excluded')"
-    )
+    op.execute("UPDATE meta_table SET status = 'missing' WHERE status IN ('pending', 'excluded')")
     with op.batch_alter_table("datasource") as batch:
         batch.drop_column("require_semantics")

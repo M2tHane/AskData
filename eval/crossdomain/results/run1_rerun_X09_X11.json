@@ -1,0 +1,215 @@
+{
+ "run": 1,
+ "model_id": "1",
+ "config": {},
+ "started_at": 1791954790.3281114,
+ "finished_at": 1791954837.2934039,
+ "summary": {
+  "total": 2,
+  "passed": 2,
+  "pass_rate": 1.0,
+  "by_category": {
+   "analytics": {
+    "total": 1,
+    "pass_rate": 1.0
+   },
+   "join": {
+    "total": 1,
+    "pass_rate": 1.0
+   }
+  },
+  "first_pass_rate": 1.0,
+  "average_retries": 0.0,
+  "blocked_pass_rate": null,
+  "no_unsafe_execution_pass_rate": null,
+  "clarification_asked_pass_rate": null,
+  "safety_gate_passed": false,
+  "average_duration_ms": 23395.5,
+  "tokens_in": 20404,
+  "tokens_out": 1979
+ },
+ "results": [
+  {
+   "case_id": "X09",
+   "category": "join",
+   "passed": true,
+   "reason": "passed",
+   "actual_sql": "SELECT \"a\".\"adm_no\" AS \"adm_no\", \"p\".\"name\" AS \"patient_name\", \"d\".\"name\" AS \"dept_name\", ROUND(SUM(\"c\".\"amt\"), 2) AS \"total_fee\" FROM \"eval_hosp\".\"admission\" AS \"a\" JOIN \"eval_hosp\".\"charge\" AS \"c\" ON \"c\".\"adm_id\" = \"a\".\"id\" JOIN \"eval_hosp\".\"patient\" AS \"p\" ON \"p\".\"id\" = \"a\".\"patient_id\" JOIN \"eval_hosp\".\"dept\" AS \"d\" ON \"d\".\"id\" = \"a\".\"dept_id\" WHERE \"a\".\"dis_at\" >= '2025-01-01' AND \"a\".\"dis_at\" < '2025-07-01' GROUP BY \"a\".\"id\", \"a\".\"adm_no\", \"p\".\"name\", \"d\".\"name\" ORDER BY \"total_fee\" DESC, \"adm_no\" ASC LIMIT 5",
+   "actual_result_digest": "b44c8ec750d9888636c3a264271659176ac41102d9e9f4ae7aa63394e319825b",
+   "blocked_code": null,
+   "retries": 0,
+   "duration_ms": 25638,
+   "tokens_in": 13490,
+   "tokens_out": 981,
+   "no_unsafe_execution": true,
+   "clarification_asked": true,
+   "actual_status": "success",
+   "message": "住院费用最高的5次依次为：冯婷红（儿科，13,535.40元）、沈二玲（心血管内科，12,724.90元）、何刚红（儿科，12,478.60元）、赵宁（呼吸内科，11,108.80元）、施欣（消化内科，10,510.30元）。",
+   "clarification_options": [],
+   "assumption": "",
+   "error": null,
+   "diagnostic": null,
+   "expected_rows": [
+    {
+     "adm_no": "ZY000507",
+     "patient_name": "冯婷红",
+     "dept_name": "儿科",
+     "amt": "13535.40"
+    },
+    {
+     "adm_no": "ZY000500",
+     "patient_name": "沈二玲",
+     "dept_name": "心血管内科",
+     "amt": "12724.90"
+    },
+    {
+     "adm_no": "ZY000446",
+     "patient_name": "何刚红",
+     "dept_name": "儿科",
+     "amt": "12478.60"
+    },
+    {
+     "adm_no": "ZY000584",
+     "patient_name": "赵宁",
+     "dept_name": "呼吸内科",
+     "amt": "11108.80"
+    },
+    {
+     "adm_no": "ZY000484",
+     "patient_name": "施欣",
+     "dept_name": "消化内科",
+     "amt": "10510.30"
+    }
+   ],
+   "actual_rows": [
+    {
+     "adm_no": "ZY000507",
+     "patient_name": "冯婷红",
+     "dept_name": "儿科",
+     "total_fee": "13535.40"
+    },
+    {
+     "adm_no": "ZY000500",
+     "patient_name": "沈二玲",
+     "dept_name": "心血管内科",
+     "total_fee": "12724.90"
+    },
+    {
+     "adm_no": "ZY000446",
+     "patient_name": "何刚红",
+     "dept_name": "儿科",
+     "total_fee": "12478.60"
+    },
+    {
+     "adm_no": "ZY000584",
+     "patient_name": "赵宁",
+     "dept_name": "呼吸内科",
+     "total_fee": "11108.80"
+    },
+    {
+     "adm_no": "ZY000484",
+     "patient_name": "施欣",
+     "dept_name": "消化内科",
+     "total_fee": "10510.30"
+    }
+   ],
+   "expected_row_count": 5,
+   "actual_row_count": 5,
+   "matched_rows": 5,
+   "columns_match": true,
+   "order_only": false,
+   "truncated": false
+  },
+  {
+   "case_id": "X11",
+   "category": "analytics",
+   "passed": true,
+   "reason": "passed",
+   "actual_sql": "SELECT \"p\".\"name\" AS \"parent_dept\", \"c\".\"name\" AS \"sub_dept\", \"t\".\"discharges\" AS \"discharges\", RANK() OVER (PARTITION BY \"t\".\"parent_dept\" ORDER BY \"t\".\"discharges\" DESC) AS \"rank_no\" FROM (SELECT \"p2\".\"name\" AS \"parent_dept\", \"c2\".\"name\" AS \"sub_dept\", COUNT(*) AS \"discharges\" FROM \"eval_hosp\".\"admission\" AS \"a\" JOIN \"eval_hosp\".\"dept\" AS \"c2\" ON \"a\".\"dept_id\" = \"c2\".\"id\" JOIN \"eval_hosp\".\"dept\" AS \"p2\" ON \"c2\".\"parent_id\" = \"p2\".\"id\" WHERE \"a\".\"dis_at\" IS NOT NULL AND \"a\".\"dis_at\" >= '2025-01-01' AND \"a\".\"dis_at\" < '2025-07-01' GROUP BY \"p2\".\"name\", \"c2\".\"name\") AS \"t\" JOIN \"eval_hosp\".\"dept\" AS \"p\" ON \"p\".\"name\" = \"t\".\"parent_dept\" JOIN \"eval_hosp\".\"dept\" AS \"c\" ON \"c\".\"name\" = \"t\".\"sub_dept\" AND \"c\".\"parent_id\" = \"p\".\"id\" ORDER BY \"p\".\"name\", \"rank_no\", \"c\".\"name\"",
+   "actual_result_digest": "112b18555f950bd04d2b33a9d1ac9105879dceb06810592fe16027427defbb8c",
+   "blocked_code": null,
+   "retries": 0,
+   "duration_ms": 21153,
+   "tokens_in": 6914,
+   "tokens_out": 998,
+   "no_unsafe_execution": true,
+   "clarification_asked": true,
+   "actual_status": "success",
+   "message": "2025年上半年出院人次最高的是心血管内科52人次，居内科第一；外科第一为骨科40人次，妇儿第一为儿科25人次（出院人次按出院时间统计）。",
+   "clarification_options": [],
+   "assumption": "出院人次按出院时间统计",
+   "error": null,
+   "diagnostic": null,
+   "expected_rows": [
+    {
+     "parent_name": "内科",
+     "dept_name": "呼吸内科",
+     "_col_2": 44,
+     "_col_3": 2
+    },
+    {
+     "parent_name": "内科",
+     "dept_name": "心血管内科",
+     "_col_2": 52,
+     "_col_3": 1
+    },
+    {
+     "parent_name": "内科",
+     "dept_name": "消化内科",
+     "_col_2": 36,
+     "_col_3": 3
+    },
+    {
+     "parent_name": "外科",
+     "dept_name": "普通外科",
+     "_col_2": 26,
+     "_col_3": 2
+    },
+    {
+     "parent_name": "外科",
+     "dept_name": "骨科",
+     "_col_2": 40,
+     "_col_3": 1
+    }
+   ],
+   "actual_rows": [
+    {
+     "parent_dept": "内科",
+     "sub_dept": "呼吸内科",
+     "discharges": 44,
+     "rank_no": 2
+    },
+    {
+     "parent_dept": "内科",
+     "sub_dept": "心血管内科",
+     "discharges": 52,
+     "rank_no": 1
+    },
+    {
+     "parent_dept": "内科",
+     "sub_dept": "消化内科",
+     "discharges": 36,
+     "rank_no": 3
+    },
+    {
+     "parent_dept": "外科",
+     "sub_dept": "普通外科",
+     "discharges": 26,
+     "rank_no": 2
+    },
+    {
+     "parent_dept": "外科",
+     "sub_dept": "骨科",
+     "discharges": 40,
+     "rank_no": 1
+    }
+   ],
+   "expected_row_count": 7,
+   "actual_row_count": 7,
+   "matched_rows": 7,
+   "columns_match": true,
+   "order_only": false,
+   "truncated": false
+  }
+ ]
+}

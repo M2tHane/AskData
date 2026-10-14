@@ -322,7 +322,8 @@ class RealChatAdapter:
             # item's key alone cannot distinguish fixtures; the real ref ID can.
             aliases.get(f"{kind}:{item.ref_id}", aliases.get(item.key, item.key))
             for item in ctx.retrieval.items
-            if item.kind == kind
+            # A value-mapping glossary term is retrieved as "enum" but is still a semantic item.
+            if item.kind == kind or (kind == "semantic" and item.kind == "enum")
         ]
 
     @staticmethod
