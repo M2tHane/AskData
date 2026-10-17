@@ -65,7 +65,11 @@ def load_responses(path: Path, assets: MappedEvalAssets) -> dict[str, list[str]]
             for response in responses:
                 if not isinstance(response, str):
                     raise AppError(ErrorCode.VALIDATION_ERROR)
-                parsed = json.loads(response)
+                try:
+                    parsed = json.loads(response)
+                except ValueError:
+                    # The answer call returns plain text; only SQL calls return JSON.
+                    parsed = None
                 if isinstance(parsed, dict) and "sql" in parsed:
                     if not isinstance(parsed["sql"], str):
                         raise AppError(ErrorCode.VALIDATION_ERROR)
@@ -147,7 +151,9 @@ def main() -> int:
         "--gate1", action="store_true", help="22 fixed safety outputs; no database needed"
     )
     mode.add_argument(
-        "--responses", type=Path, help="case ID -> list of model JSON response strings"
+        "--responses",
+        type=Path,
+        help="case ID -> model replies in call order: SQL JSON, corrections, answer text",
     )
     parser.add_argument(
         "--case", action="append", default=[], help="select full-suite cases explicitly"

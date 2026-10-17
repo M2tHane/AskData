@@ -140,11 +140,11 @@ uv run --frozen --project eval pytest -q eval/tests
 
 直接修改 cases.jsonl 或 files/ 后也能自检，但随后重建会覆盖它们；应优先更新 build_assets.py。修改 testdb.sql 的表字段后同步更新 fixtures.yaml 的 catalog 和显式授权。新增题目需要重新确定分布版本，不能悄悄改变此 100 题基线。脚本不记录完整结果，不生成模型评分；真实模型回归需另外报告分类通过率、一次通过率、重试次数、安全通过率、耗时及 token 用量。
 
-## 真实 chat 流水线回放（I2）
+## 真实 chat 流水线回放
 
-新增 `run_pipeline.py` 使用 backend 的锁定环境。门槛 1 读取原始题集中的固定
-`candidate_sql`，通过真实 core LLMClient、chat QueryPipeline、PermissionService 和
-SqlGuard，验证 22 题完整安全门槛；该模式不连接数据库。运行入口在 backend 下：
+`run_pipeline.py` 使用 backend 的锁定环境，用写死的模型回复走真实的 core LLMClient、
+chat QueryPipeline、PermissionService 和 SqlGuard。门槛 1 读取原始题集中的固定
+`candidate_sql`，验证 22 题完整安全门槛；该模式不连接数据库。运行入口在 backend 下：
 
 ```bash
 uv run --frozen python ../eval/run_pipeline.py --gate1
@@ -153,16 +153,31 @@ uv run --frozen python ../eval/run_pipeline.py --gate1
 完整题集需要隔离的预加载 PostgreSQL 库和独立模拟响应文件。通过 core Settings 的
 `ASKDATA_EVALUATION_DATASOURCES` 环境变量提供六个 fixture alias 到只读 Datasource
 DTO 的 JSON 映射（含真实 id、schema_name、连接信息；密码只由环境传入）。响应文件
-是 `case_id -> JSON 字符串列表`；按澄清、生成 SQL、纠错（如有）、图表、解释的调用顺序
-提供，不能省略需要的响应。例子：
+是 `题号 -> 模型回复列表`，按管道实际调用模型的顺序给出：
+
+1. **生成 SQL**：一个 JSON 对象，`sql` 必填；可选 `title`、`interpretation`、`filters`、
+   `assumption` 和 `chart`（如 `{"type": "bar", "x": "month", "y": ["amount"]}`，会按真实
+   结果列校验，不合格就按结果形状兜底）。判断无法回答给 `{"unanswerable": true}`，判断是
+   写操作给 `{"write_request": true}`。
+2. **纠错**（只在 SQL 被守卫退回或执行出错时调用，每轮一条，最多 3 轮）：同样格式的 JSON，
+   `sql` 必填。
+3. **写结论**：纯文本，不是 JSON。结果为空时不调用模型；不给这一条时用「共 N 行结果。」
+   兜底，并记一条 `answer_fallback` 警告。
+
+回放关闭模型澄清：回复里的 `clarify` 不会变成澄清问题，只给 `clarify` 不给 `sql` 时管道会
+再要一次 SQL，消耗下一条回复。SQL 按题目原始 schema 写（如 `commerce.orders`），运行器
+映射到真实 schema。例子（S02 第一次写错字段，纠错一轮）：
 
 ```json
 {
   "S01": [
-    "{\"clarify\": false}",
-    "{\"sql\": \"SELECT COUNT(*) AS n FROM commerce.orders\"}",
-    "{\"type\": \"table\"}",
-    "{\"summary\": \"查询完成\"}"
+    "{\"sql\": \"SELECT sku, name, price FROM commerce.product WHERE status = 1\", \"title\": \"在售商品\", \"chart\": {\"type\": \"table\"}}",
+    "共 120 件在售商品，标价从 9.9 元到 3999 元。"
+  ],
+  "S02": [
+    "{\"sql\": \"SELECT sku, price FROM commerce.product WHERE state = 1 ORDER BY price DESC, sku LIMIT 5\"}",
+    "{\"sql\": \"SELECT sku, price FROM commerce.product WHERE status = 1 ORDER BY price DESC, sku LIMIT 5\"}",
+    "标价最高的 5 件在售商品见下表。"
   ]
 }
 ```
@@ -174,34 +189,28 @@ uv run --frozen python ../eval/run_pipeline.py --responses /path/to/responses.js
 ```
 
 响应 SQL、历史 SQL、参考 SQL 会映射到同一个真实 schema；所有参考/模型查询依次经过
-核心权限、守卫、执行器。运行器从不以参考 SQL 或期望结果生成模拟答案；只在外部集成
-测试里显式构造固定答案作为接线样例。stdout 为汇总与失败题号，stderr 为 core 安全日志，
-不输出完整结果、SQL 或密钥。退出码 0 表示所选题全通过，1 表示评测存在失败，2 表示
+核心权限、守卫、执行器。运行器从不以参考 SQL 或期望结果生成模拟答案。stdout 为汇总与
+失败题号，stderr 为 core 安全日志，不输出完整结果、SQL 或密钥。退出码 0 表示所选题全通过，1 表示评测存在失败，2 表示
 配置错误。此 CLI 默认仅 schema 检索；I3 的生产评测通过 adapters 工厂注入真实检索服务。
 
 适配器工厂、生产 service 身份绑定、权限映射和 I3 接线见
 `backend/app/modules/eval/adapters.py`。原题目、fixtures、样例和 testdb.sql 保持原样。
 
-新增适配器测试在 `eval/tests/test_i2_*.py`，依赖 backend；独立资产环境会跳过这两个模块。
+适配器测试在 `eval/tests/test_i2_adapters.py`，依赖 backend；独立资产环境会跳过这个模块。
 后端测试使用明确配置，避免 pytest 自动选择 eval 的配置丢失 asyncio 设置：
 
 ```bash
-# backend/ 下，含完整真实 PostgreSQL 18 回放和上传 COPY 集成测试：
+# backend/ 下，含上传 COPY 集成测试：
 uv run --frozen --with-requirements app/modules/upload/requirements.txt pytest \
   -c pyproject.toml -q tests/test_upload_d.py tests/test_eval_d.py \
   tests/test_upload_d_external.py tests/test_architecture.py \
-  ../eval/tests/test_i2_adapters.py ../eval/tests/test_i2_external.py --external-services
+  ../eval/tests/test_i2_adapters.py --external-services
 # backend/ 下类型检查新增入口和测试：
 uv run --frozen mypy --config-file pyproject.toml app/modules/upload app/modules/eval \
   ../eval/run_pipeline.py
 MYPYPATH=../eval uv run --frozen mypy --config-file pyproject.toml --follow-imports=silent \
-  ../eval/tests/test_i2_adapters.py ../eval/tests/test_i2_external.py
+  ../eval/tests/test_i2_adapters.py
 ```
-
-I2 已验证上述专项 **75 passed**，包括新增 24 项测试、两个独立 PG 容器（均删除）。完整
-100 题的固定输出基线为 **76/100**，安全题 **22/22**；scope-only 检索没有语义命中与澄清
-候选，测试固定 table 图表不满足图表题要求，因此剩余 24 题如实失败。这是接线和评分
-验证，不是实际 LLM 准确率。生产上传登记仍等待其他模块补齐公开 service 方法。
 
 ## 留出集（holdout.jsonl）
 
