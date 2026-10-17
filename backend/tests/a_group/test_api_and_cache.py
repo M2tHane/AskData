@@ -16,8 +16,6 @@ async def test_a_group_http_auth_openapi_roles_grants_and_sync(identity_db):
     application = create_app(world.settings)
     world.inspector.snapshot = snapshot("id", "phone", "secret")
     with TestClient(application, raise_server_exceptions=False) as client:
-        application.state.datasource_inspector = world.inspector
-        application.state.scope_cache = world.cache
         if getattr(application.state, "composition", None) is not None:
             application.state.composition.inspector = world.inspector
             application.state.composition.cache = world.cache

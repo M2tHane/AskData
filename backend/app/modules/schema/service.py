@@ -1,7 +1,7 @@
 from collections.abc import Awaitable, Callable
-from typing import Annotated, Any, Protocol
+from typing import Any, Protocol
 
-from fastapi import Depends, Request
+from fastapi import Request
 
 from app.core.audit import AuditService
 from app.core.crypto import SecretBox
@@ -11,7 +11,7 @@ from app.core.deps import CurrentUser, Role
 from app.core.errors import AppError, ErrorCode
 from app.core.permission import PermissionService, ScopeCache
 from app.core.tasks import TaskContext, TaskHandler, TaskManager, TaskRecord
-from app.modules.auth.service import audit_for, get_session, require_admin, secret_box, settings_for
+from app.modules.auth.service import audit_for, require_admin
 from app.modules.datasource.service import DatasourceService
 from app.modules.datasource.service import build_service as build_datasource
 from app.modules.embedding.service import build_outbox
@@ -383,34 +383,19 @@ def build_service(
     )
 
 
-def get_service(
-    request: Request, session: Annotated[AsyncSession, Depends(get_session, scope="function")]
-) -> SchemaService:
-    return build_service(
-        session,
-        secret_box(settings_for(request)),
-        getattr(request.app.state, "datasource_inspector", None),
-    )
+def get_service() -> SchemaService:
+    """Placeholder: the composition root overrides it with the request's service."""
+    raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)
 
 
-def get_permissions(
-    request: Request, session: Annotated[AsyncSession, Depends(get_session, scope="function")]
-) -> PermissionService:
-    from app.modules.permission.service import build_service as build_permission
-
-    return build_permission(
-        session, secret_box(settings_for(request)), getattr(request.app.state, "scope_cache", None)
-    ).permissions
+def get_permissions() -> PermissionService:
+    """Placeholder: the composition root overrides it with the request's service."""
+    raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)
 
 
-def get_grants(
-    request: Request, session: Annotated[AsyncSession, Depends(get_session, scope="function")]
-) -> Any:
-    from app.modules.permission.service import build_service as build_permission
-
-    return build_permission(
-        session, secret_box(settings_for(request)), getattr(request.app.state, "scope_cache", None)
-    )
+def get_grants() -> Any:
+    """Placeholder: the composition root overrides it with the request's service."""
+    raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)
 
 
 def get_task_manager(request: Request) -> TaskManager:

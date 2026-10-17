@@ -182,7 +182,6 @@ async def running(settings):
     application = create_app(settings)
     async with application.router.lifespan_context(application):
         application.state.composition.cache = MemoryScopeCache()
-        application.state.scope_cache = application.state.composition.cache
         async with httpx2.AsyncClient(
             transport=httpx2.ASGITransport(app=application), base_url=HOST
         ) as http:

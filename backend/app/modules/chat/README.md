@@ -1,27 +1,26 @@
 # Chat module integration
 
 `api.py` exports `router` with prefix `/api/chat`; `main.mount_modules` discovers it.
-`service.get_service` creates a separate request-scoped metadata session, kept open
+`service.get_service` is a placeholder: `composition.configure_dependencies` overrides
+it with `Composition.chat()` on a separate request-scoped metadata session, kept open
 through the SSE body. Conversation/message writes commit with their audits; the
 query run commits before saving the assistant response, so response persistence
 failure does not roll back the run. Do not wrap this service in a transaction that
 rolls back failed query replies.
 
-Inject these public objects through application state (or inject a ready service
-through `request.state.chat_service` / FastAPI dependency overrides):
+`Composition.chat()` is the only place the pipeline is wired:
 
-- `retrieval_index`: implements `context_builder.RetrievalIndex.retrieve` and
-  `expand_relations`. It must filter every semantic/metric/example/enum item by
-  the supplied user and visible scope, perform keyword + vector search for
-  `mode="hybrid"`, optionally rerank, and expand only authorized FK endpoints.
-  Chat independently filters structured table/column references and applies
-  `ScopedQuery` visibility and priority. `chat.retrieval.ServiceRetrievalIndex`
-  is the concrete adapter: it calls schema/semantic/metric/feedback/embedding
-  services, carries IDs and versions, and optionally calls core RerankClient.
-- `usage_recorder`: the core `UsageRecorder` protocol, including quota reservation.
-  Missing recorder fails closed inside the pipeline and produces a failed run.
-- Optional `llm_client` (core `LLMClient`) or `model_transport` (core transport),
-  and `sql_executor` (core `SqlExecutor`) for configured deployments/tests.
+- Retrieval: `chat.retrieval.ServiceRetrievalIndex` implements
+  `context_builder.RetrievalIndex` (`retrieve` and `expand_relations`). It must
+  filter every semantic/metric/example/enum item by the supplied user and visible
+  scope, perform keyword + vector search for `mode="hybrid"`, optionally rerank, and
+  expand only authorized FK endpoints. Chat independently filters structured
+  table/column references and applies `ScopedQuery` visibility and priority. The
+  adapter calls schema/semantic/metric/feedback/embedding services, carries IDs and
+  versions, and optionally calls core RerankClient.
+- Usage: the core `UsageRecorder` protocol, including quota reservation.
+- Models and execution: core `LLMClient` over the runtime transport, and the shared
+  core `SqlExecutor`. Tests and evaluation build `PipelineDependencies` directly.
 
 Every question gets retrieved context (`ContextBuilder(threshold=0)`):
 `ServiceRetrievalIndex` scores visible tables, columns, terms, metrics and reviewed
@@ -35,8 +34,8 @@ means full context. Two fallbacks give the model the whole schema: an
 "unanswerable" reply is asked once more, and every correction round.
 `scripts/retrieval_recall.py` measures recall on the eval questions without a
 model. `ScopeOnlyIndex` remains a minimal test/bootstrap adapter and refuses hybrid
-retrieval. The composition root must bind the concrete adapter too. Runtime uses
-A/B-group **service** factories, never other modules' repositories or tables.
+retrieval. Runtime uses A/B-group **service** factories, never other modules'
+repositories or tables.
 
 `Stage.run(ctx) -> ctx` has ten implementations. QueryLogWriter stores a maximum
 of five masked preview rows, the stage timings, retry categories, prompt versions,

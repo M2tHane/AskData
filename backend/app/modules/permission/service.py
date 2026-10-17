@@ -1,7 +1,3 @@
-from typing import Annotated
-
-from fastapi import Depends, Request
-
 from app.core.audit import AuditService
 from app.core.crypto import SecretBox
 from app.core.db import AsyncSession
@@ -14,7 +10,7 @@ from app.core.permission import (
     TableGrant,
     VisibleScope,
 )
-from app.modules.auth.service import audit_for, get_session, require_admin, secret_box, settings_for
+from app.modules.auth.service import audit_for, require_admin
 from app.modules.org.service import OrgService
 from app.modules.org.service import build_service as build_org
 from app.modules.permission.repository import PermissionRepository
@@ -621,9 +617,6 @@ def build_service(
     )
 
 
-def get_service(
-    request: Request, session: Annotated[AsyncSession, Depends(get_session, scope="function")]
-) -> GrantService:
-    return build_service(
-        session, secret_box(settings_for(request)), getattr(request.app.state, "scope_cache", None)
-    )
+def get_service() -> GrantService:
+    """Placeholder: the composition root overrides it with the request's service."""
+    raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)

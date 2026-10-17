@@ -62,9 +62,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     transport=getattr(application.state, "model_transport", None),
                 )
                 application.state.composition = runtime
-                application.state.scope_cache = runtime.cache
-                application.state.datasource_inspector = runtime.inspector
-                application.state.sql_executor = runtime.executor
                 application.state.task_manager = runtime.tasks
             # A mounted MCP app's own lifespan never runs; its session manager runs here.
             async with mcp_server.session_manager.run():

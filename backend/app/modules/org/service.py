@@ -1,6 +1,3 @@
-from typing import Annotated
-
-from fastapi import Depends
 from pydantic import SecretStr
 
 from app.core.audit import AuditService
@@ -9,7 +6,7 @@ from app.core.deps import CurrentUser, Role
 from app.core.errors import AppError, AuthenticationError, ErrorCode, PermissionDenied
 from app.core.response import Page, PageParams
 from app.core.security import hash_password, verify_password
-from app.modules.auth.service import audit_for, get_session, require_admin
+from app.modules.auth.service import audit_for, require_admin
 from app.modules.org.models import Team
 from app.modules.org.repository import OrgRepository
 from app.modules.org.schemas import (
@@ -291,7 +288,6 @@ def build_service(session: AsyncSession) -> OrgService:
     return OrgService(OrgRepository(session), audit_for(session))
 
 
-def get_service(
-    session: Annotated[AsyncSession, Depends(get_session, scope="function")],
-) -> OrgService:
-    return build_service(session)
+def get_service() -> OrgService:
+    """Placeholder: the composition root overrides it with the request's service."""
+    raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)

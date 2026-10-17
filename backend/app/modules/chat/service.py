@@ -4,39 +4,32 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from io import BytesIO, StringIO
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
-from fastapi import Request
 from fastapi.encoders import jsonable_encoder
 from openpyxl import Workbook  # type: ignore[import-untyped]
 
 from app.core.audit import (
     AuditService,
-    DatabaseAuditStore,
-    DatabaseQueryLogStore,
-    DetachedQueryLogStore,
-    QueryLogWriter,
 )
 from app.core.cache import TextCache
-from app.core.datasource import Datasource
-from app.core.db import AsyncSession, Database
+from app.core.db import AsyncSession
 from app.core.deps import CurrentUser
 from app.core.errors import MESSAGES, AppError, ErrorCode, SqlBlocked
-from app.core.llm import CallContext, CallRecord, LLMClient, RerankClient, UsageRecorder
 from app.core.masking import mask_rows, safe_export_cell
 from app.core.permission import VisibleScope
 from app.core.response import Page, PageParams
-from app.core.sql.executor import QueryLimits, SqlExecutor
-from app.core.sql.guard import GuardedSql, SqlGuard
+from app.core.sql.guard import GuardedSql
 from app.core.stream import EventType, StreamEvent
-from app.modules.chat.context_builder import ContextBuilder, RetrievalIndex
+
+# Re-exported for other modules, which reach chat only through its service.
+from app.modules.chat.context_builder import ContextBuilder as ContextBuilder
 from app.modules.chat.context_builder import ScopeOnlyIndex as ScopeOnlyIndex
-from app.modules.chat.dependencies import PipelineDependencies
+from app.modules.chat.dependencies import PipelineDependencies as PipelineDependencies
 from app.modules.chat.pipeline import QueryPipeline, diagnose, encode_event
 from app.modules.chat.query_context import PREVIEW_ROWS, QueryContext
 from app.modules.chat.query_context import plain_rows as plain_rows
 from app.modules.chat.repository import ChatRepository
-from app.modules.chat.retrieval import ServiceRetrievalIndex
 from app.modules.chat.schemas import (
     ChatLimits,
     ContextItemView,
@@ -825,116 +818,6 @@ def build_retention_store(session: AsyncSession) -> ChatRetentionStore:
     return ChatRetentionStore(ChatRepository(session))
 
 
-class _MissingUsageRecorder:
-    """Fail closed until the quota/usage service is wired through its public protocol."""
-
-    async def authorize_query(self, context: CallContext) -> None:
-        raise AppError(ErrorCode.LLM_UNAVAILABLE, http_status=503)
-
-    async def authorize(self, context: CallContext) -> None:
-        raise AppError(ErrorCode.LLM_UNAVAILABLE, http_status=503)
-
-    async def record(self, record: CallRecord) -> None:
-        return None
-
-
-def build_service(session: AsyncSession, request: Request) -> ChatService:
-    from app.modules.auth.service import secret_box, settings_for
-    from app.modules.datasource.service import build_service as build_datasource
-    from app.modules.feedback.service import build_service as build_feedback
-    from app.modules.metric.service import QueryDatasources
-    from app.modules.metric.service import build_service as build_metric
-    from app.modules.modelcfg.service import build_service as build_models
-    from app.modules.permission.service import build_service as build_permissions
-    from app.modules.promptcfg.service import build_service as build_prompts
-    from app.modules.schema.service import build_service as build_schema
-    from app.modules.semantic.service import SchemaTargets
-    from app.modules.semantic.service import build_service as build_semantic
-
-    settings = settings_for(request)
-    box = secret_box(settings)
-    permissions = build_permissions(
-        session, box, getattr(request.app.state, "scope_cache", None)
-    ).permissions
-    datasource_service = build_datasource(session, box)
-
-    async def resolve(identifier: int, actor: CurrentUser) -> Datasource:
-        return await datasource_service.for_query(identifier, actor, permissions)
-
-    audit = AuditService(DatabaseAuditStore(session), settings.retention_days)
-    repository = ChatRepository(session)
-    recorder = cast(
-        UsageRecorder, getattr(request.app.state, "usage_recorder", _MissingUsageRecorder())
-    )
-    models = build_models(session, box)
-    llm = cast(LLMClient, getattr(request.app.state, "llm_client", None))
-    if llm is None:
-        llm = LLMClient(
-            models.registry, recorder, getattr(request.app.state, "model_transport", None)
-        )
-    index = cast(RetrievalIndex | None, getattr(request.app.state, "retrieval_index", None))
-    executor = cast(SqlExecutor, getattr(request.app.state, "sql_executor", None))
-    if executor is None:
-        # Core alone constructs connectors and distributed rate limiting.
-        cache = getattr(request.app.state, "scope_cache", None)
-        executor = SqlExecutor.default(getattr(cache, "redis", None))
-    if index is None:
-        schema = build_schema(session, box)
-        resolver = QueryDatasources(datasource_service, permissions)
-        semantic = build_semantic(session, permissions, SchemaTargets(schema))
-        metric = build_metric(session, permissions, resolver, executor)
-        feedback = build_feedback(session, build_querylog(session), permissions, resolver)
-        index = ServiceRetrievalIndex(
-            schema,
-            semantic,
-            metric,
-            feedback,
-            getattr(request.state, "embedding_service", None),
-            RerankClient(
-                models.registry, recorder, getattr(request.app.state, "model_transport", None)
-            ),
-        )
-    database = cast(Database | None, getattr(request.app.state, "database", None))
-    cancelled_log = (
-        QueryLogWriter(DetachedQueryLogStore(database.sessions), settings.retention_days)
-        if database is not None
-        else None
-    )
-    dependencies = PipelineDependencies(
-        permissions,
-        resolve,
-        repository.history,
-        ContextBuilder(index, threshold=0 if isinstance(index, ServiceRetrievalIndex) else 30),
-        llm,
-        SqlGuard(),
-        executor,
-        QueryLogWriter(DatabaseQueryLogStore(session), settings.retention_days),
-        prompt_source=build_prompts(session),
-        cancelled_querylog=cancelled_log,
-        limits=QueryLimits(
-            user_id=1,
-            timeout_seconds=settings.query_timeout_seconds,
-            max_rows=settings.max_query_rows,
-            max_cost=settings.max_query_cost,
-        ),
-    )
-    return ChatService(
-        repository,
-        QueryPipeline(dependencies),
-        audit,
-        export_max_rows=settings.export_max_rows,
-        export_max_bytes=settings.export_max_mb * 1024 * 1024,
-    )
-
-
-async def get_service(request: Request) -> AsyncIterator[ChatService]:
-    injected = getattr(request.state, "chat_service", None)
-    if isinstance(injected, ChatService):
-        yield injected
-        return
-    database = cast(Database | None, getattr(request.app.state, "database", None))
-    if database is None:
-        raise AppError(ErrorCode.DATASOURCE_UNAVAILABLE, http_status=503)
-    # Request scope keeps this session open through the complete SSE body.
-    async with database.session() as session:
-        yield build_service(session, request)
+def get_service() -> ChatService:
+    """Placeholder: the composition root overrides it with the request's service."""
+    raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)

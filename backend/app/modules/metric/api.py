@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 
 from app.core.deps import CurrentUser, current_user
 from app.core.errors import AppError, ErrorCode
@@ -11,11 +11,9 @@ from app.modules.metric.service import MetricService
 router = APIRouter(prefix="/metric", tags=["metric"], dependencies=[Depends(current_user)])
 
 
-def get_service(request: Request) -> MetricService:
-    service = getattr(request.state, "metric_service", None)
-    if not isinstance(service, MetricService):
-        raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)
-    return service
+def get_service() -> MetricService:
+    """Placeholder: the composition root overrides it with the request's service."""
+    raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)
 
 
 Service = Annotated[MetricService, Depends(get_service)]

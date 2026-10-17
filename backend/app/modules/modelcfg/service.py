@@ -1,7 +1,3 @@
-from typing import Annotated
-
-from fastapi import Depends, Request
-
 from app.core.audit import AuditService
 from app.core.crypto import SecretBox
 from app.core.db import AsyncSession
@@ -21,7 +17,7 @@ from app.core.llm import (
 )
 from app.core.prompt import PromptId, PromptRegistry
 from app.core.response import Page, PageParams
-from app.modules.auth.service import audit_for, get_session, require_admin, secret_box, settings_for
+from app.modules.auth.service import audit_for, require_admin
 from app.modules.modelcfg.repository import ModelRepository
 from app.modules.modelcfg.schemas import (
     ModelChoice,
@@ -307,12 +303,6 @@ def build_service(
     )
 
 
-def get_service(
-    request: Request, session: Annotated[AsyncSession, Depends(get_session, scope="function")]
-) -> ModelConfigService:
-    return build_service(
-        session,
-        secret_box(settings_for(request)),
-        getattr(request.app.state, "model_transport", None),
-        getattr(request.app.state, "usage_recorder", None),
-    )
+def get_service() -> ModelConfigService:
+    """Placeholder: the composition root overrides it with the request's service."""
+    raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)

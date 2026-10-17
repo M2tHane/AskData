@@ -12,11 +12,9 @@ from app.modules.embedding.service import EmbeddingService
 router = APIRouter(prefix="/embedding", tags=["embedding"], dependencies=[Depends(current_user)])
 
 
-def get_service(request: Request) -> EmbeddingService:
-    service = getattr(request.state, "embedding_service", None)
-    if not isinstance(service, EmbeddingService):
-        raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)
-    return service
+def get_service() -> EmbeddingService:
+    """Placeholder: the composition root overrides it with the request's service."""
+    raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)
 
 
 def get_manager(request: Request) -> TaskManager:

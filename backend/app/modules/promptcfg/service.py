@@ -1,7 +1,3 @@
-from typing import Annotated
-
-from fastapi import Depends, Request
-
 from app.core.audit import AuditService
 from app.core.db import AsyncSession
 from app.core.deps import CurrentUser
@@ -16,7 +12,7 @@ from app.core.prompt import (
     validate_dialect_text,
     validate_template,
 )
-from app.modules.auth.service import audit_for, get_session, require_admin
+from app.modules.auth.service import audit_for, require_admin
 from app.modules.org.service import OrgService
 from app.modules.org.service import build_service as build_org
 from app.modules.promptcfg.models import PromptRevision
@@ -232,7 +228,6 @@ def build_service(session: AsyncSession) -> PromptConfigService:
     return PromptConfigService(PromptRepository(session), audit_for(session), build_org(session))
 
 
-def get_service(
-    request: Request, session: Annotated[AsyncSession, Depends(get_session, scope="function")]
-) -> PromptConfigService:
-    return build_service(session)
+def get_service() -> PromptConfigService:
+    """Placeholder: the composition root overrides it with the request's service."""
+    raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)

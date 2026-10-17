@@ -1,8 +1,7 @@
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Annotated, cast
+from typing import TYPE_CHECKING, cast
 
-from fastapi import Depends, Request
+from fastapi import Request
 from pydantic import SecretStr
 
 from app.core.audit import AuditService, DatabaseAuditStore
@@ -32,17 +31,6 @@ def secret_box(settings: Settings) -> SecretBox:
     if settings.encryption_key is None:
         raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)
     return SecretBox(settings.encryption_key)
-
-
-async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
-    database = getattr(request.app.state, "database", None)
-    if database is None:
-        raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)
-    async with database.transaction() as session:
-        yield session
-    # Authorization epochs must also advance after the transaction commits.
-    for callback in session.info.get("after_commit", []):
-        await callback()
 
 
 def audit_for(session: AsyncSession) -> AuditService:
@@ -108,7 +96,6 @@ def build_service(session: AsyncSession, settings: Settings | None = None) -> Au
     )
 
 
-def get_service(
-    request: Request, session: Annotated[AsyncSession, Depends(get_session, scope="function")]
-) -> AuthService:
-    return build_service(session, settings_for(request))
+def get_service() -> AuthService:
+    """Placeholder: the composition root overrides it with the request's service."""
+    raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)

@@ -1,6 +1,3 @@
-from typing import Annotated
-
-from fastapi import Depends, Request
 from pydantic import SecretStr
 
 from app.core.audit import AuditService
@@ -14,10 +11,7 @@ from app.core.response import Page, PageParams
 from app.core.sql.dialect import Dialect
 from app.modules.auth.service import (
     audit_for,
-    get_session,
     require_admin,
-    secret_box,
-    settings_for,
 )
 from app.modules.datasource.repository import DatasourceRepository
 from app.modules.datasource.schemas import DatasourceChoice, DatasourceRead, DatasourceWrite
@@ -362,12 +356,6 @@ def build_service(
     )
 
 
-def get_service(
-    request: Request, session: Annotated[AsyncSession, Depends(get_session, scope="function")]
-) -> DatasourceService:
-    return build_service(
-        session,
-        secret_box(settings_for(request)),
-        getattr(request.app.state, "datasource_inspector", None),
-        getattr(request.app.state, "scope_cache", None),
-    )
+def get_service() -> DatasourceService:
+    """Placeholder: the composition root overrides it with the request's service."""
+    raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)

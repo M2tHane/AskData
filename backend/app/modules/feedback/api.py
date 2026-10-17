@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query
 
 from app.core.deps import CurrentUser, current_user
 from app.core.errors import AppError, ErrorCode
@@ -20,11 +20,9 @@ from app.modules.feedback.service import FeedbackService
 router = APIRouter(prefix="/feedback", tags=["feedback"], dependencies=[Depends(current_user)])
 
 
-def get_service(request: Request) -> FeedbackService:
-    service = getattr(request.state, "feedback_service", None)
-    if not isinstance(service, FeedbackService):
-        raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)
-    return service
+def get_service() -> FeedbackService:
+    """Placeholder: the composition root overrides it with the request's service."""
+    raise AppError(ErrorCode.INTERNAL_ERROR, http_status=503)
 
 
 Service = Annotated[FeedbackService, Depends(get_service)]
