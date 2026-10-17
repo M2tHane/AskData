@@ -1,6 +1,6 @@
 # AskData 评测数据（基线 v1）
 
-本目录实现 `docs/ARCHITECTURE.md` 3.13 的测试库、权限夹具、100 题和参考答案自检。所有数据均为合成数据，只用于隔离的 PostgreSQL 评测库。
+本目录是 AskData 的评测资产：测试库、权限夹具、100 道调优题（`cases.jsonl`）、100 道留出题（`holdout.jsonl`）和参考答案自检。所有数据均为合成数据，只用于隔离的 PostgreSQL 评测库。
 
 仓库根目录运行：
 
@@ -180,7 +180,7 @@ uv run --frozen python ../eval/run_pipeline.py --responses /path/to/responses.js
 配置错误。此 CLI 默认仅 schema 检索；I3 的生产评测通过 adapters 工厂注入真实检索服务。
 
 适配器工厂、生产 service 身份绑定、权限映射和 I3 接线见
-`docs/archive/eval_INTEGRATION.md`。原题目、fixtures、样例和 testdb.sql 保持原样。
+`backend/app/modules/eval/adapters.py`。原题目、fixtures、样例和 testdb.sql 保持原样。
 
 新增适配器测试在 `eval/tests/test_i2_*.py`，依赖 backend；独立资产环境会跳过这两个模块。
 后端测试使用明确配置，避免 pytest 自动选择 eval 的配置丢失 asyncio 设置：
@@ -201,8 +201,7 @@ MYPYPATH=../eval uv run --frozen mypy --config-file pyproject.toml --follow-impo
 I2 已验证上述专项 **75 passed**，包括新增 24 项测试、两个独立 PG 容器（均删除）。完整
 100 题的固定输出基线为 **76/100**，安全题 **22/22**；scope-only 检索没有语义命中与澄清
 候选，测试固定 table 图表不满足图表题要求，因此剩余 24 题如实失败。这是接线和评分
-验证，不是实际 LLM 准确率。生产上传登记仍等待其他模块补齐公开 service 方法；详见
-`docs/OPEN_QUESTIONS.md`，本组未修改这些模块或 main/worker。
+验证，不是实际 LLM 准确率。生产上传登记仍等待其他模块补齐公开 service 方法。
 
 ## 留出集（holdout.jsonl）
 

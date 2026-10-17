@@ -57,7 +57,7 @@ chosen offered definition; otherwise priority is personal > team > platform.
 Relative dates use the supplied IANA timezone and inclusive start/exclusive end.
 Near-N-days includes today; last month is a complete calendar month; this quarter
 is a complete calendar quarter; standalone last-year-same-period uses year-to-date
-with leap-day clamping (documented in OPEN_QUESTIONS). History uses a bounded
+with leap-day clamping. History uses a bounded
 extractive summary plus a freshly guarded previous SQL for follow-up filters.
 
 Only core SQL_EXECUTION_ERROR (syntax/undefined-column driver categories) can

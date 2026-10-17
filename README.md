@@ -1,5 +1,7 @@
 # AskData
 
+[![CI](https://github.com/M2tHane/AskData/actions/workflows/ci.yml/badge.svg)](https://github.com/M2tHane/AskData/actions/workflows/ci.yml)
+
 自然语言问数（Text-to-SQL）平台：员工用中文提问，系统在**该员工有权看到的表和字段**范围内生成只读 SQL、执行、出图并给出结论；Claude Code、Cursor 等 AI Agent 也可以通过 MCP 用同一套能力。
 
 https://github.com/user-attachments/assets/8a8155ef-3ca6-4730-9f42-0f51564e9af2
@@ -8,7 +10,7 @@ https://github.com/user-attachments/assets/8a8155ef-3ca6-4730-9f42-0f51564e9af2
 - **SQL 安全网关**：基于 AST 的 fail-closed 校验，表/字段白名单、函数分级、只读事务、超时、行数和代价上限，被拦下的请求一条 SQL 都不执行。
 - **混合检索 + 业务语义层 + 自动纠错**：三者各自解决什么问题，用[消融实验](#消融实验)单独量化。
 - **可复现的评测**：三组各 100 题、题型分布相同的对照（调优集 / 同领域留出集 / 新业务库），按结果而不是 SQL 文本评分，量化过拟合和跨领域损失。
-- **工程化**：模块化单体，6 条 import-linter 架构约束；后端 862 个测试、前端 152 个测试；Docker Compose 一键部署。
+- **工程化**：模块化单体，6 条 import-linter 架构约束；后端 869 个测试、前端 152 个测试，每次提交由 [CI](https://github.com/M2tHane/AskData/actions/workflows/ci.yml) 重跑；Docker Compose 一键部署。
 
 ## 目录
 
@@ -82,7 +84,7 @@ flowchart LR
 | 检查 | 内容 |
 | --- | --- |
 | 语句 | 只允许单条 SELECT；写入、DDL、多语句、锁、递归 CTE、查询级设置一律拒绝 |
-| 对象 | 每个表和字段都要能解析到可见范围；系统表、跨库、`SELECT *` 拒绝 |
+| 对象 | 每个表和字段都要能解析到可见范围；系统表、跨库拒绝；`SELECT *` 先按表结构展开成具体字段再逐个检查，展开后含不可见字段、或无法展开时拒绝 |
 | 函数 | 危险函数（`pg_sleep`、`pg_read_file`、`dblink`）和未知自定义函数拒绝；按方言审核过的常见函数放行；常见但未审核的函数让模型换写法重写一次，重写结果重新过全部检查 |
 | 血缘 | 每个输出列追溯到源字段，用于脱敏；追溯不了就拒绝 |
 | 执行 | 只读事务、语句超时、`EXPLAIN` 代价上限、返回行数上限 |
@@ -122,7 +124,7 @@ flowchart LR
 - **模块化单体**：`backend/app/modules/*` 每个模块 api → service → repository，跨模块只能调 service；`importlinter.ini` 的 6 条约束由 `backend/scripts/check.sh` 检查（例如业务模块不能直接用数据库驱动和模型 SDK，只能经过 `core`）。
 - **提示词版本化**：提示词是带版本号的 YAML（`backend/app/prompts/`），评测记录用的是哪个版本，管理员可以在界面里覆盖。
 - **可观测**：每次提问在查询日志里记录各阶段耗时、token、重试、拦截规则和 `request_id`；应用日志不写密码、结果数据和 SQL。
-- **测试**：后端 862 个（pytest，含权限穿透、并发限额、迁移升降级、MCP 协议），前端 152 个（Vitest + Testing Library）；mypy、ruff、eslint、tsc 全部通过。
+- **测试**：后端 869 个（pytest，含权限穿透、并发限额、迁移升降级、MCP 协议），前端 152 个（Vitest + Testing Library）；mypy、ruff、eslint、tsc 全部通过。以上都在 [GitHub Actions](https://github.com/M2tHane/AskData/actions/workflows/ci.yml) 里跑（`.github/workflows/ci.yml`），需要 Docker 的集成测试默认跳过，本地加 `--external-services` 运行。
 
 ## 运行截图
 
@@ -243,7 +245,7 @@ backend/
   tests/             pytest
   scripts/           部署、演示数据、评测脚本
 frontend/src/        React 页面、组件、API 类型（由 OpenAPI 生成）
-eval/                评测库、权限夹具、100 道调优题、40 道留出题、参考答案自检
+eval/                评测库、权限夹具、100 道调优题、100 道留出题、参考答案自检
 deploy/              Docker Compose 与容器启动脚本
 docs/                MCP 说明、README 截图
 ```
