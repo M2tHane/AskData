@@ -1,6 +1,6 @@
 """Provision the 星河优选 demo business on a running Compose stack, through public APIs only.
 
-Run from backend with the stack up and an empty business state (see docs/RUNBOOK.md, 演示业务数据):
+Run from backend with the stack up and an empty business state:
 
     ASKDATA_PROVISION_USERNAME=admin ASKDATA_PROVISION_PASSWORD=... \
         uv run python scripts/provision_demo.py

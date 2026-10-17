@@ -1,6 +1,6 @@
 """Provision the evaluation fixtures on a running Compose stack, through public APIs only.
 
-Run from backend, once per stack, with the stack up (see docs/RUNBOOK.md, 评测环境):
+Run from backend, once per stack, with the stack up:
 
     ASKDATA_PROVISION_USERNAME=admin ASKDATA_PROVISION_PASSWORD=... \
         uv run python scripts/provision_eval.py --env-file ../deploy/.env
