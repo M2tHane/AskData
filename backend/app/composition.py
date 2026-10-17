@@ -64,11 +64,9 @@ from app.core.tasks import (
 )
 from app.modules.auth import service as auth
 from app.modules.chat import service as chat
-from app.modules.chat.pipeline import (
-    ContextBuilder,
-    PipelineDependencies,
-    QueryPipeline,
-)
+from app.modules.chat.context_builder import ContextBuilder
+from app.modules.chat.dependencies import PipelineDependencies
+from app.modules.chat.pipeline import QueryPipeline
 from app.modules.chat.repository import ChatRepository
 from app.modules.chat.retrieval import ServiceRetrievalIndex
 from app.modules.datasource import service as datasource

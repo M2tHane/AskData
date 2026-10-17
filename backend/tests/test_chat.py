@@ -28,16 +28,10 @@ from app.core.stream import EventType
 from app.main import create_app
 from app.modules.chat.api import chat_service, router
 from app.modules.chat.chart_heuristics import suggest_chart, with_series
-from app.modules.chat.pipeline import (
-    PREVIEW_ROWS,
-    ContextBuilder,
-    PipelineDependencies,
-    QueryPipeline,
-    ScopeOnlyIndex,
-    complete_ranges,
-    month_ranges,
-    resolve_time_ranges,
-)
+from app.modules.chat.context_builder import ContextBuilder, ScopeOnlyIndex
+from app.modules.chat.dependencies import PipelineDependencies
+from app.modules.chat.pipeline import QueryPipeline
+from app.modules.chat.query_context import PREVIEW_ROWS
 from app.modules.chat.schemas import (
     ChartSpec,
     ContextItem,
@@ -50,6 +44,7 @@ from app.modules.chat.schemas import (
     RetrievalBundle,
 )
 from app.modules.chat.service import ChatService
+from app.modules.chat.time_ranges import complete_ranges, month_ranges, resolve_time_ranges
 from tests.fakes import FakeConnector, FakeModels, FakePermissions, FakeTransport, FakeUsage
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1574,7 +1569,7 @@ def test_answer_sees_head_tail_and_whole_result_stats_of_a_long_result():
     from datetime import date as day
     from decimal import Decimal
 
-    from app.modules.chat.pipeline import answer_rows
+    from app.modules.chat.presentation import answer_rows
 
     rows = [{"d": day(2023, 1, 1) + timedelta(days=i), "n": Decimal(i % 7)} for i in range(804)]
     view = answer_rows(

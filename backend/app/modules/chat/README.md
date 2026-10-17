@@ -10,7 +10,7 @@ rolls back failed query replies.
 Inject these public objects through application state (or inject a ready service
 through `request.state.chat_service` / FastAPI dependency overrides):
 
-- `retrieval_index`: implements `pipeline.RetrievalIndex.retrieve` and
+- `retrieval_index`: implements `context_builder.RetrievalIndex.retrieve` and
   `expand_relations`. It must filter every semantic/metric/example/enum item by
   the supplied user and visible scope, perform keyword + vector search for
   `mode="hybrid"`, optionally rerank, and expand only authorized FK endpoints.

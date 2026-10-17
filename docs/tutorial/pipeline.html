@@ -227,7 +227,7 @@ function quotaStep(){
 }
 function loadStep(turn, history, follow){
   const tr = T[turn].snapshot.time_range || {};
-  return {node:'load_context', title:'load_context：加载历史、解析时间', loc:'pipeline.py · LoadContextStage', ms:timing(turn,'load_context'),
+  return {node:'load_context', title:'load_context：加载历史、解析时间', loc:'stages.py · LoadContextStage', ms:timing(turn,'load_context'),
     lead:'管道开始前先过一次模型配额检查（llm.authorize_query，超额直接失败，不进任何阶段）。然后读最近 5 轮对话，并在调用模型之前用确定性代码把相对时间解析成具体日期。',
     does:['history：最近 5 轮；用户消息截到 800 字，回答只留第一行（SQL 单独带）','follow_up = 有没有历史；是否真的「接着问」交给模型判断','resolve_time_ranges：上个月 / 近N天 / 本季度 / 去年同期 / 9月 / 最近N个完整周 → 半开区间 [start, end_exclusive)','today 按用户时区算：服务器用 UTC，用户在上海'],
     writes:{stage:'load_context', history, follow_up:follow, time_ranges:tr, timings:{load_context:timing(turn,'load_context')}},
@@ -247,7 +247,7 @@ function scopeStep(turn, inherited){
 function retrievalStep(turn, extra){
   const s = T[turn].snapshot.retrieval_stats;
   const retrieval = s ? {mode:s.mode, tables:RETR_TABLES, items:itemsView(turn), required_conditions:[], ambiguities:[]} : '（已检索；blocked 后在 record 阶段被清空，日志里不保留）';
-  return {node:'retrieval', title:'retrieval：只把相关的表和口径给模型', loc:'chat/retrieval.py · ranking.py · ContextBuilder.build', ms:timing(turn,'retrieval'),
+  return {node:'retrieval', title:'retrieval：只把相关的表和口径给模型', loc:'chat/context_builder.py · retrieval.py · ranking.py · ContextBuilder.build', ms:timing(turn,'retrieval'),
     lead: s ? `在 scope 内做混合检索：这次从 ${Object.keys(DATA.scope_tables).length} 张可见表里选出 ${s.tables} 张、${s.columns} 列，外加 ${s.items} 条业务词/指标。` : '',
     does:['关键词：表名、字段名、别名精确命中是强信号；注释和描述按英文词 + 中文二元组匹配','向量：pgvector 余弦近邻，只在授权文档里找；没配向量模型就只用关键词','RRF（倒数排名融合）合并两路，可选重排模型再排前 30','外键图上补齐联查路径（≤3 跳）；超过 20 列的宽表只留主键、时间列和命中的列','业务词和指标：同名时个人 > 团队 > 平台；同一个词命中多个指标就产生「歧义」待反问', ...(extra||[])],
     writes:{stage:'retrieval', retrieval, timings:{retrieval:timing(turn,'retrieval')}},
@@ -255,7 +255,7 @@ function retrievalStep(turn, extra){
     tip:['生产环境 threshold=0：永远走混合检索','评测里做过扩展实验：干扰表从 12 张加到 512 张，召回基本不变（74/75 → 73/75），上下文只有全量 schema 的 3%。']};
 }
 function clarifyStep(turn){
-  return {node:'clarification', title:'clarification：确定性的反问', loc:'pipeline.py · ClarificationStage', ms:timing(turn,'clarification'),
+  return {node:'clarification', title:'clarification：确定性的反问', loc:'stages.py · ClarificationStage', ms:timing(turn,'clarification'),
     lead:'只处理「后端有确定信号」的反问，不调模型：检索发现同一个词对应多个指标、有必填条件、或说了「最近」却没有可解析的区间。这次三项都没有，直接放行。',
     does:['ambiguities 为空、required_conditions 为空','问题里没有「最近 / 近来」','需要模型判断的含糊（比如「用户数」指哪个口径）放在下一步的同一次模型调用里，一次调用同时给 SQL 或反问'],
     writes:{stage:'clarification', timings:{clarification:0}}, events:['stage'], tags:[],
@@ -263,7 +263,7 @@ function clarifyStep(turn){
 }
 function genStep(turn, extra){
   const {L, C, M} = common(turn);
-  return {node:'generate_sql', title:'generate_sql：一次模型调用', loc:'pipeline.py · GenerateSqlStage · prompts/sql_generation.v10.yaml', ms:timing(turn,'generate_sql'),
+  return {node:'generate_sql', title:'generate_sql：一次模型调用', loc:'stages.py · GenerateSqlStage · prompts/sql_generation.v10.yaml', ms:timing(turn,'generate_sql'),
     lead:'整条链路里最慢的一步（约 6–7 秒）。提示词带上问题、历史、检索结果、时间区间，模型返回一段 JSON：SQL、标题、解读、过滤条件、图表建议，或者反问 / 拒绝。',
     does:['stream_call：思考过程以 reasoning 事件实时推给前端（思考面板）','输出用 Pydantic SqlOutput 校验；字段类型错、太长都容错，SQL 本身不容错','write_request = true → 直接拦截整个请求（不只回答其中的查询部分）','unanswerable 且是混合检索 → 换成全量 schema 再问一次，再不行才拒绝','反问的选项必须能对上可见的列或检索到的指标，对不上的选项丢掉', ...(extra||[])],
     writes:{stage:'generate_sql', reasoning:T[turn].reasoning, generated_sql:L.generated_sql, title:C?.title, interpretation:M?.interpretation, filters:M?.filters, chart_hint:C ? {type:C.type, x:C.x, y:C.y, labels:C.labels, formats:C.formats} : null, model_id:L.model_id, prompt_versions:{sql_generation:L.prompt_versions?.sql_generation}, timings:{generate_sql:timing(turn,'generate_sql')}},
@@ -292,7 +292,7 @@ function execStep(turn){
     branch:['SQL 本身错了（语法、分组、类型，SQLSTATE 42/22 类）→ 记 execution_error，进入纠错','超时、超代价、连接失败 → 直接失败，不纠错']};
 }
 function correctStep(turn){
-  return {node:'correction', title:'correction：没出错就什么都不做', loc:'pipeline.py · CorrectionStage', ms:timing(turn,'correction'),
+  return {node:'correction', title:'correction：没出错就什么都不做', loc:'stages.py · CorrectionStage', ms:timing(turn,'correction'),
     lead:'只有「SQL 本身写错了」才纠错。这次 execution_error 为空，循环一次都没进。',
     does:['最多 3 轮；每轮把错误类别（不是数据库原文）和完整可见 schema 交给模型','改好的 SQL 重新过 Guard、重新执行','越权、写操作、危险函数是最终结果，不进入纠错'],
     writes:{stage:'correction', retries:[], timings:{correction:0}}, events:['stage'], tags:[],
@@ -301,7 +301,7 @@ function correctStep(turn){
 function presentStep(turn){
   const {L, C, M} = common(turn);
   const ans = T[turn].answer;
-  return {node:'presentation', title:'presentation：图表、口径、结论', loc:'pipeline.py · PresentationStage · chart_heuristics.py · prompts/answer.v3.yaml', ms:timing(turn,'presentation'),
+  return {node:'presentation', title:'presentation：图表、口径、结论', loc:'presentation.py · PresentationStage · chart_heuristics.py · prompts/answer.v3.yaml', ms:timing(turn,'presentation'),
     lead:'先把数据、图表、口径一次推给前端（用户先看到图），再做第二次模型调用，基于真实结果流式写一句结论。',
     does:['chart_from_hint：模型的图表建议用真实列校验，不合法就按数据形状兜底（warnings 记 chart_fallback）','meta：解读、过滤条件、这次用到的业务词/指标（带作用域）、时间区间','结论只看前若干行结果；空结果不调模型，直接给固定句子','结论调用失败就退化成「共 N 行结果」，不影响数据展示'],
     writes:{stage:'presentation', chart:C, meta:{interpretation:M.interpretation, filters:M.filters, definitions:M.definitions.map(d => `${d.kind}「${d.name}」${d.scope}`), time_ranges:M.time_ranges, notes:M.notes}, explanation:ans, warnings:[], prompt_versions:L.prompt_versions, tokens_in:L.tokens_in, tokens_out:L.tokens_out, timings:{presentation:timing(turn,'presentation')}},
@@ -316,7 +316,7 @@ function barChart(turn){
 }
 function recordStep(turn){
   const {L, done} = common(turn);
-  return {node:'record', title:'record：无论成败都写查询日志', loc:'pipeline.py · RecordStage · querylog 模块', ms:0,
+  return {node:'record', title:'record：无论成败都写查询日志', loc:'stages.py · RecordStage · querylog 模块', ms:0,
     lead:'放在 finally 里：成功、失败、反问、用户中途停止，都会写一条查询日志。日志内容由 ctx.snapshot() 白名单决定。',
     does:['记录：状态、阶段耗时、token、提示词版本、规范化 SQL、结果行数和预览、检索统计、诊断','不记录：密码、模型原始报错、被拒绝的 SQL、完整结果','用户断开连接时在独立的数据库会话里写，并用 asyncio.shield 防止被再次取消'],
     writes:{stage:'record', query_run_id:done.query_run_id, timings:L.stage_timings},
@@ -365,7 +365,7 @@ function scenarioC(){
   const L = T[2].log, diag = T[2].snapshot.diagnostic;
   const s = [frontStep(2), prepareStep(2), loadStep(2, '（前两轮历史，略）', true), scopeStep(2), retrievalStep(2), clarifyStep(2)];
   s[4].lead = '和正常问题一样做检索（日志里看不到结果，原因见 record 节点）。';
-  s.push({node:'generate_sql', title:'generate_sql：模型标记为写操作', loc:'pipeline.py · GenerateSqlStage', ms:timing(2,'generate_sql'),
+  s.push({node:'generate_sql', title:'generate_sql：模型标记为写操作', loc:'stages.py · GenerateSqlStage', ms:timing(2,'generate_sql'),
     lead:'模型按提示词规则识别出这是修改数据的请求，返回 write_request = true，没有写任何 SQL。管道直接抛 SqlBlocked(SQL_NOT_SELECT, rule = write_request)。',
     does:['不尝试「只回答其中的查询部分」，整个请求拒绝','即使模型漏判、真写出了 DELETE，下一步 Guard 也会因为不是 SELECT 而拦下——两道防线互不依赖','输出 token 只有 ' + L.tokens_out + ' 个：模型只回了一个标记'],
     writes:{stage:'generate_sql', model_id:L.model_id, prompt_versions:L.prompt_versions, tokens_in:L.tokens_in, tokens_out:L.tokens_out, timings:{generate_sql:timing(2,'generate_sql')}},
@@ -376,7 +376,7 @@ function scenarioC(){
     does:['diagnose()：阶段、错误码、异常类型、Guard 规则——从不包含 SQL、数据、异常原文或看不到的对象名','error_code 决定前端显示的中文提示','被拦截的请求一条 SQL 都没执行'],
     writes:{status:'blocked', error_code:'SQL_NOT_SELECT', diagnostic:diag, explanation:'MESSAGES[SQL_NOT_SELECT]（前端按错误码显示中文）'},
     events:[], tags:[], err:true});
-  s.push({node:'record', title:'record：清空后再记录', loc:'pipeline.py · RecordStage', ms:0,
+  s.push({node:'record', title:'record：清空后再记录', loc:'stages.py · RecordStage', ms:0,
     lead:'blocked 时先把 generated_sql、guarded_sql、result、retrieval、history、inherited_sql 全部清空，日志里只留类别（blocked_code + diagnostic）。这就是为什么这条日志看不到检索结果。',
     does:['被拒绝的 SQL 可能包含越权的表名字段名，所以不落库','纠错过程中如果出现过一次合法的 GuardedSql，也一并清掉，避免误用','管理员在查询日志里能看到：哪一步、什么规则拦的'],
     writes:{stage:'record', retrieval:'RetrievalBundle()  // 已清空', history:[], inherited_sql:null, generated_sql:null, query_run_id:doneEv(2).query_run_id, timings:L.stage_timings},

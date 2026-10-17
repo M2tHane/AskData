@@ -29,21 +29,12 @@ from app.core.response import Page, PageParams
 from app.core.sql.executor import QueryLimits, SqlExecutor
 from app.core.sql.guard import GuardedSql, SqlGuard
 from app.core.stream import EventType, StreamEvent
-from app.modules.chat.pipeline import (
-    PREVIEW_ROWS,
-    ContextBuilder,
-    ExecuteStage,
-    GuardStage,
-    PipelineDependencies,
-    QueryContext,
-    QueryPipeline,
-    RecordStage,
-    RetrievalIndex,
-    diagnose,
-    encode_event,
-)
-from app.modules.chat.pipeline import ScopeOnlyIndex as ScopeOnlyIndex
-from app.modules.chat.pipeline import plain_rows as plain_rows
+from app.modules.chat.context_builder import ContextBuilder, RetrievalIndex
+from app.modules.chat.context_builder import ScopeOnlyIndex as ScopeOnlyIndex
+from app.modules.chat.dependencies import PipelineDependencies
+from app.modules.chat.pipeline import QueryPipeline, diagnose, encode_event
+from app.modules.chat.query_context import PREVIEW_ROWS, QueryContext
+from app.modules.chat.query_context import plain_rows as plain_rows
 from app.modules.chat.repository import ChatRepository
 from app.modules.chat.retrieval import ServiceRetrievalIndex
 from app.modules.chat.schemas import (
@@ -66,6 +57,7 @@ from app.modules.chat.schemas import (
 from app.modules.chat.schemas import (
     QuestionRequest as QuestionRequest,
 )
+from app.modules.chat.stages import ExecuteStage, GuardStage, RecordStage
 from app.modules.chat.suggestions import SuggestionService
 from app.modules.querylog.service import build_service as build_querylog
 

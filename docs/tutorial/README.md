@@ -25,7 +25,7 @@ frontend/          React 18 + TypeScript + Vite + TanStack Query，图表自绘 
 backend/app/
   core/            基础设施：数据库连接、SQL Guard、执行器、权限计算、LLM 网关、脱敏、日志
   modules/         业务模块，每个模块 api → service → repository
-    chat/          问数主流程（pipeline.py 是核心）
+    chat/          问数主流程（pipeline.py 串起各阶段，阶段在 stages.py、presentation.py）
     permission/    团队/员工授权
     semantic/      业务词（别名、取值映射、口径说明）
     metric/        指标（SQL 模板）
@@ -96,7 +96,7 @@ ChatService.finish  → 存助手消息、结果快照、会话标题
 
 ### 2.2 QueryContext：贯穿全程的那个对象
 
-定义在 `backend/app/modules/chat/pipeline.py` 的 `QueryContext`，是一个 dataclass。管道里的每个阶段都是 `async def run(ctx) -> ctx`：读前面阶段写的字段，写自己的字段。
+定义在 `backend/app/modules/chat/query_context.py` 的 `QueryContext`，是一个 dataclass。管道里的每个阶段都是 `async def run(ctx) -> ctx`：读前面阶段写的字段，写自己的字段。
 
 字段按写入顺序可以分成几组：
 
@@ -117,7 +117,7 @@ ChatService.finish  → 存助手消息、结果快照、会话标题
 
 ### 2.3 逐个阶段
 
-下面每个阶段都写了：做什么、为什么这样做、可能的其他走向。对应代码都在 `pipeline.py`。
+下面每个阶段都写了：做什么、为什么这样做、可能的其他走向。对应代码在 `stages.py`（出图和写结论在 `presentation.py`），由 `pipeline.py` 的 `QueryPipeline` 按顺序调用。
 
 **① prepare（`chat/service.py`）**
 - 校验会话属于当前用户 → 写入用户消息 → 审计 `chat.ask` → **先 commit**，之后管道失败也不会丢用户消息。

@@ -5,7 +5,8 @@ import pytest
 from app.core.deps import CurrentUser, Role
 from app.core.errors import BlockRule, ErrorCode, SqlBlocked
 from app.core.logging import LogEvent, SafeLogger
-from app.modules.chat.pipeline import QueryContext, diagnose
+from app.modules.chat.pipeline import diagnose
+from app.modules.chat.query_context import QueryContext
 
 
 @pytest.mark.parametrize(

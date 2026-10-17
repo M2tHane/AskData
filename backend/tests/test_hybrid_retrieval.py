@@ -8,7 +8,7 @@ import pytest
 from app.core.deps import CurrentUser, Role
 from app.core.errors import AppError, ErrorCode
 from app.core.permission import TableScope, VisibleScope
-from app.modules.chat.pipeline import ContextBuilder
+from app.modules.chat.context_builder import ContextBuilder
 from app.modules.chat.ranking import Doc, fuse, grams, join_paths, keyword_scores, ranked
 from app.modules.chat.retrieval import ServiceRetrievalIndex
 from app.modules.semantic.schemas import SemanticView, TargetReference

@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.prompt import PromptId, PromptRegistry
-from app.modules.chat.pipeline import SqlOutput
+from app.modules.chat.stages import SqlOutput
 
 
 def test_overlong_or_mistyped_display_fields_keep_the_sql():

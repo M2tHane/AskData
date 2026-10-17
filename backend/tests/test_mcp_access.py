@@ -432,7 +432,7 @@ async def _context(database, user, question="销售额 实付金额"):
     """What retrieval hands the model for this user: the bundle a prompt is built from."""
     from types import SimpleNamespace
 
-    from app.modules.chat.pipeline import ContextBuilder
+    from app.modules.chat.context_builder import ContextBuilder
     from app.modules.chat.retrieval import ServiceRetrievalIndex
 
     async with access(database) as service:

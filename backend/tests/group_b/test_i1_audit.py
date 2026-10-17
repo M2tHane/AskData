@@ -8,7 +8,7 @@ from app.core.audit import AuditLog
 from app.core.permission import TableGrant
 from app.core.scope import ScopeLevel
 from app.main import create_app
-from app.modules.chat.pipeline import ContextBuilder
+from app.modules.chat.context_builder import ContextBuilder
 from app.modules.chat.retrieval import ServiceRetrievalIndex
 from app.modules.embedding.schemas import IndexDocument, IndexReference, SearchInput
 from app.modules.feedback.schemas import ExampleInput, ExampleReview

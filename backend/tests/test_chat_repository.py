@@ -181,7 +181,7 @@ async def test_real_clarification_atomic_consumption_and_soft_delete(chat_databa
 async def test_persisted_query_view_keeps_effective_definitions_and_versions(
     chat_database, system, member
 ):
-    from app.modules.chat.pipeline import ContextBuilder, ScopeOnlyIndex
+    from app.modules.chat.context_builder import ContextBuilder, ScopeOnlyIndex
     from app.modules.chat.schemas import ContextItem
     from app.modules.querylog.service import build_service as build_querylog
 

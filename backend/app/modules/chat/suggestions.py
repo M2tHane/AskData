@@ -13,7 +13,7 @@ from app.core.errors import AppError
 from app.core.llm import CallContext, ChatMessage, extract_json_object
 from app.core.permission import VisibleScope
 from app.core.prompt import PromptId
-from app.modules.chat.pipeline import PipelineDependencies
+from app.modules.chat.dependencies import PipelineDependencies
 from app.modules.chat.schemas import RetrievalBundle, SuggestedQuestion, SuggestedQuestions
 
 SUGGEST_COUNT = 6

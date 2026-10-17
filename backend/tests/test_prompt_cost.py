@@ -14,7 +14,7 @@ from app.core.llm import (
     capped,
 )
 from app.core.prompt import PromptId, PromptRegistry
-from app.modules.chat.pipeline import LIGHT_PROMPTS
+from app.modules.chat.dependencies import LIGHT_PROMPTS
 from tests.fakes import FakeModels, FakeTransport, FakeUsage
 
 

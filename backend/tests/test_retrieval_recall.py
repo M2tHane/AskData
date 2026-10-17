@@ -24,7 +24,7 @@ from app.core.llm import ModelConfig, ModelRegistry, RerankClient
 from app.core.permission import VisibleScope
 from app.core.sql.dialect import Dialect
 from app.core.sql.guard import SqlGuard
-from app.modules.chat.pipeline import ContextBuilder
+from app.modules.chat.context_builder import ContextBuilder
 from app.modules.chat.retrieval import ServiceRetrievalIndex
 from app.modules.embedding.service import EmbeddingService
 from app.modules.feedback.schemas import ExampleView
