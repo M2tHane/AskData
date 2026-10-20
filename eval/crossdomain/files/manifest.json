@@ -1,0 +1,349 @@
+{
+ "imports": [
+  {
+   "alias": "up_budget",
+   "team": "finance",
+   "datasource_name": "xd-上传-科室预算",
+   "file": "dept_budget_2025.xlsx",
+   "step": "preview",
+   "config": {
+    "table_name": "budget",
+    "columns": [
+     {
+      "name": "dept_code",
+      "data_type": "text",
+      "description": "科室编码"
+     },
+     {
+      "name": "dept_name",
+      "data_type": "text",
+      "description": ""
+     },
+     {
+      "name": "month",
+      "data_type": "date",
+      "description": "月份，取每月1日"
+     },
+     {
+      "name": "budget",
+      "data_type": "number",
+      "description": "元"
+     }
+    ],
+    "sheet": "科室预算",
+    "header_row": 2,
+    "table_comment": "科室预算"
+   }
+  },
+  {
+   "alias": "up_budget",
+   "team": "finance",
+   "file": "dept_budget_2025.xlsx",
+   "step": "add_sheet",
+   "config": {
+    "table_name": "bed_plan",
+    "columns": [
+     {
+      "name": "ward_name",
+      "data_type": "text",
+      "description": ""
+     },
+     {
+      "name": "dept_code",
+      "data_type": "text",
+      "description": "科室编码"
+     },
+     {
+      "name": "month",
+      "data_type": "date",
+      "description": "月份，取每月1日"
+     },
+     {
+      "name": "beds",
+      "data_type": "integer",
+      "description": "张"
+     }
+    ],
+    "sheet": "床位计划",
+    "header_row": 1,
+    "table_comment": "床位计划"
+   }
+  },
+  {
+   "alias": "up_lab",
+   "team": "clinical",
+   "datasource_name": "xd-上传-外部检验对账",
+   "file": "lab_recon_gb18030.csv",
+   "step": "preview",
+   "config": {
+    "table_name": "lab_recon",
+    "columns": [
+     {
+      "name": "send_date",
+      "data_type": "date",
+      "description": ""
+     },
+     {
+      "name": "mrn",
+      "data_type": "text",
+      "description": "8位，保留前导零"
+     },
+     {
+      "name": "item",
+      "data_type": "text",
+      "description": ""
+     },
+     {
+      "name": "amount",
+      "data_type": "number",
+      "description": "元"
+     },
+     {
+      "name": "status",
+      "data_type": "text",
+      "description": "一致/差异/待核"
+     }
+    ],
+    "encoding": "gb18030",
+    "delimiter": ";",
+    "table_comment": "外部检验对账"
+   }
+  },
+  {
+   "alias": "up_equip",
+   "team": "finance",
+   "datasource_name": "xd-上传-设备台账",
+   "file": "equipment_no_header.csv",
+   "step": "preview",
+   "config": {
+    "table_name": "equipment",
+    "columns": [
+     {
+      "name": "asset_no",
+      "data_type": "text",
+      "description": "设备编号"
+     },
+     {
+      "name": "dept_name",
+      "data_type": "text",
+      "description": "使用科室"
+     },
+     {
+      "name": "bought_on",
+      "data_type": "date",
+      "description": "购入日期"
+     },
+     {
+      "name": "cost",
+      "data_type": "number",
+      "description": "原值，元"
+     }
+    ],
+    "encoding": "utf-8",
+    "delimiter": "\t",
+    "header_row": null,
+    "table_comment": "设备台账"
+   }
+  },
+  {
+   "alias": "up_care",
+   "team": "clinical",
+   "datasource_name": "xd-上传-护工外包结算",
+   "file": "caregiver_v1.csv",
+   "step": "preview",
+   "config": {
+    "table_name": "caregiver",
+    "columns": [
+     {
+      "name": "record_no",
+      "data_type": "text",
+      "description": ""
+     },
+     {
+      "name": "service_date",
+      "data_type": "date",
+      "description": ""
+     },
+     {
+      "name": "ward",
+      "data_type": "text",
+      "description": ""
+     },
+     {
+      "name": "hours",
+      "data_type": "integer",
+      "description": ""
+     },
+     {
+      "name": "amount",
+      "data_type": "number",
+      "description": "元"
+     }
+    ],
+    "encoding": "utf-8",
+    "table_comment": "护工外包结算"
+   }
+  },
+  {
+   "alias": "up_care",
+   "team": "clinical",
+   "file": "caregiver_v2_append.csv",
+   "step": "append",
+   "config": {
+    "table_name": "caregiver",
+    "columns": [
+     {
+      "name": "record_no",
+      "data_type": "text",
+      "description": ""
+     },
+     {
+      "name": "service_date",
+      "data_type": "date",
+      "description": ""
+     },
+     {
+      "name": "ward",
+      "data_type": "text",
+      "description": ""
+     },
+     {
+      "name": "hours",
+      "data_type": "integer",
+      "description": ""
+     },
+     {
+      "name": "amount",
+      "data_type": "number",
+      "description": "元"
+     }
+    ],
+    "encoding": "utf-8",
+    "table_comment": "护工外包结算"
+   }
+  },
+  {
+   "alias": "up_feedback",
+   "team": "clinical",
+   "datasource_name": "xd-上传-患者意见",
+   "file": "patient_feedback.csv",
+   "step": "preview",
+   "config": {
+    "table_name": "feedback",
+    "columns": [
+     {
+      "name": "fb_no",
+      "data_type": "text",
+      "description": ""
+     },
+     {
+      "name": "visit_date",
+      "data_type": "date",
+      "description": ""
+     },
+     {
+      "name": "dept_name",
+      "data_type": "text",
+      "description": ""
+     },
+     {
+      "name": "score",
+      "data_type": "integer",
+      "description": "1-5分"
+     },
+     {
+      "name": "comment",
+      "data_type": "text",
+      "description": "患者原文，不可信"
+     }
+    ],
+    "encoding": "utf-8",
+    "table_comment": "患者意见"
+   }
+  }
+ ],
+ "answers": {
+  "XU01": [
+   [
+    "1111510.50"
+   ]
+  ],
+  "XU02": [
+   [
+    "NK01",
+    "184502.50",
+    "40"
+   ],
+   [
+    "NK02",
+    "207500.00",
+    "36"
+   ],
+   [
+    "NK03",
+    "230501.00",
+    "32"
+   ],
+   [
+    "WK01",
+    "253502.00",
+    "38"
+   ],
+   [
+    "WK02",
+    "276503.00",
+    "58"
+   ],
+   [
+    "FE01",
+    "299500.50",
+    "28"
+   ],
+   [
+    "FE02",
+    "322501.50",
+    "30"
+   ]
+  ],
+  "XU03": [
+   [
+    "基因检测",
+    "1290.25"
+   ],
+   [
+    "特殊培养",
+    "391.50"
+   ],
+   [
+    "病理会诊",
+    "470.50"
+   ],
+   [
+    "质谱分析",
+    "650.25"
+   ]
+  ],
+  "XU04": [
+   [
+    "4",
+    "2301.50"
+   ]
+  ],
+  "XU05": [
+   [
+    "875143.20"
+   ]
+  ],
+  "XU06": [
+   [
+    "5",
+    "2698.00"
+   ]
+  ],
+  "XU07": [
+   [
+    "3.00"
+   ]
+  ]
+ }
+}

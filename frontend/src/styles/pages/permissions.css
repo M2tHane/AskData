@@ -1,0 +1,15 @@
+/* permissions page — page-specific rules only; shared rules live in components.css. */
+.cb-pm-only { display: inline-flex; align-items: center; gap: var(--space-2); font-size: 13px; color: var(--text-1); cursor: pointer; }
+.cb-pm-tree { overflow: hidden; }
+.cb-pm-head, .cb-pm-row { display: grid; grid-template-columns: minmax(0, 1fr) 220px 160px; align-items: center; gap: var(--space-3); padding: 0 var(--space-4); }
+.cb-pm-head { min-height: var(--control-lg); color: var(--text-3); font-size: 13px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg-card); }
+.cb-pm-row { min-height: 40px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.cb-pm-table:last-child > :last-child { border-bottom: 0; }
+.cb-pm-col { background: var(--bg-subtle); }
+.cb-pm-col > :first-child { padding-left: var(--space-6); color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-pm-toggle { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 0; border: 0; background: transparent; color: var(--text-1); font: inherit; padding: 0; cursor: pointer; text-align: left; }
+.cb-pm-toggle .cb-icon { color: var(--text-3); transition: transform .12s; flex: none; }
+.cb-pm-toggle[aria-expanded='false'] .cb-icon { transform: rotate(-90deg); }
+.cb-pm-name { color: var(--text-1); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-pm-row > input[type='checkbox'] { justify-self: start; margin: 0; }
+.cb-pm-tree .cb-state { padding: var(--space-8) var(--space-4); }

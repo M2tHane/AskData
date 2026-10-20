@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LoginPage · AskData UI Kit</title>
+<script>if (location.hash === "#dark") document.documentElement.setAttribute("data-theme", "dark"); else document.documentElement.setAttribute("data-theme", "light");</script>
+<link rel="stylesheet" href="../tokens/tokens.css"><link rel="stylesheet" href="../styles/components.css"></head>
+<body style="margin:0;background:var(--bg-app);color:var(--text-1);font-family:var(--font-sans)">
+<div class="ak-login">
+<section class="ak-login-form">
+<div class="ak-brand"><span class="ak-mark">A</span>AskData</div>
+<form class="ak-login-inner" onsubmit="return false" novalidate>
+<div class="ak-col" style="gap:6px"><h1>登录 AskData</h1><p>用公司账号登录，直接向数据提问。</p></div>
+<div class="ak-field"><label class="ak-label" for="u">账号</label><div class="ak-input ak-input-lg"><svg class="ak-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg><input id="u" name="username" autocomplete="username" placeholder="例如：lin.zhiyuan" autofocus></div></div>
+<div class="ak-field"><label class="ak-label" for="p"><span>密码</span><button type="button" class="ak-link" style="font-size:12px;font-weight:400" data-toggle="reset-tip" aria-expanded="false">忘记密码？</button></label><div class="ak-input ak-input-lg"><svg class="ak-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 11h12v10H6zM8 11V8a4 4 0 0 1 8 0v3"/></svg><input id="p" name="password" type="password" autocomplete="current-password"><button class="ak-reveal" type="button" aria-pressed="false" aria-controls="p">显示</button></div></div>
+<label class="ak-check"><span class="ak-cb"><input type="checkbox" checked><span><svg class="ck" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.2l2.4 2.4 4.6-5"/></svg><svg class="mx" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 6h6"/></svg></span></span>记住账号</label>
+<button class="ak-btn ak-btn-primary ak-btn-lg ak-btn-block" type="submit">登录</button>
+<p id="reset-tip" class="ak-hint" style="justify-content:center" hidden>没有账号或忘记密码，请联系你的团队负责人或管理员。</p>
+</form>
+<div class="ak-login-foot"><span>© 2026 AskData</span><span>内部系统 · 所有查询都会记录审计</span></div>
+</section>
+<aside class="ak-login-show" aria-hidden="true">
+<h2>一句话查数，答案附带 SQL 与口径</h2>
+<div class="ak-demo">
+<div class="ak-q" style="font-size:13px;line-height:20px">近 12 个月线上渠道 GMV 走势？</div>
+<div class="ak-answer" style="font-size:14px;line-height:22px">9 月线上 GMV <b>¥1.86 亿</b>，同比增长 <b>24%</b>，连续 4 个月创新高。</div>
+<div class="ak-chart"><svg viewBox="0 0 460 112"><line class="grid" x1="0" x2="460" y1="110" y2="110"/><rect class="bar" x="0.0" y="81.4" width="26" height="28.6" rx="2"/><rect class="bar" x="39.5" y="71.0" width="26" height="39.0" rx="2"/><rect class="bar" x="78.9" y="76.2" width="26" height="33.8" rx="2"/><rect class="bar" x="118.4" y="56.7" width="26" height="53.3" rx="2"/><rect class="bar" x="157.8" y="60.6" width="26" height="49.4" rx="2"/><rect class="bar" x="197.3" y="42.4" width="26" height="67.6" rx="2"/><rect class="bar" x="236.7" y="48.9" width="26" height="61.1" rx="2"/><rect class="bar" x="276.2" y="32.0" width="26" height="78.0" rx="2"/><rect class="bar" x="315.6" y="34.6" width="26" height="75.4" rx="2"/><rect class="bar" x="355.1" y="17.7" width="26" height="92.3" rx="2"/><rect class="bar" x="394.5" y="24.2" width="26" height="85.8" rx="2"/><rect class="bar" x="434.0" y="6.0" width="26" height="104.0" rx="2"/></svg></div>
+<div class="ak-sql"><pre><span class="kw">SELECT</span> month, <span class="kw">SUM</span>(gmv) <span class="kw">FROM</span> dw.fact_orders <span class="kw">WHERE</span> channel = <span class="st">'online'</span> …</pre></div>
+</div>
+<ul><li><svg class="ak-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>只读 SQL，执行前自动校验</li><li><svg class="ak-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>按团队隔离数据权限，敏感字段脱敏</li><li><svg class="ak-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>每次查询都能追溯到问题、SQL 和结果</li></ul>
+</aside></div>
+<script src="../styles/runtime.js"></script>
+</body>
+</html>

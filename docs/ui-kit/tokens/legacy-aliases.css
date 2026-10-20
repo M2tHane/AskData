@@ -1,0 +1,31 @@
+/* 过渡期别名：把旧 cb- 变量指到新 token 上，迁移完成后删除本文件。 */
+:root, [data-theme="light"], [data-theme="dark"] {
+  --canvas: var(--bg-app);
+  --surface: var(--bg-card);
+  --surface-sunken: var(--bg-subtle);
+  --surface-hover: var(--bg-subtle);
+  --line: var(--border);
+  /* --line-control 同名，无需别名 */
+  --ink: var(--text-1);
+  --ink-muted: var(--text-2);
+  --primary: var(--inverse-bg);
+  --on-primary: var(--inverse-fg);
+  --accent: var(--action-text);
+  --accent-soft: var(--action-soft);
+  --on-accent: var(--action-fg);
+  --scope-platform: var(--text-2);
+  --scope-platform-soft: var(--bg-subtle);
+  --scope-team: var(--info);
+  --scope-team-soft: var(--info-soft);
+  --scope-personal: var(--action-text);
+  --scope-personal-soft: var(--action-soft);
+  --shadow-panel: none;
+  --shadow-pop: var(--shadow-md);
+  --radius-sm: var(--radius-control);
+  --radius-md: var(--radius-control);
+  --radius-lg: var(--radius-panel);
+  --control-sm: var(--row-sm);
+  --inspector-width: 380px;
+  --code-comment: var(--text-3);
+  --space-10: 40px;
+}

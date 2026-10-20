@@ -1,0 +1,78 @@
+[project]
+name = "askdata-backend"
+version = "0.1.0"
+description = "AskData shared backend foundation"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "pydantic>=2,<3",
+  "pydantic-settings",
+  "sqlalchemy[asyncio]>=2,<3",
+  "alembic",
+  "asyncpg",
+  "aiomysql",
+  "redis",
+  "arq",
+  "minio",
+  "sqlglot",
+  "litellm",
+  "cryptography",
+  "PyJWT",
+  "argon2-cffi",
+  "structlog",
+  "opentelemetry-api",
+  "opentelemetry-sdk",
+  "pgvector",
+  "pandas",
+  "openpyxl",
+  "charset-normalizer",
+  "pyyaml>=6,<7",
+  "clickhouse-connect",
+  "mcp>=2,<3",
+]
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "httpx",
+    "import-linter",
+    "aiosqlite",
+    "types-pyyaml>=6.0.12.20260906",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+ignore = ["ASYNC109"]  # Connector methods pass database-side timeouts to drivers.
+select = ["E", "F", "I", "UP", "B", "ASYNC", "T20"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["app"]
+
+[[tool.mypy.overrides]]
+module = ["arq.*", "aiomysql.*", "minio.*", "sqlglot.*", "litellm.*", "asyncpg.*", "clickhouse_connect.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.coverage.run]
+source = ["app"]

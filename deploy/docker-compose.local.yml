@@ -1,0 +1,12 @@
+# Explicit local development override. Never use this on a public host.
+services:
+  pg-meta:
+    ports: ['127.0.0.1:${META_PORT:-54321}:5432']
+  pg-import:
+    ports: ['127.0.0.1:${IMPORT_PORT:-54322}:5432']
+  redis:
+    ports: ['127.0.0.1:${REDIS_PORT:-56379}:6379']
+  minio:
+    ports: ['127.0.0.1:${MINIO_PORT:-59000}:9000']
+  api:
+    ports: ['127.0.0.1:${API_PORT:-8000}:8000']

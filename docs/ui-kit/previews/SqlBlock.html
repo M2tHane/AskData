@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SqlBlock · AskData UI Kit</title>
+<script>if (location.hash === "#dark") document.documentElement.setAttribute("data-theme", "dark"); else document.documentElement.setAttribute("data-theme", "light");</script>
+<link rel="stylesheet" href="../tokens/tokens.css"><link rel="stylesheet" href="../styles/components.css"></head>
+<body style="padding:16px;background:var(--bg-app);color:var(--text-1);font-family:var(--font-sans)">
+<div class="ak-sql"><div class="ak-sql-head"><svg class="ak-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>SQL<span class="ak-badge ak-badge-success"><svg class="ak-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/></svg>只读 · 已校验</span><span class="ak-spacer"></span><button class="ak-btn ak-btn-ghost ak-btn-sm" type="button" aria-label=复制SQL><svg class="ak-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9h11v11H9zM5 15V4h11"/></svg></button><button class="ak-btn ak-btn-ghost ak-btn-sm" type="button"><svg class="ak-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM13 7l4 4"/></svg>编辑</button><button class="ak-btn ak-btn-ghost ak-btn-sm" type="button"><svg class="ak-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>重新执行</button></div><pre><span class="kw">SELECT</span> <span class="kw">DATE_FORMAT</span>(order_date, <span class="st">'%Y-%m'</span>) <span class="kw">AS</span> month, region, <span class="kw">SUM</span>(paid_amount) / <span class="nm">10000</span> <span class="kw">AS</span> sales
+<span class="kw">FROM</span> dw.fact_orders
+<span class="kw">WHERE</span> order_date <span class="kw">BETWEEN</span> <span class="st">'2026-04-01'</span> <span class="kw">AND</span> <span class="st">'2026-09-30'</span>
+  <span class="kw">AND</span> region <span class="kw">IN</span> (<span class="st">'华东'</span>, <span class="st">'华南'</span>) <span class="kw">AND</span> refund_flag = <span class="nm">0</span>
+<span class="kw">GROUP BY</span> month, region <span class="kw">ORDER BY</span> month <span class="kw">LIMIT</span> <span class="nm">500</span></pre></div>
+<script src="../styles/runtime.js"></script>
+</body>
+</html>

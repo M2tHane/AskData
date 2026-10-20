@@ -1,0 +1,229 @@
+version: 1
+clock:
+  now: '2025-03-15T12:00:00+08:00'
+  timezone: Asia/Shanghai
+  week_start: monday
+  intervals: half_open
+seed: 'AskData:20250315'
+# This is an eval adapter contract, not a backend database seed/migration.
+# Metadata synchronization never implicitly extends these explicit team grants.
+teams:
+  - {id: sales, name: 销售团队}
+  - {id: finance, name: 财务团队}
+users:
+  - {id: admin, role: admin, team_id: null}
+  - {id: sales_leader, role: leader, team_id: sales}
+  - {id: sales_member, role: member, team_id: sales}
+  - {id: finance_leader, role: leader, team_id: finance}
+  - {id: finance_member, role: member, team_id: finance}
+datasources:
+  commerce:
+    type: postgresql
+    dialect: postgres
+    schema: commerce
+    bootstrap: testdb.sql
+  upload_workbook:
+    type: upload
+    dialect: postgres
+    schema: ds_sales_xlsx
+    owner_team_id: sales
+    manifest: files/manifest.yaml
+  upload_daily:
+    type: upload
+    dialect: postgres
+    schema: ds_sales_daily
+    owner_team_id: sales
+    manifest: files/manifest.yaml
+  upload_budget:
+    type: upload
+    dialect: postgres
+    schema: ds_finance_budget
+    owner_team_id: finance
+    manifest: files/manifest.yaml
+  upload_append:
+    type: upload
+    dialect: postgres
+    schema: ds_sales_append
+    owner_team_id: sales
+    manifest: files/manifest.yaml
+  upload_notes:
+    type: upload
+    dialect: postgres
+    schema: ds_sales_notes
+    owner_team_id: sales
+    manifest: files/manifest.yaml
+# Catalog is also the explicit admin baseline for the reference validator.
+catalog:
+  commerce:
+    region: [id, name, province, area_code]
+    category: [id, name, parent_id]
+    department: [id, name, region_id]
+    employee: [id, emp_no, name, dept_id, hired_on, status, phone]
+    customer: [id, cust_cd, name, region_id, owner_emp_id, created_at, tier, phone, credit_limit, internal_note]
+    product: [id, sku, name, category_id, price, cost, status, launch_date, memo]
+    orders: [id, ord_no, customer_id, sales_emp_id, ordered_at, paid_at, status, amt_gross, discount_amt, amt_net, channel, internal_note]
+    order_item: [id, order_id, product_id, qty, unit_price, discount_amt, line_amt]
+    payment: [id, order_id, paid_at, amt, method, status]
+    refund: [id, order_id, refunded_at, amt, status, reason_code]
+    sales_target: [id, employee_id, month, target_amt]
+    employee_salary: [id, employee_id, month, base_salary, bonus, bank_account]
+  upload_workbook:
+    sales: [customer_code, sold_on, region, amount, note]
+    returns: [customer_code, returned_on, amount]
+  upload_daily:
+    daily: [sold_on, region, amount, channel]
+  upload_budget:
+    budget: [department, month, amount]
+  upload_append:
+    sales: [record_id, sold_on, amount]
+  upload_notes:
+    notes: [record_id, amount, note]
+# leader_columns is the administrator's team grant; member_columns is its subset.
+# No wildcard or inferred relation gives a team visibility of a new table/column.
+grants:
+  sales:
+    commerce:
+      region:
+        leader_columns: [id, name, province, area_code]
+        member_columns: [id, name, province, area_code]
+      category:
+        leader_columns: [id, name, parent_id]
+        member_columns: [id, name, parent_id]
+      department:
+        leader_columns: [id, name, region_id]
+        member_columns: []
+      employee:
+        leader_columns: [id, emp_no, name, dept_id, hired_on, status, phone]
+        member_columns: []
+        masks: {phone: phone}
+      customer:
+        leader_columns: [id, cust_cd, name, region_id, owner_emp_id, created_at, tier, phone, credit_limit, internal_note]
+        member_columns: [id, cust_cd, name, region_id, owner_emp_id, created_at, tier, phone]
+        masks: {phone: phone}
+      product:
+        leader_columns: [id, sku, name, category_id, price, status, launch_date, memo]
+        member_columns: [id, sku, name, category_id, price, status, launch_date, memo]
+      orders:
+        leader_columns: [id, ord_no, customer_id, sales_emp_id, ordered_at, paid_at, status, amt_gross, discount_amt, amt_net, channel, internal_note]
+        member_columns: [id, ord_no, customer_id, sales_emp_id, ordered_at, paid_at, status, amt_gross, discount_amt, amt_net, channel]
+      order_item:
+        leader_columns: [id, order_id, product_id, qty, unit_price, discount_amt, line_amt]
+        member_columns: [id, order_id, product_id, qty, unit_price, discount_amt, line_amt]
+      payment:
+        leader_columns: [id, order_id, paid_at, amt, method, status]
+        member_columns: [id, order_id, paid_at, amt, method, status]
+      refund:
+        leader_columns: [id, order_id, refunded_at, amt, status, reason_code]
+        member_columns: [id, order_id, refunded_at, amt, status, reason_code]
+      sales_target:
+        leader_columns: [id, employee_id, month, target_amt]
+        member_columns: []
+    upload_workbook:
+      sales:
+        leader_columns: [customer_code, sold_on, region, amount, note]
+        member_columns: [customer_code, sold_on, region, amount, note]
+      returns:
+        leader_columns: [customer_code, returned_on, amount]
+        member_columns: [customer_code, returned_on, amount]
+    upload_daily:
+      daily:
+        leader_columns: [sold_on, region, amount, channel]
+        member_columns: [sold_on, region, amount, channel]
+    upload_append:
+      sales:
+        leader_columns: [record_id, sold_on, amount]
+        member_columns: [record_id, sold_on, amount]
+    upload_notes:
+      notes:
+        leader_columns: [record_id, amount, note]
+        member_columns: [record_id, amount, note]
+  finance:
+    commerce:
+      region:
+        leader_columns: [id, name, province, area_code]
+        member_columns: [id, name, province, area_code]
+      orders:
+        leader_columns: [id, ord_no, customer_id, sales_emp_id, ordered_at, paid_at, status, amt_gross, discount_amt, amt_net, channel]
+        member_columns: [id, ord_no, ordered_at, paid_at, status, amt_gross, discount_amt, amt_net, channel]
+      payment:
+        leader_columns: [id, order_id, paid_at, amt, method, status]
+        member_columns: [id, order_id, paid_at, amt, method, status]
+      refund:
+        leader_columns: [id, order_id, refunded_at, amt, status, reason_code]
+        member_columns: [id, order_id, refunded_at, amt, status, reason_code]
+      employee:
+        leader_columns: [id, emp_no, name, dept_id, hired_on, status]
+        member_columns: []
+      department:
+        leader_columns: [id, name, region_id]
+        member_columns: []
+      sales_target:
+        leader_columns: [id, employee_id, month, target_amt]
+        member_columns: []
+      employee_salary:
+        leader_columns: [id, employee_id, month, base_salary, bonus, bank_account]
+        member_columns: []
+        masks: {bank_account: bank_account}
+    upload_budget:
+      budget:
+        leader_columns: [department, month, amount]
+        member_columns: [department, month, amount]
+semantics:
+  - id: paid_status
+    scope: platform
+    datasource: commerce
+    target: orders.status
+    aliases: [已付订单, 有效订单]
+    definition: 'status IN (1,2,3)，已支付/已发货/已完成；不含待支付与取消'
+  - id: east_region
+    scope: platform
+    datasource: commerce
+    target: region.province
+    aliases: [华东]
+    definition: "province IN ('上海','江苏','浙江')"
+  - id: gold_customer
+    scope: platform
+    datasource: commerce
+    target: customer.tier
+    aliases: [金卡客户, VIP]
+    definition: 'tier=3'
+  - id: app_channel
+    scope: platform
+    datasource: commerce
+    target: orders.channel
+    aliases: [移动端, 应用端]
+    definition: "channel='APP'"
+  - id: customer_code
+    scope: platform
+    datasource: commerce
+    target: customer.cust_cd
+    aliases: [客户号, 客户编码]
+    definition: '保留前导零的 cust_cd'
+metrics:
+  - id: revenue_platform
+    name: 销售额
+    scope: platform
+    datasource: commerce
+    definition: '有效已付订单的原价订单额'
+    sql_template: 'SELECT SUM(amt_gross) FROM commerce.orders WHERE status IN (1,2,3)'
+  - id: revenue_sales
+    name: 销售额
+    scope: team
+    owner_team_id: sales
+    datasource: commerce
+    definition: '有效已付订单的应收额，不扣退款'
+    sql_template: 'SELECT SUM(amt_net) FROM commerce.orders WHERE status IN (1,2,3)'
+  - id: revenue_personal
+    name: 销售额
+    scope: personal
+    owner_user_id: sales_member
+    datasource: commerce
+    definition: '成功收款减去完成退款；不按订单创建日期过滤'
+    sql_template: 'SELECT (SELECT SUM(amt) FROM commerce.payment WHERE status=1) - (SELECT SUM(amt) FROM commerce.refund WHERE status=1)'
+  - id: avg_order_sales
+    name: 客单价
+    scope: team
+    owner_team_id: sales
+    datasource: commerce
+    definition: '有效已付订单应收额 SUM(amt_net)/COUNT(*)'
+    sql_template: 'SELECT SUM(amt_net)/COUNT(*) FROM commerce.orders WHERE status IN (1,2,3)'

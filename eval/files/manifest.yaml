@@ -1,0 +1,158 @@
+version: 1
+jobs:
+- file: sales.xlsx
+  sha256: 62dd730c6c7ac19bd256eb9517fe6f4a37c3fb83fdc0cb67bc387eef794bc036
+  datasource: upload_workbook
+  table: sales
+  mode: overwrite
+  version: 1
+  header_row: 2
+  encoding: utf-8
+  delimiter: ','
+  sheet: 销售明细
+  columns:
+  - source_name: 客户 编码
+    name: customer_code
+    type: text
+  - source_name: 销售日期
+    name: sold_on
+    type: date
+  - source_name: 地区
+    name: region
+    type: text
+  - source_name: 金额(元)
+    name: amount
+    type: numeric(12,2)
+  - source_name: 备注
+    name: note
+    type: text
+  expected_rows: 6
+- file: sales.xlsx
+  sha256: 62dd730c6c7ac19bd256eb9517fe6f4a37c3fb83fdc0cb67bc387eef794bc036
+  datasource: upload_workbook
+  table: returns
+  mode: overwrite
+  version: 1
+  header_row: 1
+  encoding: utf-8
+  delimiter: ','
+  sheet: 退货明细
+  columns:
+  - source_name: 客户 编码
+    name: customer_code
+    type: text
+  - source_name: 退货日期
+    name: returned_on
+    type: date
+  - source_name: 退款金额
+    name: amount
+    type: numeric(12,2)
+  expected_rows: 2
+- file: daily_gb18030.csv
+  sha256: 0f995ae648bc9da003c66ea8c103b2e07bfafa185f931b663d2b5fa9fdeecea2
+  datasource: upload_daily
+  table: daily
+  mode: overwrite
+  version: 1
+  header_row: 1
+  encoding: gb18030
+  delimiter: ;
+  sheet: null
+  columns:
+  - source_name: 日期
+    name: sold_on
+    type: date
+  - source_name: 地区
+    name: region
+    type: text
+  - source_name: 金额
+    name: amount
+    type: numeric(12,2)
+  - source_name: 渠道
+    name: channel
+    type: text
+  expected_rows: 4
+- file: budget_no_header.csv
+  sha256: 985c57367d9c0e9fb53629e24d0861fdfbbdf2bac7f74aeee73bfa9907a4bc03
+  datasource: upload_budget
+  table: budget
+  mode: overwrite
+  version: 1
+  header_row: null
+  encoding: utf-8
+  delimiter: "\t"
+  sheet: null
+  columns:
+  - source_name: 列1
+    name: department
+    type: text
+  - source_name: 列2
+    name: month
+    type: date
+  - source_name: 列3
+    name: amount
+    type: numeric(12,2)
+  expected_rows: 3
+- file: sales_v1.csv
+  sha256: ba05097d140ea1df71789593b4ce13b074530746c7abc8cb62d416ac738cc857
+  datasource: upload_append
+  table: sales
+  mode: overwrite
+  version: 1
+  header_row: 1
+  encoding: utf-8
+  delimiter: ','
+  sheet: null
+  columns:
+  - source_name: 记录编号
+    name: record_id
+    type: integer
+  - source_name: 销售日期
+    name: sold_on
+    type: date
+  - source_name: 金额
+    name: amount
+    type: numeric(12,2)
+  expected_rows: 3
+- file: sales_v2_append.csv
+  sha256: 6a489680b4737718c80601471ae6379f96c29d77de2e25efe79c1d56b5f9702b
+  datasource: upload_append
+  table: sales
+  mode: append
+  version: 2
+  header_row: 1
+  encoding: utf-8
+  delimiter: ','
+  sheet: null
+  columns:
+  - source_name: 记录编号
+    name: record_id
+    type: integer
+  - source_name: 销售日期
+    name: sold_on
+    type: date
+  - source_name: 金额
+    name: amount
+    type: numeric(12,2)
+  expected_rows: 2
+- file: untrusted_notes.csv
+  sha256: 196a66ee5ce4e1725df0e9d54c7fabbf027c28f952b44a1e8f7f35650b5b137f
+  datasource: upload_notes
+  table: notes
+  mode: overwrite
+  version: 1
+  header_row: 1
+  encoding: utf-8
+  delimiter: ','
+  sheet: null
+  columns:
+  - source_name: 记录编号
+    name: record_id
+    type: integer
+  - source_name: 金额
+    name: amount
+    type: numeric(12,2)
+  - source_name: 备注
+    name: note
+    type: text
+  expected_rows: 4

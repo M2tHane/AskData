@@ -1,0 +1,236 @@
+version: 1
+# Cross-domain evaluation fixtures (hospital). Same contract as eval/fixtures.yaml, read by
+# app.modules.eval.assets.EvalAssets when ASKDATA_EVAL_ASSETS_PATH points at this directory.
+clock:
+  now: '2025-07-10T09:30:00+08:00'
+  timezone: Asia/Shanghai
+  week_start: monday
+  intervals: half_open
+seed: 'XD:hosp:20250710'
+teams:
+  - {id: clinical, name: 医务部}
+  - {id: finance, name: 财务部}
+users:
+  - {id: admin, role: admin, team_id: null}
+  - {id: clin_member, role: member, team_id: clinical}
+  - {id: fin_member, role: member, team_id: finance}
+datasources:
+  hospital:
+    type: postgresql
+    dialect: postgres
+    schema: hosp
+    bootstrap: hospital.sql
+  # Uploaded through the real upload API (preview -> confirm / add_sheet / append) by the
+  # admin on behalf of the owner team; the owner team is granted every column on publish.
+  up_budget:
+    type: upload
+    dialect: postgres
+    schema: up_budget
+    owner_team_id: finance
+    manifest: files/manifest.json
+  up_lab:
+    type: upload
+    dialect: postgres
+    schema: up_lab
+    owner_team_id: clinical
+    manifest: files/manifest.json
+  up_equip:
+    type: upload
+    dialect: postgres
+    schema: up_equip
+    owner_team_id: finance
+    manifest: files/manifest.json
+  up_care:
+    type: upload
+    dialect: postgres
+    schema: up_care
+    owner_team_id: clinical
+    manifest: files/manifest.json
+  up_feedback:
+    type: upload
+    dialect: postgres
+    schema: up_feedback
+    owner_team_id: clinical
+    manifest: files/manifest.json
+catalog:
+  hospital:
+    dept: [id, dept_cd, name, parent_id, kind]
+    ward: [id, name, dept_id, bed_cnt]
+    doctor: [id, staff_no, name, dept_id, title_cd, sup_id, hired_on, status]
+    patient: [id, mrn, name, gender, birth_dt, ins_type, phone, id_no, created_at]
+    icd: [code, name, chapter]
+    op_visit: [id, visit_no, patient_id, dept_id, doctor_id, reg_at, seen_at, vtype, status, reg_fee]
+    admission: [id, adm_no, patient_id, dept_id, ward_id, attending_id, op_visit_id, adm_at, dis_at, adm_src, dis_status]
+    dx: [id, adm_id, visit_id, icd_cd, is_main, dx_at]
+    charge: [id, adm_id, visit_id, item_cat, item_name, qty, price, amt, chg_at]
+    settle: [id, adm_id, settle_at, tot_amt, fund_amt, self_amt, status]
+  up_budget:
+    budget: [dept_code, dept_name, month, budget]
+    bed_plan: [ward_name, dept_code, month, beds]
+  up_lab:
+    lab_recon: [send_date, mrn, item, amount, status]
+  up_equip:
+    equipment: [asset_no, dept_name, bought_on, cost]
+  up_care:
+    caregiver: [record_no, service_date, ward, hours, amount]
+  up_feedback:
+    feedback: [fb_no, visit_date, dept_name, score, comment]
+# The clinical team sees clinical data but no settlements and no patient phone / ID number.
+grants:
+  clinical:
+    hospital:
+      dept:
+        leader_columns: [id, dept_cd, name, parent_id, kind]
+        member_columns: [id, dept_cd, name, parent_id, kind]
+      ward:
+        leader_columns: [id, name, dept_id, bed_cnt]
+        member_columns: [id, name, dept_id, bed_cnt]
+      doctor:
+        leader_columns: [id, staff_no, name, dept_id, title_cd, sup_id, hired_on, status]
+        member_columns: [id, staff_no, name, dept_id, title_cd, sup_id, hired_on, status]
+      patient:
+        leader_columns: [id, mrn, name, gender, birth_dt, ins_type, created_at]
+        member_columns: [id, mrn, name, gender, birth_dt, ins_type, created_at]
+      icd:
+        leader_columns: [code, name, chapter]
+        member_columns: [code, name, chapter]
+      op_visit:
+        leader_columns: [id, visit_no, patient_id, dept_id, doctor_id, reg_at, seen_at, vtype, status, reg_fee]
+        member_columns: [id, visit_no, patient_id, dept_id, doctor_id, reg_at, seen_at, vtype, status, reg_fee]
+      admission:
+        leader_columns: [id, adm_no, patient_id, dept_id, ward_id, attending_id, op_visit_id, adm_at, dis_at, adm_src, dis_status]
+        member_columns: [id, adm_no, patient_id, dept_id, ward_id, attending_id, op_visit_id, adm_at, dis_at, adm_src, dis_status]
+      dx:
+        leader_columns: [id, adm_id, visit_id, icd_cd, is_main, dx_at]
+        member_columns: [id, adm_id, visit_id, icd_cd, is_main, dx_at]
+      charge:
+        leader_columns: [id, adm_id, visit_id, item_cat, item_name, qty, price, amt, chg_at]
+        member_columns: [id, adm_id, visit_id, item_cat, item_name, qty, price, amt, chg_at]
+    up_lab:
+      lab_recon:
+        leader_columns: [send_date, mrn, item, amount, status]
+        member_columns: [send_date, mrn, item, amount, status]
+    up_care:
+      caregiver:
+        leader_columns: [record_no, service_date, ward, hours, amount]
+        member_columns: [record_no, service_date, ward, hours, amount]
+    up_feedback:
+      feedback:
+        leader_columns: [fb_no, visit_date, dept_name, score, comment]
+        member_columns: [fb_no, visit_date, dept_name, score, comment]
+  # Finance sees admissions, charges and settlements, but no doctors, visits or diagnoses
+  # and no patient phone / ID number.
+  finance:
+    hospital:
+      dept:
+        leader_columns: [id, dept_cd, name, parent_id, kind]
+        member_columns: [id, dept_cd, name, parent_id, kind]
+      ward:
+        leader_columns: [id, name, dept_id, bed_cnt]
+        member_columns: [id, name, dept_id, bed_cnt]
+      patient:
+        leader_columns: [id, mrn, name, gender, birth_dt, ins_type, created_at]
+        member_columns: [id, mrn, name, gender, birth_dt, ins_type, created_at]
+      admission:
+        leader_columns: [id, adm_no, patient_id, dept_id, ward_id, attending_id, op_visit_id, adm_at, dis_at, adm_src, dis_status]
+        member_columns: [id, adm_no, patient_id, dept_id, ward_id, attending_id, op_visit_id, adm_at, dis_at, adm_src, dis_status]
+      charge:
+        leader_columns: [id, adm_id, visit_id, item_cat, item_name, qty, price, amt, chg_at]
+        member_columns: [id, adm_id, visit_id, item_cat, item_name, qty, price, amt, chg_at]
+      settle:
+        leader_columns: [id, adm_id, settle_at, tot_amt, fund_amt, self_amt, status]
+        member_columns: [id, adm_id, settle_at, tot_amt, fund_amt, self_amt, status]
+    up_budget:
+      budget:
+        leader_columns: [dept_code, dept_name, month, budget]
+        member_columns: [dept_code, dept_name, month, budget]
+      bed_plan:
+        leader_columns: [ward_name, dept_code, month, beds]
+        member_columns: [ward_name, dept_code, month, beds]
+    up_equip:
+      equipment:
+        leader_columns: [asset_no, dept_name, bought_on, cost]
+        member_columns: [asset_no, dept_name, bought_on, cost]
+# Column semantics an administrator fills in during setup for columns without a comment.
+# Deliberately terse: code meanings live only in the business glossary below.
+setup_descriptions:
+  dept.kind: 科室类别
+  doctor.title_cd: 职称代码
+  doctor.sup_id: 上级医师ID
+  op_visit.vtype: 就诊类型代码
+  admission.dis_status: 离院方式代码
+  settle.fund_amt: 统筹支付金额
+semantics:
+  - id: insured_patient
+    scope: platform
+    datasource: hospital
+    target: patient.ins_type
+    aliases: [医保患者, 参保患者, 职工医保, 居民医保]
+    definition: "医保患者 = ins_type IN ('UEBMI','URRBMI')：UEBMI 城镇职工医保，URRBMI 城乡居民医保；SELF 自费、COMM 商业保险不算医保患者"
+  - id: senior_doctor
+    scope: platform
+    datasource: hospital
+    target: doctor.title_cd
+    aliases: [高年资医生, 高级职称, 主任医师, 副主任医师]
+    definition: '职称代码：1 住院医师，2 主治医师，3 副主任医师，4 主任医师；高年资医生 = title_cd IN (3,4)'
+  - id: internal_med
+    scope: platform
+    datasource: hospital
+    target: dept.parent_id
+    aliases: [内科系统, 大内科]
+    definition: '科室分两级；内科系统 = 上级科室为「内科」（dept_cd NK）的全部专科：心血管内科、呼吸内科、消化内科'
+  - id: discharge_status
+    scope: platform
+    datasource: hospital
+    target: admission.dis_status
+    aliases: [离院方式, 死亡病例, 治愈, 好转, 转院]
+    definition: '离院方式：1 治愈，2 好转，3 未愈，4 死亡，5 转院；在院患者为空。死亡病例 = dis_status = 4'
+  - id: visit_type
+    scope: platform
+    datasource: hospital
+    target: op_visit.vtype
+    aliases: [初诊, 复诊, 急诊, 就诊类型]
+    definition: '就诊类型：1 初诊，2 复诊，3 急诊'
+  - id: fund_paid_column
+    scope: platform
+    datasource: hospital
+    target: settle.fund_amt
+    aliases: [统筹支付, 医保基金支付, 医保支付]
+    definition: '医保统筹基金支付的金额；只计有效结算（status = 1），已冲销的不算'
+  - id: record_no
+    scope: platform
+    datasource: hospital
+    target: patient.mrn
+    aliases: [病案号, 病历号]
+    definition: '8 位病案号，文本，保留前导零'
+metrics:
+  - id: op_visits
+    name: 门诊人次
+    scope: platform
+    datasource: hospital
+    definition: '已接诊（status = 1）的门急诊就诊次数，按接诊时间 seen_at 统计；不含未接诊和退号'
+    sql_template: 'SELECT COUNT(*) FROM hosp.op_visit WHERE status = 1'
+  - id: alos
+    name: 平均住院日
+    scope: platform
+    datasource: hospital
+    definition: '出院患者的平均住院天数，按出院时间 dis_at 统计；住院天数 = 出院日期 − 入院日期，当天出院按 1 天；在院患者不计'
+    sql_template: 'SELECT ROUND(AVG(GREATEST(dis_at::date - adm_at::date, 1)), 2) FROM hosp.admission WHERE dis_at IS NOT NULL'
+  - id: avg_ip_cost
+    name: 次均住院费用
+    scope: platform
+    datasource: hospital
+    definition: '出院患者住院费用明细合计（含冲红负数）÷ 出院人次，按出院时间统计；不用结算单金额'
+    sql_template: 'SELECT SUM(c.amt) / COUNT(DISTINCT a.id) FROM hosp.admission a JOIN hosp.charge c ON c.adm_id = a.id WHERE a.dis_at IS NOT NULL'
+  - id: drug_ratio
+    name: 药占比
+    scope: platform
+    datasource: hospital
+    definition: '药品费用 ÷ 总费用，均取费用明细 charge.amt（门诊和住院都算，含冲红），按计费时间 chg_at 统计'
+    sql_template: "SELECT SUM(CASE WHEN item_cat = 'DRUG' THEN amt ELSE 0 END) / SUM(amt) FROM hosp.charge"
+  - id: fund_paid
+    name: 医保统筹支付额
+    scope: platform
+    datasource: hospital
+    definition: '有效住院结算（status = 1）的统筹支付金额合计，按结算时间 settle_at 统计'
+    sql_template: 'SELECT SUM(fund_amt) FROM hosp.settle WHERE status = 1'

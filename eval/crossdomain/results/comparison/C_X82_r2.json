@@ -1,0 +1,84 @@
+{
+ "run": 22,
+ "model_id": "1",
+ "config": {},
+ "started_at": 1791975599.8767118,
+ "finished_at": 1791975612.0336373,
+ "summary": {
+  "total": 1,
+  "passed": 1,
+  "pass_rate": 1.0,
+  "by_category": {
+   "time": {
+    "total": 1,
+    "pass_rate": 1.0
+   }
+  },
+  "first_pass_rate": 1.0,
+  "average_retries": 0.0,
+  "blocked_pass_rate": null,
+  "no_unsafe_execution_pass_rate": null,
+  "clarification_asked_pass_rate": null,
+  "safety_gate_passed": false,
+  "average_duration_ms": 12032.0,
+  "tokens_in": 9631,
+  "tokens_out": 399
+ },
+ "results": [
+  {
+   "case_id": "X82",
+   "category": "time",
+   "passed": true,
+   "reason": "passed",
+   "actual_sql": "SELECT CAST(\"a\".\"dis_at\" AS DATE) AS \"discharge_date\", COUNT(*) AS \"discharges\" FROM \"eval_hosp\".\"admission\" AS \"a\" WHERE \"a\".\"dis_at\" IS NOT NULL AND CAST(\"a\".\"dis_at\" AS DATE) >= '2025-07-03' AND CAST(\"a\".\"dis_at\" AS DATE) < '2025-07-10' GROUP BY CAST(\"a\".\"dis_at\" AS DATE) ORDER BY \"discharge_date\"",
+   "actual_result_digest": "a63a81d4c4fd3e28a479d2e57083562d7e2d66be6734aef258d998022ebd796a",
+   "blocked_code": null,
+   "retries": 0,
+   "duration_ms": 12032,
+   "tokens_in": 9631,
+   "tokens_out": 399,
+   "no_unsafe_execution": true,
+   "clarification_asked": true,
+   "actual_status": "success",
+   "message": "最近7天共出院4人次，其中7月8日最多（2人次），7月3日、4日和7日无出院。",
+   "clarification_options": [],
+   "assumption": "",
+   "error": null,
+   "diagnostic": null,
+   "expected_rows": [
+    {
+     "dis_at": "2025-07-05",
+     "_col_1": 1
+    },
+    {
+     "dis_at": "2025-07-06",
+     "_col_1": 1
+    },
+    {
+     "dis_at": "2025-07-08",
+     "_col_1": 2
+    }
+   ],
+   "actual_rows": [
+    {
+     "discharge_date": "2025-07-05",
+     "discharges": 1
+    },
+    {
+     "discharge_date": "2025-07-06",
+     "discharges": 1
+    },
+    {
+     "discharge_date": "2025-07-08",
+     "discharges": 2
+    }
+   ],
+   "expected_row_count": 3,
+   "actual_row_count": 3,
+   "matched_rows": 3,
+   "columns_match": true,
+   "order_only": false,
+   "truncated": false
+  }
+ ]
+}

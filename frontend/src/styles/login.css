@@ -1,0 +1,21 @@
+/* Login: one page, form on the left (5), static showcase on the right (7); below 880px only the form. */
+.cb-login { min-height: 100vh; display: grid; grid-template-columns: minmax(400px, 5fr) 7fr; background: var(--bg-app); }
+.cb-login-form { display: flex; flex-direction: column; padding: var(--space-6) var(--space-8); }
+.cb-login-inner { width: 100%; max-width: 340px; margin: auto; display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-8) 0; }
+.cb-login-title { display: flex; flex-direction: column; gap: 6px; }
+.cb-login-title h1 { margin: 0; font: 600 24px/32px var(--font-sans); }
+.cb-login-title p { margin: 0; color: var(--text-2); }
+.cb-login-forgot { font-size: 12px; font-weight: 400; }
+.cb-login-tip { justify-content: center; margin: 0; }
+.cb-login-foot { display: flex; gap: var(--space-4); color: var(--text-3); font: 400 12px/18px var(--font-sans); }
+.cb-login-show { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: var(--space-6); padding: var(--space-8); overflow: hidden; background: var(--bg-sidebar); border-left: 1px solid var(--border); }
+.cb-login-show > * { width: 100%; max-width: 520px; }
+.cb-login-show h2 { margin: 0; font: 600 18px/26px var(--font-sans); }
+.cb-login-show ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; color: var(--text-2); }
+.cb-login-show li { display: flex; align-items: center; gap: var(--space-2); }
+.cb-login-show li .cb-icon { color: var(--action-text); }
+.cb-login-demo { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-dialog); background: var(--bg-card); box-shadow: var(--shadow-md); }
+.cb-login-demo .cb-q { font-size: 13px; line-height: 20px; }
+.cb-login-demo .cb-answer { font-size: 14px; line-height: 22px; }
+.cb-login-chart { display: block; width: 100%; height: 96px; }
+@media (max-width: 880px) { .cb-login { grid-template-columns: 1fr; } .cb-login-show { display: none; } .cb-login-form { padding: var(--space-4); } }

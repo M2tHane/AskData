@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Field · AskData UI Kit</title>
+<script>if (location.hash === "#dark") document.documentElement.setAttribute("data-theme", "dark"); else document.documentElement.setAttribute("data-theme", "light");</script>
+<link rel="stylesheet" href="../tokens/tokens.css"><link rel="stylesheet" href="../styles/components.css"></head>
+<body style="padding:16px;background:var(--bg-app);color:var(--text-1);font-family:var(--font-sans)">
+<div class="ak-col" style="max-width:340px;gap:16px">
+<div class="ak-field"><label class="ak-label" for="u">账号</label><div class="ak-input"><svg class="ak-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg><input id="u" value="lin.zhiyuan" autocomplete="username"></div></div>
+<div class="ak-field" data-state="warn"><label class="ak-label" for="p">密码</label><div class="ak-input"><svg class="ak-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 11h12v10H6zM8 11V8a4 4 0 0 1 8 0v3"/></svg><input id="p" type="password" value="hunter2hunter" autocomplete="current-password"><button class="ak-reveal" type="button" aria-pressed="false">显示</button></div><div class="ak-hint" role="status"><svg class="ak-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l9 16H3zM12 10v4M12 17.5v.01"/></svg>大写锁定已开启</div></div>
+<div class="ak-field" data-state="error"><label class="ak-label" for="n">数据源名称</label><div class="ak-input"><input id="n" placeholder="例如：销售数仓" aria-invalid="true" aria-describedby="n-err"></div><div class="ak-hint" id="n-err">请填写名称</div></div>
+<div class="ak-row" style="gap:20px"><label class="ak-check"><span class="ak-cb"><input type="checkbox" checked><span><svg class="ck" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.2l2.4 2.4 4.6-5"/></svg><svg class="mx" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 6h6"/></svg></span></span>记住账号</label><label class="ak-check"><span class="ak-cb"><input type="checkbox"><span><svg class="ck" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.2l2.4 2.4 4.6-5"/></svg><svg class="mx" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 6h6"/></svg></span></span>未勾选</label><label class="ak-check"><span class="ak-cb"><input type="checkbox" data-mixed><span><svg class="ck" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.2l2.4 2.4 4.6-5"/></svg><svg class="mx" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 6h6"/></svg></span></span>部分勾选</label><button class="ak-switch" role="switch" aria-checked="true" aria-label="启用"></button><button class="ak-switch" role="switch" aria-checked="false" aria-label="停用"></button></div></div>
+<script src="../styles/runtime.js"></script>
+</body>
+</html>

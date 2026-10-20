@@ -1,0 +1,43 @@
+/* semantic page — page-specific rules only; shared rules live in components.css. */
+.cb-page > .cb-sem-grid { flex: 1 1 0; min-height: 0; display: grid; grid-template-columns: 240px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: var(--space-3); }
+.cb-sem-grid > .cb-listcard { min-height: 0; }
+.cb-sem-search { width: 100%; }
+.cb-sem-listhead { display: flex; justify-content: space-between; padding: var(--space-2) var(--space-4); font: 400 12px/18px var(--font-sans); color: var(--text-3); }
+.cb-sem-tables { list-style: none; margin: 0; padding: 0 var(--space-2) var(--space-2); display: flex; flex-direction: column; gap: 2px; }
+.cb-sem-table { width: 100%; display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-2); border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text-1); text-align: left; cursor: pointer; font: 400 13px/20px var(--font-sans); }
+.cb-sem-table:hover { background: var(--bg-subtle); }
+.cb-sem-table[aria-current="true"] { background: var(--bg-selected); }
+.cb-sem-tname { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.cb-sem-tname b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-sem-tname .cb-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-sem-count { color: var(--text-2); flex: none; min-width: 32px; text-align: right; }
+
+.cb-sem-head { flex: 1; display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.cb-sem-head > .cb-sem-tname { flex: 0 1 200px; }
+.cb-sem-ic { width: 28px; height: 28px; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-control); background: var(--bg-card); border: 1px solid var(--border); color: var(--text-2); }
+.cb-sem-lab { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-2); font: 400 12px/18px var(--font-sans); white-space: nowrap; }
+.cb-sem-lab .cb-sem-in { width: 160px; }
+.cb-sem-lab-grow { flex: 1; min-width: 0; }
+.cb-sem-lab-grow .cb-sem-in { width: 100%; flex: 1; min-width: 0; }
+.cb-sem-end { flex: none; display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-3); font: 400 12px/18px var(--font-sans); white-space: nowrap; }
+
+.cb-sem-in { width: 100%; height: var(--control-md); padding: 0 10px; border: 1px solid var(--line-control); border-radius: var(--radius-control); background: var(--bg-card); color: var(--text-1); font: 400 13px/20px var(--font-sans); outline: 0; min-width: 0; }
+.cb-sem-in::placeholder { color: var(--text-3); }
+.cb-sem-in:focus { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
+
+.cb-sem-fields td { vertical-align: middle; }
+.cb-sem-fname { display: block; color: var(--text-1); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-sem-src { display: flex; align-items: center; gap: var(--space-1); overflow: hidden; white-space: nowrap; }
+.cb-sem-restore { font-size: 12px; }
+.cb-sem-own > td:first-child { box-shadow: inset 2px 0 0 var(--action); }
+.cb-sem-check { display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; }
+.cb-sem-enumrow:hover td { background: transparent; }
+.cb-sem-enumrow td { padding-top: 0; }
+.cb-sem-enum { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); margin: 0 var(--space-3) var(--space-2) calc(27% - var(--space-2)); padding: var(--space-3); border: 1px dashed var(--line-control); border-radius: var(--radius-panel); background: var(--bg-subtle); }
+.cb-sem-enum-head { display: flex; align-items: center; gap: var(--space-2); font: 400 12px/18px var(--font-sans); }
+.cb-sem-pair { display: flex; align-items: center; gap: var(--space-2); width: 100%; color: var(--text-3); }
+.cb-sem-pair .cb-sem-in:first-child { flex: 0 0 120px; width: 120px; }
+.cb-sem-pair .cb-sem-in:nth-child(3) { flex: 1; }
+
+.cb-sem-foot { flex: none; display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); color: var(--text-3); }
+.cb-sem-note { flex: 1; font: 400 12px/18px var(--font-sans); }

@@ -1,0 +1,12 @@
+/* logs page — page-specific rules only; shared rules live in components.css. */
+.cb-lg-q { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-lg-reason { color: var(--danger); }
+.cb-lg-check { display: inline-flex; align-items: center; gap: var(--space-2); font: 400 13px/20px var(--font-sans); color: var(--text-1); cursor: pointer; }
+.cb-preview { overflow: auto; max-height: 220px; border: 1px solid var(--border); border-radius: var(--radius-panel); }
+.cb-preview .cb-data th, .cb-preview .cb-data td { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-stages { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.cb-stage { display: grid; grid-template-columns: 132px minmax(0, 1fr) 64px; align-items: center; gap: var(--space-2); font: 400 12px/18px var(--font-sans); color: var(--text-2); }
+.cb-stage-bar { height: 8px; border-radius: var(--radius-pill); background: var(--bg-subtle); overflow: hidden; }
+.cb-stage-bar i { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--chart-1); }
+.cb-stage-ms { text-align: left; font-variant-numeric: tabular-nums; color: var(--text-3); }
+.cb-drawer-nav { display: flex; align-items: center; gap: var(--space-2); margin-right: var(--space-2); }

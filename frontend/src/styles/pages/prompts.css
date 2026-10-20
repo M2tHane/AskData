@@ -1,0 +1,74 @@
+/* prompts page — page-specific rules only; shared rules live in components.css. */
+.cb-pr-layout { display: grid; grid-template-columns: minmax(240px, 264px) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.cb-pr-side { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+
+/* 左侧两张可折叠卡片 */
+.cb-pr-card-body { padding: 0 var(--space-4) var(--space-4); display: flex; flex-direction: column; gap: var(--space-1); }
+.cb-pr-fold { display: flex; align-items: center; gap: var(--space-2); width: 100%; border: 0; background: transparent; color: var(--text-1); font: inherit; padding: var(--space-3) var(--space-4); cursor: pointer; text-align: left; border-radius: var(--radius-panel); }
+.cb-pr-fold:hover { background: var(--bg-subtle); }
+.cb-pr-fold .cb-h { margin: 0; }
+.cb-pr-fold .cb-faint { font-size: 12px; }
+.cb-pr-fold .cb-icon { color: var(--text-3); transition: transform .12s; }
+.cb-pr-fold[aria-expanded='false'] .cb-icon { transform: rotate(-90deg); }
+.cb-pr-card-body > .cb-eyebrow { margin: var(--space-2) var(--space-2) 0; }
+
+.cb-pr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.cb-pr-list button { width: 100%; min-height: var(--control-lg); display: flex; align-items: center; gap: var(--space-2); text-align: left; border: 0; background: transparent; color: var(--text-1); font: inherit; padding: var(--space-1) var(--space-2); border-radius: var(--radius-control); cursor: pointer; }
+.cb-pr-list button:hover { background: var(--bg-subtle); }
+.cb-pr-list li[aria-current='true'] button { background: var(--bg-selected); font-weight: 600; }
+.cb-pr-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-pr-ver { font: 400 12px/16px var(--font-mono); color: var(--text-3); }
+.cb-pr-list .cb-faint { font-size: 12px; }
+
+.cb-pr-revs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); max-height: 60vh; overflow: auto; }
+.cb-pr-revs li { border: 1px solid var(--border); border-radius: var(--radius-control); padding: var(--space-2) var(--space-3); display: flex; flex-direction: column; gap: var(--space-1); font-size: 13px; }
+.cb-pr-revs li[data-active] { border-color: var(--success-dot); }
+.cb-pr-rev-head, .cb-pr-rev-foot { display: flex; align-items: center; gap: var(--space-2); }
+.cb-pr-rev-head .cb-faint, .cb-pr-rev-foot .cb-faint { font-size: 12px; }
+.cb-pr-rev-note { overflow-wrap: anywhere; }
+.cb-pr-rev-foot { margin-right: calc(-1 * var(--space-2)); }
+
+/* 右侧编辑卡片 */
+.cb-pr-main { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+.cb-pr-main > p { margin: 0; }
+.cb-pr-main-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.cb-pr-main-head .cb-h { margin: 0; margin-right: var(--space-2); }
+.cb-pr-nowrap { white-space: nowrap; font-size: 12px; }
+
+.cb-pr-editor { border: 1px solid var(--line-control); border-radius: var(--radius-panel); background: var(--bg-card); overflow: hidden; }
+.cb-pr-editor:focus-within { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
+.cb-pr-bar { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); font-size: 12px; }
+.cb-pr-format { padding: 0 var(--space-2); border-radius: var(--radius-pill); background: var(--info-soft); color: var(--info); font-weight: 500; line-height: 20px; }
+.cb-pr-box { position: relative; }
+.cb-pr-back, .cb-pr-input { box-sizing: border-box; width: 100%; margin: 0; padding: var(--space-4); border: 0; font: 400 13px/22px var(--font-mono); letter-spacing: 0; tab-size: 2; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-gutter: stable; }
+.cb-pr-back { position: absolute; inset: 0; overflow: hidden; color: var(--text-1); pointer-events: none; }
+.cb-pr-input { position: relative; display: block; min-height: 360px; max-height: calc(100vh - 300px); resize: none; overflow-y: auto; background: transparent; color: transparent; caret-color: var(--text-1); outline: 0; }
+.cb-pr-input::selection { background: color-mix(in srgb, var(--info) 22%, transparent); color: transparent; }
+
+/* 高亮：背景层的片段，字号字重不变，只换颜色，保证与输入框逐字重合 */
+.cb-pr-back mark { background: none; color: inherit; }
+.cb-pr-back .cb-tk-head { color: var(--info); font-weight: 600; }
+.cb-pr-back .cb-tk-list { color: var(--warning); }
+.cb-pr-back .cb-tk-bold { color: var(--text-1); font-weight: 700; }
+.cb-pr-back .cb-tk-code { color: var(--info); background: var(--info-soft); border-radius: var(--radius-check); }
+.cb-pr-back .cb-tk-key { color: var(--info); }
+.cb-pr-back .cb-tk-string { color: var(--code-string); }
+.cb-pr-back .cb-tk-number { color: var(--code-number); }
+.cb-pr-back .cb-tk-comment { color: var(--text-3); }
+.cb-pr-back .cb-tk-var { color: var(--warning); background: var(--warning-soft); border-radius: var(--radius-check); }
+.cb-pr-back .cb-tk-var.cb-tk-bad { color: var(--danger); background: var(--danger-soft); }
+.cb-pr-back .cb-tk-tag { color: var(--code-keyword); }
+
+.cb-pr-status { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; padding: var(--space-2) var(--space-4); border-top: 1px solid var(--border); background: var(--bg-card); font-size: 12px; line-height: 16px; }
+.cb-pr-status .cb-faint { color: var(--text-3); }
+.cb-pr-problem, .cb-pr-fine, .cb-pr-ok, .cb-pr-missing { display: inline-flex; align-items: center; gap: var(--space-1); }
+.cb-pr-problem, .cb-pr-missing { color: var(--danger); }
+.cb-pr-fine, .cb-pr-ok { color: var(--success); }
+.cb-pr-ok, .cb-pr-missing { font-family: var(--font-mono); }
+
+.cb-pr-diff { font-family: var(--font-mono); font-size: 12px; line-height: 18px; max-height: 60vh; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-control); }
+.cb-pr-diff div { white-space: pre-wrap; word-break: break-word; padding: 0 var(--space-3); }
+.cb-pr-diff [data-kind='add'] { background: var(--success-soft); }
+.cb-pr-diff [data-kind='del'] { background: var(--danger-soft); }
+
+@media (max-width: 1100px) { .cb-pr-layout { grid-template-columns: minmax(0, 1fr); } }

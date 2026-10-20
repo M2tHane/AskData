@@ -1,0 +1,104 @@
+/* Page-level layout. Only tokens.css variables are used for color, spacing, radius and type. */
+.cb-page { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-5) var(--space-6) var(--space-8); min-height: 0; }
+.cb-textarea { width: 100%; box-sizing: border-box; min-height: 96px; padding: var(--space-2) var(--space-3); border: 1px solid var(--line-control); border-radius: var(--radius-control); background: var(--bg-card); color: var(--text-1); font: inherit; resize: vertical; }
+.cb-textarea.cb-mono { font-family: var(--font-mono); font-size: 13px; }
+.cb-form { display: flex; flex-direction: column; gap: var(--space-3); max-width: 520px; }
+.cb-detail { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-1) var(--space-3); margin: 0; font-size: 13px; }
+.cb-detail dt { color: var(--text-2); }
+.cb-detail dd { margin: 0; overflow-wrap: anywhere; }
+.cb-hint-code { display: block; margin: var(--space-1) 0; padding: var(--space-1) var(--space-2); background: var(--bg-card); border-radius: var(--radius-control); overflow-wrap: anywhere; }
+
+
+
+/* Fixed-layout tables: long cell text truncates instead of resizing columns */
+.cb-data-fixed { table-layout: fixed; }
+.cb-data-fixed td, .cb-data-fixed th { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Dialog sizes and footer */
+.cb-kind { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding: var(--space-4); background: var(--bg-card); border: 1px solid var(--line-control); border-radius: var(--radius-control); color: var(--text-1); font: inherit; cursor: pointer; }
+.cb-kind:hover { background: var(--bg-subtle); }
+.cb-kind img { width: var(--control-lg); height: var(--control-lg); object-fit: contain; }
+.cb-tree-head, .cb-tree-row { display: grid; grid-template-columns: minmax(0, 1fr) 160px minmax(0, 1.2fr); align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); }
+.cb-tree-head { color: var(--text-2); font-weight: 500; background: var(--bg-subtle); position: sticky; top: 0; }
+.cb-tree-table { background: var(--bg-card); }
+.cb-tree-table > .cb-tree-row { font-weight: 500; }
+.cb-tree-col { background: var(--bg-subtle); font-weight: 400; }
+.cb-tree-col > :first-child { padding-left: var(--space-8); }
+.cb-tree-toggle { display: inline-flex; align-items: center; gap: var(--space-2); border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; padding: 0; min-width: 0; }
+.cb-tree-toggle .cb-icon { transition: transform .12s; }
+.cb-tree-toggle[aria-expanded="false"] .cb-icon { transform: rotate(-90deg); }
+.cb-tree-scroll { max-height: 52vh; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-control); }
+
+.cb-resizer { flex: none; width: var(--space-4); display: flex; justify-content: center; cursor: col-resize; touch-action: none; }
+.cb-resizer > span { width: 2px; height: 100%; border-radius: var(--radius-pill); background: transparent; transition: background .12s; }
+.cb-resizer:hover > span, .cb-resizer:focus-visible > span { background: var(--line-control); }
+
+/* Hierarchical visibility: team chips, scope cells, multi select popover */
+.cb-scope-bar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); padding: var(--space-3) var(--space-4); background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius-control); }
+.cb-scope-label { font-weight: 500; }
+.cb-chips { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
+.cb-team-chip { display: inline-flex; align-items: center; gap: var(--space-1); height: var(--row-sm); padding: 0 var(--space-1) 0 var(--space-3); border: 1px solid var(--line-control); border-radius: var(--radius-pill); background: var(--bg-card); }
+.cb-team-chip button { display: inline-flex; align-items: center; justify-content: center; border: 0; padding: var(--space-1); border-radius: var(--radius-pill); background: transparent; color: var(--text-2); cursor: pointer; }
+.cb-team-chip button:hover { background: var(--bg-subtle); color: var(--text-1); }
+.cb-team-chip button[disabled] { opacity: .45; cursor: not-allowed; }
+.cb-scope-cell { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.cb-scope-cell .cb-multi, .cb-scope-cell .cb-multi button { min-width: 0; max-width: 100%; }
+.cb-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.cb-tree-scope { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); padding: var(--space-2) var(--space-3) var(--space-2) var(--space-8); background: var(--bg-subtle); border-bottom: 1px solid var(--border); }
+.cb-link[disabled] { opacity: .45; cursor: not-allowed; }
+
+
+/* Upload: drop zone, file card, sheet list */
+.cb-drop { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding: var(--space-8) var(--space-6); text-align: center; border: 1px dashed var(--line-control); border-radius: var(--radius-panel); background: var(--bg-subtle); color: var(--text-2); cursor: pointer; }
+.cb-drop:hover, .cb-drop[data-active] { background: var(--bg-subtle); border-color: var(--action-text); }
+.cb-drop:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.cb-drop .cb-icon { width: var(--space-8); height: var(--space-8); color: var(--text-1); }
+.cb-drop-title { color: var(--text-1); font-weight: 500; }
+.cb-file-card { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--line-control); border-radius: var(--radius-panel); background: var(--bg-card); }
+.cb-file-meta { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.cb-input-sm { min-height: var(--row-sm); height: var(--row-sm); }
+
+/* 配额使用率进度条 */
+.cb-meter { height: var(--space-2); min-width: 120px; border-radius: var(--radius-control); background: var(--border); overflow: hidden; }
+.cb-meter i { display: block; height: 100%; background: var(--success); }
+.cb-meter[data-level='warning'] i { background: var(--warning); }
+.cb-meter[data-level='exceeded'] i { background: var(--danger); }
+
+/* 提示词管理 */
+
+/* 侧栏随页面滚动保持在视口内，左下角的账号入口始终可见 */
+/* 复选框与表头左对齐 */
+.cb-tree-row > input[type="checkbox"] { justify-self: start; margin: 0; }
+
+/* ResultCard */
+
+/* 单值结果：大数字 */
+.cb-field .cb-field-label { font: 500 13px/20px var(--font-sans); }
+/* 编辑 SQL：与展开的全文同字号、同折行，高度随内容 */
+.cb-upload-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-3); }
+.cb-upload-cols td { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-upload-cols .cb-input { min-width: 140px; }
+/* 启用/停用开关：放在行内操作的最后 */
+/* 停用的行：名称等文字变灰，操作仍可用 */
+.cb-meter-row { display: flex; align-items: center; gap: var(--space-3); }
+.cb-meter-row .cb-meter { flex: 1; max-width: 240px; }
+.cb-meter-label { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-2); }
+.cb-data-fixed td > .cb-link { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; text-align: left; }
+/* 日志、反馈：按用户和日期筛选 */
+.cb-review-filter { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.cb-review-filter input[type='date'] { width: 136px; font-variant-numeric: tabular-nums; }
+/* 提示词编辑器：上层透明输入框 + 下层高亮，两层字体、内边距、折行完全一致 */
+/* 选区盖在高亮层上面，必须半透明，否则选中的字会被遮住。 */
+/* 评测：题库与逐题结果，点行展开期望 / 实际对比 */
+.cb-eval-row { cursor: pointer; }
+.cb-eval-row:hover > td { background: var(--bg-subtle); }
+.cb-eval-detail > td { background: var(--bg-subtle); padding: var(--space-3) var(--space-4); }
+.cb-eval-compare { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.cb-eval-compare section { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.cb-eval-question { font-size: 15px; line-height: 24px; font-weight: 500; }
+.cb-eval-answer { padding: var(--space-2) var(--space-3); border-radius: var(--radius-control); background: var(--bg-subtle); line-height: 22px; }
+.cb-eval-dialog .cb-table-wrap { max-height: 240px; overflow: auto; }
+.cb-eval-detail > td { white-space: normal; }
+/* Ghost buttons carry their own padding; pull the group out so the last label lines up with the header. */
+.cb-eval-progress { display: flex; align-items: center; gap: var(--space-2); }
+.cb-eval-progress .cb-meter { min-width: 0; width: 80px; flex: none; }

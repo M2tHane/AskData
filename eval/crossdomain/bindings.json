@@ -1,0 +1,50 @@
+{
+  "EVAL_TEAM_IDS": {
+    "clinical": 15,
+    "finance": 16
+  },
+  "EVAL_USER_IDS": {
+    "admin": 1,
+    "clin_member": 37,
+    "fin_member": 38
+  },
+  "EVAL_DATASOURCE_IDS": {
+    "hospital": 10,
+    "up_budget": 11,
+    "up_lab": 12,
+    "up_equip": 13,
+    "up_care": 14,
+    "up_feedback": 15
+  },
+  "EVAL_SEMANTIC_ALIASES": {
+    "semantic:37": "sem_37",
+    "semantic:38": "sem_38",
+    "semantic:39": "sem_39",
+    "semantic:40": "sem_40",
+    "semantic:41": "sem_41",
+    "semantic:42": "sem_42",
+    "semantic:43": "sem_43",
+    "semantic:44": "sem_44",
+    "semantic:45": "sem_45",
+    "semantic:46": "sem_46",
+    "semantic:47": "sem_47",
+    "semantic:48": "sem_48",
+    "semantic:49": "sem_49",
+    "semantic:50": "sem_50",
+    "semantic:51": "sem_51",
+    "semantic:52": "sem_52",
+    "semantic:53": "sem_53"
+  },
+  "EVAL_METRIC_ALIASES": {
+    "metric:20": "met_20",
+    "metric:21": "met_21",
+    "metric:22": "met_22",
+    "metric:23": "met_23",
+    "metric:24": "met_24",
+    "metric:25": "met_25",
+    "metric:26": "met_26",
+    "metric:27": "met_27",
+    "metric:28": "met_28",
+    "metric:29": "met_29"
+  }
+}

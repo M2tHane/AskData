@@ -1,0 +1,26 @@
+from sqlalchemy import CheckConstraint, ForeignKey, String
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.core.db import AuditFields, Base, SoftDelete
+
+
+class Team(AuditFields, SoftDelete, Base):
+    __tablename__ = "team"
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+
+
+class User(AuditFields, SoftDelete, Base):
+    __tablename__ = "user"
+    __table_args__ = (
+        CheckConstraint("role IN ('admin','leader','member')", name="ck_user_role"),
+        # Members may be unassigned ("free employees"); leaders always belong to a team.
+        CheckConstraint("role <> 'leader' OR team_id IS NOT NULL", name="ck_user_team"),
+    )
+    username: Mapped[str] = mapped_column(String(100), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(20))
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("team.id"), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    # "service": an MCP connection's account. It cannot log in and is not managed as a person.
+    kind: Mapped[str] = mapped_column(String(10), default="person", server_default="person")

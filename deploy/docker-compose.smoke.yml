@@ -1,0 +1,27 @@
+# Disposable container smoke test. The meta database must contain no administrator.
+services:
+  smoke-model:
+    image: askdata-backend:0.1.0
+    profiles: [smoke]
+    networks: [internal]
+    command: [uvicorn, scripts.smoke:mock_app, --host, 0.0.0.0, --port, '8001', --no-access-log]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/healthz')"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+  smoke:
+    extends:
+      file: docker-compose.yml
+      service: api
+    profiles: [smoke]
+    restart: 'no'
+    command: [python, /app/deploy/smoke_container.py]
+    healthcheck:
+      disable: true
+    environment:
+      ASKDATA_SMOKE_IMPORT_ADMIN_PASSWORD: ${IMPORT_ADMIN_PASSWORD:?required}
+    depends_on:
+      api: {condition: service_healthy}
+      worker: {condition: service_started}
+      smoke-model: {condition: service_healthy}

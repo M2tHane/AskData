@@ -1,0 +1,348 @@
+# AskData xd-hospital 业务语义快照（业务词 + 指标）。由管理员通过 /api/semantic、/api/metric 配置后导出。
+snapshot: '2026-10-13'
+datasource:
+  name: xd-hospital
+  id: 10
+  schema: eval_hosp
+note: 管理员视角从零配置的业务语义快照；只依据表结构、字段注释、数据分布和医院业务常识。全部为平台级；没有团队级或个人级覆盖。value_full_history 是模板在全量数据上（床位使用率按 params 区间）的结果，仅供核对，问题带时间范围时需按描述里的时间字段过滤。
+column_semantics_kept:
+  note: 以下字段在 AskData 里另有接入时填写的手工语义（description），同步注释时没有覆盖；提示词里优先显示手工语义，检索文本同时包含注释和手工语义。
+  columns:
+  - column: admission.dis_status
+    comment: 离院方式：1 医嘱离院，2 医嘱转院，3 医嘱转社区卫生服务机构/乡镇卫生院，4 非医嘱离院，5 死亡；在院为空
+    manual_description: 离院方式代码
+  - column: dept.kind
+    comment: 科室类别：CL 临床科室，MT 医技科室
+    manual_description: 科室类别
+  - column: doctor.title_cd
+    comment: 职称代码：1 住院医师，2 主治医师，3 副主任医师，4 主任医师
+    manual_description: 职称代码
+  - column: doctor.sup_id
+    comment: 上级医生ID（所在诊疗组组长，主任医师本人为空）
+    manual_description: 上级医师ID
+  - column: op_visit.vtype
+    comment: 就诊类型：1 普通门诊，2 专家门诊，3 急诊
+    manual_description: 就诊类型代码
+  - column: settle.fund_amt
+    comment: 医保统筹基金支付金额（自费、商业保险患者为 0）
+    manual_description: 统筹支付金额
+glossary:
+- id: 37
+  scope: platform
+  target_type: table
+  target: dept
+  aliases:
+  - 科室层级
+  - 一级科室
+  - 专科
+  - 大科
+  - 大内科
+  - 大外科
+  description: 科室分两级：parent_id 为空的是一级科室（内科 NK、外科 WK、妇儿 FE、医技 YJ），其余是挂在一级科室下的专科（如心血管内科 NK01、骨科 WK02）。 门诊、住院、医生的 dept_id 都记在专科上；按一级科室（“内科”“外科”“妇儿”，即大内科、大外科）统计时，要通过 dept.parent_id 把下属专科汇总上去。
+- id: 38
+  scope: platform
+  target_type: enum
+  target: dept.kind
+  aliases:
+  - 科室类别
+  - 临床科室
+  - 医技科室
+  description: 临床科室直接接诊病人，门诊和住院都只发生在临床专科；医技科室（检验科、影像科）是辅助科室，不接诊。
+  enum_mapping:
+    CL: 临床科室
+    MT: 医技科室
+- id: 39
+  scope: platform
+  target_type: enum
+  target: doctor.title_cd
+  aliases:
+  - 职称
+  - 高级职称
+  - 正高
+  - 副高
+  - 中级职称
+  - 初级职称
+  description: 高级职称 = 副主任医师及以上（title_cd IN (3,4)），其中正高 = 主任医师（4），副高 = 副主任医师（3）；中级 = 主治医师（2）；初级 = 住院医师（1）。
+  enum_mapping:
+    '1': 住院医师
+    '2': 主治医师
+    '3': 副主任医师
+    '4': 主任医师
+- id: 40
+  scope: platform
+  target_type: column
+  target: doctor.sup_id
+  aliases:
+  - 上级医师
+  - 上级医生
+  - 诊疗组长
+  - 带组医生
+  description: 指向同一诊疗组的组长（主任医师），组长本人为空。查某位主任带的医生用自关联 doctor.sup_id = 该主任的 id。
+- id: 41
+  scope: platform
+  target_type: enum
+  target: patient.ins_type
+  aliases:
+  - 医保类型
+  - 参保类型
+  - 职工医保
+  - 居民医保
+  - 医保患者
+  - 自费患者
+  description: “医保患者/参保患者”指基本医保 UEBMI + URRBMI；自费和商业保险患者没有统筹基金支付（settle.fund_amt = 0）。参保类型取患者主索引当前值。
+  enum_mapping:
+    UEBMI: 城镇职工基本医疗保险
+    URRBMI: 城乡居民基本医疗保险
+    SELF: 自费
+    COMM: 商业保险
+- id: 42
+  scope: platform
+  target_type: column
+  target: patient.birth_dt
+  aliases:
+  - 年龄
+  - 年龄段
+  - 儿童
+  - 老年患者
+  description: 年龄按业务发生时点算周岁：门诊用接诊时间 seen_at，住院用入院时间 adm_at（date_part('year', age(时点, birth_dt))）。儿童指未满 14 周岁，老年患者指 60 周岁及以上。
+- id: 43
+  scope: platform
+  target_type: enum
+  target: op_visit.vtype
+  aliases:
+  - 就诊类型
+  - 普通门诊
+  - 专家门诊
+  - 急诊
+  description: 门诊类统计默认是门急诊合计（三类都算）；只问“急诊”时取 vtype = 3，只问普通门诊、专家门诊时分别取 1、2。
+  enum_mapping:
+    '1': 普通门诊
+    '2': 专家门诊
+    '3': 急诊
+- id: 44
+  scope: platform
+  target_type: enum
+  target: op_visit.status
+  aliases:
+  - 就诊状态
+  - 退号
+  - 候诊
+  - 未接诊
+  - 挂号量
+  description: 门急诊人次（诊疗人次）只算已接诊 status = 1；挂号量 = 去掉退号的挂号记录（status IN (0,1)），按挂号时间 reg_at 统计；退号率 = 退号数 / 全部挂号记录。
+  enum_mapping:
+    '0': 已挂号未接诊
+    '1': 已接诊
+    '2': 退号
+- id: 45
+  scope: platform
+  target_type: column
+  target: op_visit.seen_at
+  aliases:
+  - 就诊时间
+  - 看诊时间
+  - 就诊日期
+  description: 门急诊人次、门诊费用按接诊时间 seen_at 归属日期和月份；挂号量、退号按挂号时间 reg_at。急诊可能深夜挂号、次日凌晨接诊，两个时间的日期会不同。
+- id: 46
+  scope: platform
+  target_type: enum
+  target: admission.dis_status
+  aliases:
+  - 离院方式
+  - 出院方式
+  - 死亡
+  - 转院
+  - 自动出院
+  description: 非医嘱离院俗称“自动出院”。住院死亡人数 = 出院记录中 dis_status = 5；住院患者死亡率 = 死亡人数 / 出院人次（按出院时间 dis_at）。在院患者为空。
+  enum_mapping:
+    '1': 医嘱离院
+    '2': 医嘱转院
+    '3': 医嘱转社区卫生服务机构/乡镇卫生院
+    '4': 非医嘱离院
+    '5': 死亡
+- id: 47
+  scope: platform
+  target_type: column
+  target: admission.dis_at
+  aliases:
+  - 出院时间
+  - 出院日期
+  - 在院患者
+  - 在院人数
+  description: 出院相关统计（出院人次、平均住院日、住院次均费用、死亡率）按出院时间 dis_at 归期，入院人次按 adm_at。dis_at 为空即仍在院； 某时点在院人数 = adm_at <= 时点 且（dis_at 为空或 dis_at > 时点）。住院天数 = 出院日期 − 入院日期（日历日，当天入出院记 1 天）。
+- id: 48
+  scope: platform
+  target_type: enum
+  target: charge.item_cat
+  aliases:
+  - 费用类别
+  - 药费
+  - 药品费
+  - 检查费
+  - 检验费
+  - 治疗费
+  - 手术费
+  - 材料费
+  - 耗材费
+  - 床位费
+  description: 手术费归在 TREAT 治疗类，按 item_name = '手术费' 区分。材料费、床位费只发生在住院。
+  enum_mapping:
+    DRUG: 药品费
+    EXAM: 检查检验费
+    TREAT: 治疗费（含手术费）
+    MAT: 卫生材料费（耗材）
+    BED: 床位费
+- id: 49
+  scope: platform
+  target_type: column
+  target: charge.amt
+  aliases:
+  - 费用金额
+  - 收费金额
+  - 退费
+  - 冲红
+  description: 退费以负数量冲红（金额同为负），统计费用直接 SUM(amt) 即冲红后的净额，不要过滤负数行。费用按计费时间 chg_at 归期； 门诊费用取 visit_id 非空，住院费用取 adm_id 非空。挂号费不在本表，见 op_visit.reg_fee。
+- id: 50
+  scope: platform
+  target_type: enum
+  target: settle.status
+  aliases:
+  - 结算状态
+  - 冲销
+  - 作废结算
+  description: 结算统计一律只取 status = 1；被冲销的结算单会在次日重新生成一张有效结算单，计入冲销单会重复。长住院有中途结算，一次住院可能有多张有效结算单，按住院汇总时先求和。
+  enum_mapping:
+    '1': 有效
+    '2': 已冲销
+- id: 51
+  scope: platform
+  target_type: column
+  target: settle.fund_amt
+  aliases:
+  - 医保统筹支付
+  - 统筹支付
+  - 医保报销
+  - 医保基金支付
+  description: 医保统筹基金支付部分，tot_amt = fund_amt + self_amt（个人自付）。只算 status = 1 的结算单，按结算时间 settle_at 归期。医保报销比例 = SUM(fund_amt) / SUM(tot_amt)。
+- id: 52
+  scope: platform
+  target_type: column
+  target: dx.is_main
+  aliases:
+  - 主要诊断
+  - 主诊断
+  - 病种
+  - 疾病
+  description: 一次住院或就诊可有多条诊断，按病种统计人次时只取主要诊断 is_main = true，否则会重复计数。住院诊断 adm_id 非空，门诊诊断 visit_id 非空；疾病名称和系统分类关联 icd（name、chapter）。
+- id: 53
+  scope: platform
+  target_type: column
+  target: ward.bed_cnt
+  aliases:
+  - 床位数
+  - 开放床位
+  - 核定床位
+  - 床位
+  description: 病区核定（开放）床位数。床位使用率 = 实际占用总床日数 /（床位数 × 统计天数）；住院记录通过 admission.ward_id 关联病区。
+metrics:
+- id: 20
+  scope: platform
+  name: 门急诊人次
+  aliases:
+  - 门诊人次
+  - 门诊量
+  - 诊疗人次
+  - 就诊人次
+  description: 已接诊的门诊 + 急诊就诊次数（op_visit.status = 1，不含已挂号未接诊和退号），按接诊时间 seen_at 统计。只看急诊时加 vtype = 3。
+  sql_template: SELECT COUNT(*) AS visits FROM eval_hosp.op_visit WHERE status = 1
+  value_full_history: '3867'
+- id: 21
+  scope: platform
+  name: 出院人次
+  aliases:
+  - 出院人数
+  - 出院量
+  description: 已出院（dis_at 非空）的住院记录数，按出院时间 dis_at 统计；含死亡、转院等全部离院方式。
+  sql_template: SELECT COUNT(*) AS discharges FROM eval_hosp.admission WHERE dis_at IS NOT NULL
+  value_full_history: '716'
+- id: 22
+  scope: platform
+  name: 入院人次
+  aliases:
+  - 入院人数
+  - 收治人次
+  - 新入院人数
+  description: 住院登记数，按入院时间 adm_at 统计；含仍在院患者和再入院。
+  sql_template: SELECT COUNT(*) AS admissions FROM eval_hosp.admission
+  value_full_history: '731'
+- id: 23
+  scope: platform
+  name: 平均住院日
+  aliases:
+  - 平均住院天数
+  - 平均住院时长
+  description: 出院患者住院天数之和 / 出院人次。住院天数 = 出院日期 − 入院日期（日历日，当天入出院记 1 天），按出院时间 dis_at 统计，在院患者不计。
+  sql_template: SELECT ROUND(AVG(GREATEST(dis_at::date - adm_at::date, 1)), 2) AS avg_los_days FROM eval_hosp.admission WHERE dis_at IS NOT NULL
+  value_full_history: '8.04'
+- id: 24
+  scope: platform
+  name: 门急诊次均费用
+  aliases:
+  - 门诊次均费用
+  - 次均门诊费用
+  - 门诊人均费用
+  description: 门急诊费用 / 门急诊人次。分子为已接诊就诊的费用明细合计（冲红后净额，不含挂号费），分母为已接诊人次，都按接诊时间 seen_at 统计。
+  sql_template: SELECT ROUND(SUM(c.amt) / COUNT(DISTINCT v.id), 2) AS avg_fee_per_visit FROM eval_hosp.op_visit v LEFT JOIN eval_hosp.charge c ON c.visit_id = v.id WHERE v.status = 1
+  value_full_history: '128.56'
+- id: 25
+  scope: platform
+  name: 住院次均费用
+  aliases:
+  - 次均住院费用
+  - 出院患者次均费用
+  - 人均住院费用
+  description: 出院患者住院费用合计 / 出院人次。费用取该次住院的全部费用明细（冲红后净额），按出院时间 dis_at 统计，在院患者不计。
+  sql_template: SELECT ROUND(SUM(c.amt) / COUNT(DISTINCT a.id), 2) AS avg_fee_per_discharge FROM eval_hosp.admission a LEFT JOIN eval_hosp.charge c ON c.adm_id = a.id WHERE a.dis_at IS NOT NULL
+  value_full_history: '3252.35'
+- id: 26
+  scope: platform
+  name: 医疗费用总额
+  aliases:
+  - 医疗收入
+  - 医疗费用
+  - 总费用
+  description: 费用明细金额合计（门诊 + 住院，冲红后净额，不含挂号费），按计费时间 chg_at 统计；可按 item_cat 拆分费用结构，只看门诊或住院时取 visit_id 或 adm_id 非空。
+  sql_template: SELECT SUM(amt) AS total_fee FROM eval_hosp.charge
+  value_full_history: '2872191.40'
+- id: 27
+  scope: platform
+  name: 药占比
+  aliases:
+  - 药品占比
+  - 药费占比
+  - 药品收入占比
+  description: 药品费用（item_cat = 'DRUG'）/ 医疗费用总额 × 100%，门诊 + 住院合计，分子分母都是冲红后净额、不含挂号费，按计费时间 chg_at 统计；单看门诊或住院时分子分母同时加 visit_id 或 adm_id 非空。
+  sql_template: SELECT ROUND(100.0 * SUM(CASE WHEN item_cat = 'DRUG' THEN amt ELSE 0 END) / SUM(amt), 2) AS drug_ratio_pct FROM eval_hosp.charge
+  value_full_history: '18.44'
+- id: 28
+  scope: platform
+  name: 床位使用率
+  aliases:
+  - 病床使用率
+  - 床位利用率
+  description: 实际占用总床日数 / 实际开放总床日数 × 100%，统计区间为 [:start, :end)。占用床日 = 每次住院落在区间内的在床天数 （入院日到出院日的日历日差，在院患者算到区间末）；开放床日 = 病区床位数合计 × 区间天数。按病区或科室分组时分母用对应病区的床位数。
+  sql_template: SELECT ROUND(100.0 * (SELECT SUM(GREATEST(LEAST(COALESCE(a.dis_at::date, DATE :end), DATE :end) - GREATEST(a.adm_at::date, DATE :start), 0)) FROM eval_hosp.admission a WHERE a.adm_at < DATE :end AND (a.dis_at IS NULL OR a.dis_at >= DATE :start)) / ((SELECT SUM(w.bed_cnt) FROM eval_hosp.ward w) * (DATE :end - DATE :start)), 2) AS bed_occupancy_pct
+  params:
+    start: '2025-06-01'
+    end: '2025-07-01'
+  value_full_history: '3.88'
+- id: 29
+  scope: platform
+  name: 医保统筹支付金额
+  aliases:
+  - 医保支付金额
+  - 医保支付
+  - 统筹基金支付
+  description: 有效结算单（settle.status = 1，排除已冲销）的统筹基金支付 fund_amt 合计，按结算时间 settle_at 统计。医保报销比例 = SUM(fund_amt) / SUM(tot_amt)。
+  sql_template: SELECT SUM(fund_amt) AS fund_paid FROM eval_hosp.settle WHERE status = 1
+  value_full_history: '1187945.88'

@@ -1,0 +1,28 @@
+/* eval page — page-specific rules only; shared rules live in components.css. */
+.cb-eval-row { cursor: pointer; }
+.cb-eval-detail > td { background: var(--bg-subtle); padding: var(--space-3) var(--space-4); white-space: normal; }
+.cb-eval-question { font-size: 15px; line-height: 24px; font-weight: 500; }
+.cb-eval-answer { padding: var(--space-2) var(--space-3); border-radius: var(--radius-control); background: var(--bg-subtle); line-height: 22px; }
+
+.cb-eval-progress { display: flex; align-items: center; gap: var(--space-2); }
+.cb-eval-progress .cb-meter { min-width: 0; width: 56px; flex: none; }
+
+/* 概览 */
+.cb-eval-delta { margin-left: var(--space-2); font: 500 12px/18px var(--font-sans); color: var(--text-3); }
+.cb-eval-delta-up { color: var(--success); }
+.cb-eval-delta-down { color: var(--danger); }
+.cb-eval-trend-title { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; font-size: 12px; }
+.cb-eval-trend-body { padding: var(--space-2) var(--space-4) var(--space-4); min-height: 240px; }
+
+/* 两次对比 */
+.cb-eval-pick { display: flex; align-items: center; gap: var(--space-2); font: 500 13px/20px var(--font-sans); color: var(--text-2); min-width: 0; }
+.cb-eval-chips { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.cb-eval-chips-title { font: 500 13px/20px var(--font-sans); color: var(--text-2); }
+
+/* 单次评测的结果对比弹窗 */
+.cb-eval-compare { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.cb-eval-compare section { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.cb-eval-dialog .cb-table-wrap { max-height: 240px; overflow: auto; }
+
+/* 单次评测详情：指标卡每行四张，长数字（Token）不被截断 */
+.cb-eval-run .cb-grid-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }

@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AskData · 一次提问的全流程（QueryContext 流转演示）</title>
+<style>
+:root{
+  --bg-app:#fff;--bg-sidebar:#f5f5f7;--bg-subtle:#efeff2;--bg-selected:#e4e4ea;--bg-card:#fff;
+  --border:#e4e4e9;--border-strong:#cfcfd6;--text-1:#18181b;--text-2:#52525b;--text-3:#65656e;
+  --action:#f97316;--action-text:#c2410c;--action-soft:#fff1e6;
+  --info:#0063c7;--info-soft:#eaf3ff;--success:#007634;--success-soft:#e8f7ee;
+  --warning:#a64a00;--warning-soft:#fef3c7;--danger:#b91c1c;--danger-soft:#fee2e2;
+  --chart-1:#1f5f99;--chart-4:#d55e00;
+  --code-keyword:#0063c7;--code-string:#007634;--code-number:#a64a00;
+  --radius-control:6px;--radius-panel:10px;
+  --shadow-sm:0 1px 2px rgba(16,24,40,.06);--shadow-md:0 4px 12px rgba(16,24,40,.08),0 1px 3px rgba(16,24,40,.06);
+  --font-sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
+  --font-mono:ui-monospace,SFMono-Regular,"SF Mono",Consolas,"Liberation Mono",Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font:14px/1.6 var(--font-sans);color:var(--text-1);background:var(--bg-sidebar);display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:16px;padding:10px 20px;background:var(--bg-app);border-bottom:1px solid var(--border);flex-wrap:wrap}
+header h1{font-size:16px;margin:0;font-weight:600}
+header .sub{color:var(--text-3);font-size:13px}
+.seg{display:inline-flex;background:var(--bg-subtle);border-radius:8px;padding:2px;gap:2px}
+.seg button{border:0;background:transparent;padding:5px 12px;border-radius:7px;font:inherit;font-size:13px;color:var(--text-2);cursor:pointer}
+.seg button.on{background:var(--bg-card);color:var(--text-1);box-shadow:var(--shadow-sm);font-weight:600}
+.ctrl{display:flex;gap:6px;align-items:center;margin-left:auto}
+.btn{border:1px solid var(--border-strong);background:var(--bg-card);border-radius:var(--radius-control);height:30px;padding:0 12px;font:inherit;font-size:13px;cursor:pointer;color:var(--text-1)}
+.btn:hover{background:var(--bg-subtle)}
+.btn.primary{background:var(--action);border-color:var(--action);color:#fff}
+.btn:disabled{opacity:.45;cursor:default}
+.counter{font:12px var(--font-mono);color:var(--text-3);min-width:56px;text-align:center}
+.question{display:flex;align-items:center;gap:10px;padding:10px 20px;background:var(--bg-app);border-bottom:1px solid var(--border)}
+.bubble{background:var(--inverse-bg,#18181b);color:#fff;border-radius:14px;padding:6px 14px;font-size:14px}
+.who{font-size:12px;color:var(--text-3)}
+main{flex:1;display:grid;grid-template-columns:230px minmax(380px,1fr) minmax(380px,1.05fr);gap:12px;padding:12px;min-height:0}
+.panel{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-panel);min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.panel>h2{font-size:12px;font-weight:600;color:var(--text-3);margin:0;padding:10px 14px;border-bottom:1px solid var(--border);letter-spacing:.3px;display:flex;align-items:center;gap:8px}
+.scroll{overflow:auto;min-height:0;flex:1}
+/* rail */
+.rail{list-style:none;margin:0;padding:8px}
+.rail li{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:7px;cursor:pointer;position:relative;color:var(--text-2)}
+.rail li:hover{background:var(--bg-subtle)}
+.rail li .dot{width:22px;height:22px;border-radius:50%;border:1.5px solid var(--border-strong);display:grid;place-items:center;font:600 11px var(--font-mono);background:var(--bg-card);flex:none;color:var(--text-3)}
+.rail li .nm{font-size:13px;line-height:1.25}
+.rail li .nm small{display:block;font:11px var(--font-mono);color:var(--text-3)}
+.rail li .ms{margin-left:auto;font:11px var(--font-mono);color:var(--text-3)}
+.rail li.done .dot{background:var(--success-soft);border-color:var(--success);color:var(--success)}
+.rail li.cur{background:var(--action-soft);color:var(--text-1)}
+.rail li.cur .dot{background:var(--action);border-color:var(--action);color:#fff}
+.rail li.skip{opacity:.4}
+.rail li.skip .nm{text-decoration:line-through}
+.rail li.err .dot{background:var(--danger-soft);border-color:var(--danger);color:var(--danger)}
+.rail li.group{cursor:default;padding:10px 8px 2px;font-size:11px;color:var(--text-3);letter-spacing:.4px}
+.rail li.group:hover{background:none}
+/* detail */
+.detail{padding:16px 18px}
+.detail h3{margin:0 0 2px;font-size:18px}
+.detail .loc{font:12px var(--font-mono);color:var(--text-3);margin-bottom:12px}
+.detail .lead{color:var(--text-1);margin:0 0 12px}
+.sec{margin:14px 0 6px;font-size:12px;font-weight:600;color:var(--text-3);letter-spacing:.3px}
+.detail ul{margin:0;padding-left:18px}
+.detail li{margin:3px 0}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font:12px var(--font-mono);padding:2px 8px;border-radius:999px;background:var(--bg-subtle);color:var(--text-2)}
+.chip.w{background:var(--success-soft);color:var(--success)}
+.chip.ev{background:var(--info-soft);color:var(--info)}
+.chip.llm{background:var(--action-soft);color:var(--action-text)}
+.chip.db{background:var(--warning-soft);color:var(--warning)}
+.callout{border-radius:8px;padding:10px 12px;margin-top:12px;font-size:13px}
+.callout.tip{background:var(--info-soft)}
+.callout.warn{background:var(--warning-soft)}
+.callout.bad{background:var(--danger-soft)}
+.callout b{display:block;margin-bottom:2px}
+pre.code{font:12px/1.55 var(--font-mono);background:var(--bg-sidebar);border:1px solid var(--border);border-radius:8px;padding:10px 12px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:6px 0 0}
+.kw{color:var(--code-keyword);font-weight:600}.str{color:var(--code-string)}.num{color:var(--code-number)}
+table.mini{border-collapse:collapse;font-size:12px;margin-top:6px}
+table.mini th,table.mini td{border-bottom:1px solid var(--border);padding:3px 10px;text-align:left}
+table.mini td.n{text-align:right;font-family:var(--font-mono)}
+.bars{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.bar{display:flex;align-items:center;gap:8px;font-size:12px}
+.bar span{width:46px;color:var(--text-2)}
+.bar i{height:14px;background:var(--chart-1);border-radius:3px;display:block}
+.bar em{font:11px var(--font-mono);color:var(--text-3);font-style:normal}
+/* ctx */
+.ctxtools{display:flex;gap:6px;margin-left:auto}
+.ctxtools label{font-weight:400;font-size:12px;color:var(--text-2);display:flex;gap:4px;align-items:center;cursor:pointer}
+.grp{padding:6px 12px 2px;font-size:11px;font-weight:600;color:var(--text-3);letter-spacing:.4px;background:var(--bg-sidebar);border-top:1px solid var(--border);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:1}
+.f{display:grid;grid-template-columns:150px 1fr;gap:8px;padding:5px 12px;border-bottom:1px solid var(--border);font-size:12px;align-items:start;transition:background .4s}
+.f .k{font-family:var(--font-mono);color:var(--text-2);word-break:break-all}
+.f .v{font-family:var(--font-mono);color:var(--text-1);white-space:pre-wrap;word-break:break-word;max-height:150px;overflow:auto}
+.f.empty .v{color:var(--text-3)}
+.f.empty .k{color:var(--text-3)}
+.f.new{background:var(--success-soft)}
+.f.chg{background:var(--warning-soft)}
+.f.clr{background:var(--danger-soft)}
+.f .tag{display:inline-block;font:10px var(--font-sans);padding:0 5px;border-radius:4px;margin-left:4px;vertical-align:1px}
+.f.new .tag{background:var(--success);color:#fff}
+.f.chg .tag{background:var(--warning);color:#fff}
+.f.clr .tag{background:var(--danger);color:#fff}
+.hidden-empty .f.empty{display:none}
+/* timeline */
+footer{background:var(--bg-app);border-top:1px solid var(--border);padding:8px 20px 10px}
+footer .row{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-3)}
+.tl{position:relative;height:46px;margin-top:4px}
+.tl .axis{position:absolute;left:0;right:0;top:28px;height:2px;background:var(--border)}
+.tl .seg2{position:absolute;top:22px;height:14px;border-radius:3px;opacity:.85}
+.tl .mk{position:absolute;top:2px;transform:translateX(-50%);font:10px var(--font-mono);color:var(--text-3);white-space:nowrap}
+.tl .mk.on{color:var(--action-text);font-weight:700}
+.tl .tick{position:absolute;top:18px;width:1px;height:20px;background:var(--border-strong)}
+.legend{display:flex;gap:12px;flex-wrap:wrap}
+.legend span{display:flex;gap:4px;align-items:center}
+.legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.stream{font:12px var(--font-mono);color:var(--text-2);margin-top:4px;max-height:52px;overflow:auto;white-space:nowrap}
+.stream b{color:var(--info);font-weight:600}
+@media (max-width:1100px){main{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>一次提问的全流程</h1>
+  <span class="sub">QueryContext 在各节点之间流转、被逐步填充 · 数据来自真实运行</span>
+  <div class="seg" id="scen"></div>
+  <div class="ctrl">
+    <button class="btn" id="prev" title="←">上一步</button>
+    <span class="counter" id="count"></span>
+    <button class="btn" id="next" title="→">下一步</button>
+    <button class="btn primary" id="play">自动播放</button>
+  </div>
+</header>
+<div class="question"><span class="who" id="who"></span><span class="bubble" id="q"></span><span class="who" id="qnote"></span></div>
+<main>
+  <section class="panel"><h2>节点</h2><div class="scroll"><ul class="rail" id="rail"></ul></div></section>
+  <section class="panel"><h2>这个节点做了什么</h2><div class="scroll"><div class="detail" id="detail"></div></div></section>
+  <section class="panel">
+    <h2>QueryContext <span class="ctxtools"><label><input type="checkbox" id="hideEmpty"> 隐藏空字段</label></span></h2>
+    <div class="scroll" id="ctx"></div>
+  </section>
+</main>
+<footer>
+  <div class="row"><span>SSE 事件时间线（毫秒，相对请求开始）</span>
+    <div class="legend" id="legend"></div></div>
+  <div class="tl" id="tl"></div>
+  <div class="stream" id="stream"></div>
+</footer>
+
+<script>
+const DATA = {"preview_tables": {"shop.sales_targets": 13, "shop.customers": 18, "shop.orders": 17, "shop.order_items": 12, "shop.after_sales": 14}, "preview_cols": {"shop.sales_targets": ["target_id", "target_year", "target_quarter", "region", "category_l1", "target_amount", "target_orders", "target_new_customers", "marketing_budget", "gross_margin_target", "owner", "status", "approved_date"], "shop.customers": ["customer_id", "customer_name", "gender", "birth_date", "province", "city", "region", "register_date", "register_channel", "member_level", "phone", "email", "points", "is_active", "first_order_date", "last_order_date", "total_orders", "total_amount"], "shop.orders": ["order_id", "customer_id", "order_date", "created_at", "order_status", "channel", "region", "province", "city", "item_count", "goods_amount", "discount_amount", "shipping_fee", "pay_amount", "payment_method", "is_first_order", "sales_rep"], "shop.order_items": ["item_id", "order_id", "product_id", "quantity", "unit_price", "discount_rate", "line_amount", "line_cost", "return_qty", "ship_date", "warehouse", "is_gift"], "shop.after_sales": ["ticket_id", "order_id", "item_id", "customer_id", "ticket_type", "reason", "status", "priority", "channel", "created_date", "resolved_date", "refund_amount", "handler", "satisfaction"]}, "scope_tables": {"shop.after_sales": {"columns": 14, "masks": {}}, "shop.customers": {"columns": 18, "masks": {"phone": {"kind": "phone", "prefix": 0, "suffix": 0}}}, "shop.order_items": {"columns": 12, "masks": {}}, "shop.orders": {"columns": 17, "masks": {}}, "shop.products": {"columns": 16, "masks": {}}, "shop.sales_targets": {"columns": 13, "masks": {}}}, "turns": [{"question": "上个月各大区的销售额分别是多少？", "events": [{"t": 26, "event": "stage", "data": {"name": "load_context"}}, {"t": 27, "event": "stage", "data": {"name": "visible_scope"}}, {"t": 29, "event": "stage", "data": {"name": "retrieval"}}, {"t": 602, "event": "stage", "data": {"name": "clarification"}}, {"t": 602, "event": "stage", "data": {"name": "generate_sql"}}, {"t": 8099, "event": "stage", "data": {"name": "sql_guard"}}, {"t": 8102, "event": "sql", "data": {"sql": "SELECT \"o\".\"region\" AS \"region\", ROUND(SUM(\"o\".\"pay_amount\"), 2) AS \"sales_amount\" FROM \"shop\".\"orders\" AS \"o\" WHERE \"o\".\"order_status\" IN ('已支付', '已发货', '已完成') AND \"o\".\"order_date\" >= '2026-09-01' AND \"o\".\"order_date\" < '2026-10-01' GROUP BY \"o\".\"region\" ORDER BY \"sales_amount\" DESC, \"region\" ASC"}}, {"t": 8102, "event": "stage", "data": {"name": "execute"}}, {"t": 8109, "event": "stage", "data": {"name": "correction"}}, {"t": 8109, "event": "stage", "data": {"name": "presentation"}}, {"t": 8109, "event": "data", "data": {"columns": ["region", "sales_amount"], "rows": [{"region": "华东", "sales_amount": 6345.3}, {"region": "华南", "sales_amount": 4489.55}, {"region": "华北", "sales_amount": 2836.85}, {"region": "东北", "sales_amount": 1701}, {"region": "华中", "sales_amount": 164.05}], "row_count": 5, "truncated": false, "preview_truncated": false}}, {"t": 8109, "event": "chart", "data": {"type": "bar", "x": "region", "y": ["sales_amount"], "series": null, "stack": false, "title": "上个月各大区销售额", "labels": {"region": "大区", "sales_amount": "销售额（元）"}, "formats": {"sales_amount": "currency"}, "y_right": []}}, {"t": 8109, "event": "explanation", "data": {"meta": {"interpretation": "按收货大区统计上个月（2026-09-01 至 2026-09-30）有效订单（已支付、已发货、已完成）的实付金额合计，即平台口径销售额。", "filters": ["订单状态为已支付/已发货/已完成", "下单日期 2026-09-01 至 2026-09-30", "大区按订单收货大区"], "definitions": [{"kind": "metric", "name": "销售额", "scope": "platform", "version": 1, "description": "有效订单（已支付、已发货、已完成）的实付金额合计，单位元。"}, {"kind": "semantic", "name": "销售额", "scope": "platform", "version": 1, "description": "订单实付金额（元）。口径上的销售额只统计状态为已支付、已发货、已完成的订单，不含待支付、已取消、已退款。"}, {"kind": "semantic", "name": "订单状态", "scope": "platform", "version": 1, "description": "待支付、已支付、已发货、已完成、已取消、已退款。有效订单指已支付、已发货、已完成。"}, {"kind": "semantic", "name": "下单日期", "scope": "platform", "version": 1, "description": "订单创建的日期，按自然日。"}, {"kind": "semantic", "name": "大区", "scope": "platform", "version": 1, "description": "收货所在大区：华东、华北、华南、华中、西南、西北、东北。"}], "time_ranges": {"上个月": {"start": "2026-09-01", "end_exclusive": "2026-10-01"}}, "notes": [], "reasoning": "", "clarification_choice": null, "clarification_refs": [], "question": ""}}}, {"t": 10144, "event": "stage", "data": {"name": "record"}}, {"t": 10153, "event": "title", "data": {"title": "上个月各大区销售额"}}, {"t": 10153, "event": "done", "data": {"status": "success", "query_run_id": 4453, "message_id": 484}}], "reasoning": "Query: last month sales by region, metric defined as SUM(pay_amount) where order_status in valid, group by orders.region, order_date in 2026-09-01 to 2026-10-01.", "answer": "上个月销售额最高的是华东6345.3元，其次为华南4489.55元、华北2836.85元，最低的华中仅164.05元。", "n_reasoning": 46, "n_answer": 36, "log": {"id": 4453, "status": "success", "blocked_code": null, "stage_timings": {"record": 0, "execute": 6, "retrieval": 572, "sql_guard": 2, "correction": 0, "generate_sql": 7497, "load_context": 1, "presentation": 2033, "clarification": 0, "visible_scope": 1}, "tokens_in": 8374, "tokens_out": 376, "prompt_versions": {"answer": "v3", "sql_generation": "v10"}, "duration_ms": 10121, "generated_sql": "SELECT \"o\".\"region\" AS \"region\", ROUND(SUM(\"o\".\"pay_amount\"), 2) AS \"sales_amount\"\nFROM \"shop\".\"orders\" \"o\"\nWHERE \"o\".\"order_status\" IN ('已支付', '已发货', '已完成')\n  AND \"o\".\"order_date\" >= '2026-09-01'\n  AND \"o\".\"order_date\" < '2026-10-01'\nGROUP BY \"o\".\"region\"\nORDER BY \"sales_amount\" DESC, \"region\" ASC", "normalized_sql": "SELECT \"o\".\"region\" AS \"region\", ROUND(SUM(\"o\".\"pay_amount\"), 2) AS \"sales_amount\" FROM \"shop\".\"orders\" AS \"o\" WHERE \"o\".\"order_status\" IN ('已支付', '已发货', '已完成') AND \"o\".\"order_date\" >= '2026-09-01' AND \"o\".\"order_date\" < '2026-10-01' GROUP BY \"o\".\"region\" ORDER BY \"sales_amount\" DESC, \"region\" ASC", "row_count": 5, "model_id": "1", "retry_count": 0}, "snapshot": {"time_range": {"today": "2026-10-14", "timezone": "Asia/Shanghai", "上个月": {"start": "2026-09-01", "end_exclusive": "2026-10-01"}}, "retrieval_stats": {"mode": "hybrid", "items": 16, "tables": 5, "columns": 74}, "interpretation": "按收货大区统计上个月（2026-09-01 至 2026-09-30）有效订单（已支付、已发货、已完成）的实付金额合计，即平台口径销售额。", "filters": ["订单状态为已支付/已发货/已完成", "下单日期 2026-09-01 至 2026-09-30", "大区按订单收货大区"], "diagnostic": null, "warnings": []}, "items": [{"kind": "semantic", "name": "销售额", "scope": "platform", "score": 1, "matched": "", "tables": {"shop.orders": ["pay_amount"]}}, {"kind": "semantic", "name": "订单状态", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.orders": ["order_status"]}}, {"kind": "semantic", "name": "渠道", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.orders": ["channel"]}}, {"kind": "semantic", "name": "下单日期", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.orders": ["order_date"]}}, {"kind": "semantic", "name": "大区", "scope": "platform", "score": 1, "matched": "", "tables": {"shop.orders": ["region"]}}, {"kind": "semantic", "name": "首单", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.orders": ["is_first_order"]}}, {"kind": "semantic", "name": "优惠券", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.orders": ["discount_amount"]}}, {"kind": "semantic", "name": "会员等级", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.customers": ["member_level"]}}, {"kind": "semantic", "name": "注册渠道", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.customers": ["register_channel"]}}, {"kind": "semantic", "name": "活跃客户", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.customers": ["is_active"]}}, {"kind": "semantic", "name": "累计消费", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.customers": ["total_amount"]}}, {"kind": "semantic", "name": "商品销售额", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.order_items": ["line_amount"]}}, {"kind": "semantic", "name": "折扣", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.order_items": ["discount_rate"]}}, {"kind": "semantic", "name": "销售目标", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.sales_targets": ["target_amount"]}}, {"kind": "metric", "name": "销售额", "scope": "platform", "score": 1, "matched": "销售额", "tables": {"shop.orders": ["order_status", "pay_amount"]}}, {"kind": "metric", "name": "目标达成率", "scope": "team", "score": 0, "matched": "", "tables": {"shop.orders": ["order_id", "order_status"], "shop.order_items": ["order_id", "line_amount"], "shop.sales_targets": ["target_amount", "status"]}}]}, {"question": "只看华东，按渠道拆开看", "events": [{"t": 32, "event": "stage", "data": {"name": "load_context"}}, {"t": 33, "event": "stage", "data": {"name": "visible_scope"}}, {"t": 38, "event": "stage", "data": {"name": "retrieval"}}, {"t": 556, "event": "stage", "data": {"name": "clarification"}}, {"t": 556, "event": "stage", "data": {"name": "generate_sql"}}, {"t": 6103, "event": "stage", "data": {"name": "sql_guard"}}, {"t": 6105, "event": "sql", "data": {"sql": "SELECT \"o\".\"channel\" AS \"channel\", ROUND(SUM(\"o\".\"pay_amount\"), 2) AS \"sales_amount\" FROM \"shop\".\"orders\" AS \"o\" WHERE \"o\".\"region\" = '华东' AND \"o\".\"order_status\" IN ('已支付', '已发货', '已完成') AND \"o\".\"order_date\" >= '2026-09-01' AND \"o\".\"order_date\" < '2026-10-01' GROUP BY \"o\".\"channel\" ORDER BY \"sales_amount\" DESC, \"channel\" ASC"}}, {"t": 6105, "event": "stage", "data": {"name": "execute"}}, {"t": 6112, "event": "stage", "data": {"name": "correction"}}, {"t": 6112, "event": "stage", "data": {"name": "presentation"}}, {"t": 6112, "event": "data", "data": {"columns": ["channel", "sales_amount"], "rows": [{"channel": "线下门店", "sales_amount": 5073.05}, {"channel": "小程序", "sales_amount": 655.1}, {"channel": "APP", "sales_amount": 560.15}, {"channel": "直播", "sales_amount": 57}], "row_count": 4, "truncated": false, "preview_truncated": false}}, {"t": 6112, "event": "chart", "data": {"type": "bar", "x": "channel", "y": ["sales_amount"], "series": null, "stack": false, "title": "上个月华东各渠道销售额", "labels": {"channel": "渠道", "sales_amount": "销售额（元）"}, "formats": {"sales_amount": "currency"}, "y_right": []}}, {"t": 6112, "event": "explanation", "data": {"meta": {"interpretation": "沿用上轮的上个月（2026-09）口径，统计华东大区有效订单（已支付、已发货、已完成）的实付金额合计，并按下单渠道拆分。", "filters": ["收货大区为华东", "订单状态为已支付/已发货/已完成", "下单日期 2026-09-01 至 2026-09-30"], "definitions": [{"kind": "semantic", "name": "销售额", "scope": "platform", "version": 1, "description": "订单实付金额（元）。口径上的销售额只统计状态为已支付、已发货、已完成的订单，不含待支付、已取消、已退款。"}, {"kind": "semantic", "name": "订单状态", "scope": "platform", "version": 1, "description": "待支付、已支付、已发货、已完成、已取消、已退款。有效订单指已支付、已发货、已完成。"}, {"kind": "semantic", "name": "渠道", "scope": "platform", "version": 1, "description": "订单来自的渠道：小程序、APP、官网、线下门店、直播。"}, {"kind": "semantic", "name": "下单日期", "scope": "platform", "version": 1, "description": "订单创建的日期，按自然日。"}, {"kind": "semantic", "name": "大区", "scope": "platform", "version": 1, "description": "收货所在大区：华东、华北、华南、华中、西南、西北、东北。"}], "time_ranges": {}, "notes": [], "reasoning": "", "clarification_choice": null, "clarification_refs": [], "question": ""}}}, {"t": 8507, "event": "stage", "data": {"name": "record"}}, {"t": 8514, "event": "done", "data": {"status": "success", "query_run_id": 4454, "message_id": 486}}], "reasoning": "Build on history: 上个月, 华东, by channel, 销售额.", "answer": "华东上月销售额线下门店最高，为5073.05元，最低的是直播，仅57元。", "n_reasoning": 18, "n_answer": 23, "log": {"id": 4454, "status": "success", "blocked_code": null, "stage_timings": {"record": 0, "execute": 5, "retrieval": 518, "sql_guard": 2, "correction": 0, "generate_sql": 5546, "load_context": 1, "presentation": 2391, "clarification": 0, "visible_scope": 4}, "tokens_in": 8923, "tokens_out": 327, "prompt_versions": {"answer": "v3", "sql_generation": "v10"}, "duration_ms": 8475, "generated_sql": "SELECT \"o\".\"channel\" AS \"channel\", ROUND(SUM(\"o\".\"pay_amount\"), 2) AS \"sales_amount\" FROM \"shop\".\"orders\" AS \"o\" WHERE \"o\".\"region\" = '华东' AND \"o\".\"order_status\" IN ('已支付', '已发货', '已完成') AND \"o\".\"order_date\" >= '2026-09-01' AND \"o\".\"order_date\" < '2026-10-01' GROUP BY \"o\".\"channel\" ORDER BY \"sales_amount\" DESC, \"channel\" ASC", "normalized_sql": "SELECT \"o\".\"channel\" AS \"channel\", ROUND(SUM(\"o\".\"pay_amount\"), 2) AS \"sales_amount\" FROM \"shop\".\"orders\" AS \"o\" WHERE \"o\".\"region\" = '华东' AND \"o\".\"order_status\" IN ('已支付', '已发货', '已完成') AND \"o\".\"order_date\" >= '2026-09-01' AND \"o\".\"order_date\" < '2026-10-01' GROUP BY \"o\".\"channel\" ORDER BY \"sales_amount\" DESC, \"channel\" ASC", "row_count": 4, "model_id": "1", "retry_count": 0}, "snapshot": {"time_range": {"today": "2026-10-14", "timezone": "Asia/Shanghai"}, "retrieval_stats": {"mode": "hybrid", "items": 18, "tables": 5, "columns": 74}, "interpretation": "沿用上轮的上个月（2026-09）口径，统计华东大区有效订单（已支付、已发货、已完成）的实付金额合计，并按下单渠道拆分。", "filters": ["收货大区为华东", "订单状态为已支付/已发货/已完成", "下单日期 2026-09-01 至 2026-09-30"], "diagnostic": null, "warnings": []}, "items": [{"kind": "semantic", "name": "销售额", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.orders": ["pay_amount"]}}, {"kind": "semantic", "name": "订单状态", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.orders": ["order_status"]}}, {"kind": "semantic", "name": "渠道", "scope": "platform", "score": 1, "matched": "", "tables": {"shop.orders": ["channel"]}}, {"kind": "semantic", "name": "下单日期", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.orders": ["order_date"]}}, {"kind": "semantic", "name": "大区", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.orders": ["region"]}}, {"kind": "semantic", "name": "首单", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.orders": ["is_first_order"]}}, {"kind": "semantic", "name": "优惠券", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.orders": ["discount_amount"]}}, {"kind": "semantic", "name": "会员等级", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.customers": ["member_level"]}}, {"kind": "semantic", "name": "注册渠道", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.customers": ["register_channel"]}}, {"kind": "semantic", "name": "活跃客户", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.customers": ["is_active"]}}, {"kind": "semantic", "name": "累计消费", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.customers": ["total_amount"]}}, {"kind": "semantic", "name": "商品销售额", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.order_items": ["line_amount"]}}, {"kind": "semantic", "name": "折扣", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.order_items": ["discount_rate"]}}, {"kind": "semantic", "name": "售后类型", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.after_sales": ["ticket_type"]}}, {"kind": "semantic", "name": "满意度", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.after_sales": ["satisfaction"]}}, {"kind": "semantic", "name": "销售目标", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.sales_targets": ["target_amount"]}}, {"kind": "metric", "name": "销售额", "scope": "platform", "score": 0, "matched": "", "tables": {"shop.orders": ["order_status", "pay_amount"]}}, {"kind": "metric", "name": "目标达成率", "scope": "team", "score": 0, "matched": "", "tables": {"shop.orders": ["order_id", "order_status"], "shop.order_items": ["order_id", "line_amount"], "shop.sales_targets": ["target_amount", "status"]}}]}, {"question": "把待支付的订单删掉", "events": [{"t": 23, "event": "stage", "data": {"name": "load_context"}}, {"t": 23, "event": "stage", "data": {"name": "visible_scope"}}, {"t": 29, "event": "stage", "data": {"name": "retrieval"}}, {"t": 479, "event": "stage", "data": {"name": "clarification"}}, {"t": 479, "event": "stage", "data": {"name": "generate_sql"}}, {"t": 2692, "event": "stage", "data": {"name": "record"}}, {"t": 2692, "event": "error", "data": {"code": "SQL_NOT_SELECT", "message": "Sql not select"}}, {"t": 2699, "event": "done", "data": {"status": "blocked", "query_run_id": 4455, "message_id": 488}}], "reasoning": "", "answer": "", "n_reasoning": 0, "n_answer": 0, "log": {"id": 4455, "status": "blocked", "blocked_code": "SQL_NOT_SELECT", "stage_timings": {"record": 0, "retrieval": 449, "generate_sql": 2211, "load_context": 0, "clarification": 0, "visible_scope": 5}, "tokens_in": 8029, "tokens_out": 10, "prompt_versions": {"sql_generation": "v10"}, "duration_ms": 2669, "generated_sql": null, "normalized_sql": null, "row_count": 0, "model_id": "1", "retry_count": 0}, "snapshot": {"time_range": null, "retrieval_stats": null, "interpretation": null, "filters": null, "diagnostic": {"code": "SQL_NOT_SELECT", "rule": "write_request", "stage": "generate_sql", "error_type": "SqlBlocked"}, "warnings": null}, "items": []}]};
+const T = DATA.turns; // 0 首问, 1 追问, 2 写操作被拦截
+
+// ---------- helpers ----------
+const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function sqlHtml(sql){
+  let h = esc(sql);
+  h = h.replace(/'([^']*)'/g, '<span class="str">\'$1\'</span>');
+  h = h.replace(/\b(SELECT|FROM|WHERE|AND|OR|IN|AS|GROUP BY|ORDER BY|DESC|ASC|ROUND|SUM|COUNT|JOIN|ON|LIMIT)\b/g, '<span class="kw">$1</span>');
+  return h;
+}
+const pretty = v => typeof v === 'string' ? v : JSON.stringify(v, null, 1);
+const evOf = (turn, name) => T[turn].events.filter(e => e.event === name);
+const stageAt = (turn, name) => (T[turn].events.find(e => e.event === 'stage' && e.data.name === name) || {}).t;
+const timing = (turn, name) => (T[turn].log.stage_timings || {})[name];
+const firstLine = s => s.split('\n')[0];
+
+const SCOPE_VIEW = Object.fromEntries(Object.entries(DATA.scope_tables).map(([k, v]) =>
+  [k, `${v.columns} 列` + (Object.keys(v.masks).length ? `，脱敏 ${Object.entries(v.masks).map(([c, r]) => c + '→' + r.kind).join('，')}` : '')]));
+const RETR_TABLES = Object.fromEntries(Object.entries(DATA.preview_tables).map(([k, v]) => [k, `${v} 列`]));
+function itemsView(turn){
+  const items = T[turn].items;
+  const hit = items.filter(i => i.score > 0).map(i => `★ ${i.kind}「${i.name}」${i.scope}${i.matched ? '  命中词：' + i.matched : ''}`);
+  const rest = items.filter(i => !(i.score > 0)).map(i => `· ${i.kind}「${i.name}」${i.scope}`);
+  return [...hit, ...rest].join('\n');
+}
+const dataEv = turn => evOf(turn, 'data')[0]?.data;
+const chartEv = turn => evOf(turn, 'chart')[0]?.data;
+const metaEv = turn => evOf(turn, 'explanation').map(e => e.data.meta).filter(Boolean)[0];
+const doneEv = turn => evOf(turn, 'done')[0]?.data;
+
+// ---------- QueryContext field layout ----------
+const GROUPS = [
+  ['输入（prepare 写入）', ['user','datasource_id','conversation_id','question','timezone','now','message_id','query_id','clarification_used','clarification_choice','pinned_metric_ids']],
+  ['上下文与权限', ['history','follow_up','time_ranges','datasource','scope','inherited_sql']],
+  ['检索', ['retrieval','retrieval_fallback']],
+  ['生成（模型）', ['reasoning','generated_sql','title','interpretation','filters','assumption','chart_hint','model_id','prompt_versions']],
+  ['校验与执行', ['guarded_sql','result','execution_error','error_detail','retries','function_rewritten','rejected_sql']],
+  ['展示', ['chart','meta','explanation','warnings','clarification']],
+  ['状态与记录', ['stage','status','error_code','diagnostic','timings','tokens_in','tokens_out','query_run_id']],
+];
+const DEFAULTS = {
+  clarification_used:false, clarification_choice:null, pinned_metric_ids:[], history:[], follow_up:false, time_ranges:{},
+  inherited_sql:null, retrieval:'RetrievalBundle()  // 空', retrieval_fallback:'', reasoning:'', generated_sql:null, title:'',
+  interpretation:'', filters:[], assumption:'', chart_hint:null, model_id:'', prompt_versions:{}, guarded_sql:null,
+  result:null, execution_error:null, error_detail:'', retries:[], function_rewritten:false, rejected_sql:null, chart:null, meta:null,
+  explanation:'', warnings:[], clarification:null, stage:'', status:'success', error_code:null, diagnostic:null, timings:{},
+  tokens_in:0, tokens_out:0, query_run_id:null, datasource:null, scope:null,
+};
+const isEmpty = v => v === null || v === '' || v === false || v === 0 || (Array.isArray(v) && !v.length) || (v && typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length) || (typeof v === 'string' && v.endsWith('// 空'));
+
+// ---------- the scenarios ----------
+function common(turn){
+  const L = T[turn].log, D = dataEv(turn), C = chartEv(turn), M = metaEv(turn), done = doneEv(turn);
+  return {L, D, C, M, done};
+}
+const user = {id:'he.yu', role:'member', team:'经营分析部'};
+const DS = {id:1, name:'星河优选-经营库', dialect:'postgres', read_only:true};
+const tr0 = T[0].snapshot.time_range;
+
+function frontStep(turn){
+  return {node:'frontend', title:'前端发起提问', loc:'frontend/src/pages/ChatPage.tsx · api/hooks.ts',
+    lead:'用户在输入框回车。前端用 fetch 打开一个 SSE 流（不是 EventSource，因为要 POST 带 body），之后所有进度都从这条流推回来。',
+    does:[`POST /api/chat/conversations/{id}/messages/stream`, `body：{ question: "${T[turn].question}", timezone: "Asia/Shanghai" }`, '请求头带 access token；token 过期时前端先用 refresh token 换新再重试'],
+    writes:{}, events:[], tags:[]};
+}
+function prepareStep(turn, msgNote){
+  return {node:'prepare', title:'ChatService.prepare：建 QueryContext', loc:'backend/app/modules/chat/service.py · prepare()',
+    lead:'API 层只做依赖注入和鉴权，业务从 service 开始。prepare 把用户消息先落库，再构造本次请求的 QueryContext——之后整条管道只传这一个对象。',
+    does:['repository.get(conversation, user)：会话必须属于当前用户，否则 404','如果是在回答一个反问（clarification_message_id），取回原问题，把选项单独放进 clarification_choice','写入用户消息、审计 chat.ask，并 commit（之后管道失败也不会丢用户消息）','new QueryContext(...)；query_id = chat:{会话}:{消息}，用于串联日志、模型调用和取消','_stream()：起一个 producer 任务跑管道，事件经 asyncio.Queue(maxsize=8) 推给 SSE 响应；客户端断开时取消 producer'],
+    writes:{user, datasource_id:1, conversation_id:'<会话 id>', question:T[turn].question, timezone:'Asia/Shanghai', now:'2026-10-14T…Z（UTC）', message_id: msgNote || '<本轮用户消息 id>', query_id:'chat:<会话 id>:<消息 id>', status:'success  // 默认值，失败时才改'},
+    tags:['db'], events:[],
+    tip:['为什么用一个可变的 Context 对象？','每个阶段只读前面阶段的结果、写自己的字段；新增阶段不用改函数签名。代价是字段多、需要靠约定（以及 snapshot() 白名单）控制什么能落日志。']};
+}
+function quotaStep(){
+  return null;
+}
+function loadStep(turn, history, follow){
+  const tr = T[turn].snapshot.time_range || {};
+  return {node:'load_context', title:'load_context：加载历史、解析时间', loc:'stages.py · LoadContextStage', ms:timing(turn,'load_context'),
+    lead:'管道开始前先过一次模型配额检查（llm.authorize_query，超额直接失败，不进任何阶段）。然后读最近 5 轮对话，并在调用模型之前用确定性代码把相对时间解析成具体日期。',
+    does:['history：最近 5 轮；用户消息截到 800 字，回答只留第一行（SQL 单独带）','follow_up = 有没有历史；是否真的「接着问」交给模型判断','resolve_time_ranges：上个月 / 近N天 / 本季度 / 去年同期 / 9月 / 最近N个完整周 → 半开区间 [start, end_exclusive)','today 按用户时区算：服务器用 UTC，用户在上海'],
+    writes:{stage:'load_context', history, follow_up:follow, time_ranges:tr, timings:{load_context:timing(turn,'load_context')}},
+    events:['stage'], tags:[],
+    tip:['为什么时间不交给模型算？','模型不知道「今天」，也容易把 9 月算成去年。用代码算好区间再作为数据给模型，结果可测、可复现；评测里也冻结时钟。']};
+}
+function scopeStep(turn, inherited){
+  const st = {node:'visible_scope', title:'visible_scope：算出这个人能看什么', loc:'core/permission.py · PermissionService.visible_scope', ms:timing(turn,'visible_scope'),
+    lead:'权限先于一切：先算出提问人在这个数据源上可见的表、字段和脱敏规则。之后的检索、提示词、SQL 校验、脱敏都只认这个 scope。',
+    does:['管理员看全部；负责人看「团队被授权」的列；员工看「团队授权 ∩ 负责人开放给员工」的列','结果缓存在 Redis：key 带授权代数（scope-generation），授权一改代数 +1，旧缓存自然失效','datasource 必须只读连接；id 不一致直接拒绝','历史回答里的 SQL 用当前 scope 重新过 Guard：权限被收回的轮次整轮丢掉；新增了脱敏的，只留 SQL 不留旧文字'],
+    writes:{stage:'visible_scope', datasource:DS, scope:SCOPE_VIEW, timings:{visible_scope:timing(turn,'visible_scope')}},
+    events:['stage'], tags:['db'],
+    tip:['面试常问：为什么不把权限交给数据库账号？','数据库账号只能到库/表级，做不了「同一张表不同员工看不同列」，也做不了脱敏和团队级授权；而且所有用户共用一个只读连接。这里把权限变成一个纯数据对象，模型、检索、Guard 都只看它。']};
+  if (inherited) { st.writes.inherited_sql = inherited; }
+  return st;
+}
+function retrievalStep(turn, extra){
+  const s = T[turn].snapshot.retrieval_stats;
+  const retrieval = s ? {mode:s.mode, tables:RETR_TABLES, items:itemsView(turn), required_conditions:[], ambiguities:[]} : '（已检索；blocked 后在 record 阶段被清空，日志里不保留）';
+  return {node:'retrieval', title:'retrieval：只把相关的表和口径给模型', loc:'chat/context_builder.py · retrieval.py · ranking.py · ContextBuilder.build', ms:timing(turn,'retrieval'),
+    lead: s ? `在 scope 内做混合检索：这次从 ${Object.keys(DATA.scope_tables).length} 张可见表里选出 ${s.tables} 张、${s.columns} 列，外加 ${s.items} 条业务词/指标。` : '',
+    does:['关键词：表名、字段名、别名精确命中是强信号；注释和描述按英文词 + 中文二元组匹配','向量：pgvector 余弦近邻，只在授权文档里找；没配向量模型就只用关键词','RRF（倒数排名融合）合并两路，可选重排模型再排前 30','外键图上补齐联查路径（≤3 跳）；超过 20 列的宽表只留主键、时间列和命中的列','业务词和指标：同名时个人 > 团队 > 平台；同一个词命中多个指标就产生「歧义」待反问', ...(extra||[])],
+    writes:{stage:'retrieval', retrieval, timings:{retrieval:timing(turn,'retrieval')}},
+    events:['stage'], tags:['db'],
+    tip:['生产环境 threshold=0：永远走混合检索','评测里做过扩展实验：干扰表从 12 张加到 512 张，召回基本不变（74/75 → 73/75），上下文只有全量 schema 的 3%。']};
+}
+function clarifyStep(turn){
+  return {node:'clarification', title:'clarification：确定性的反问', loc:'stages.py · ClarificationStage', ms:timing(turn,'clarification'),
+    lead:'只处理「后端有确定信号」的反问，不调模型：检索发现同一个词对应多个指标、有必填条件、或说了「最近」却没有可解析的区间。这次三项都没有，直接放行。',
+    does:['ambiguities 为空、required_conditions 为空','问题里没有「最近 / 近来」','需要模型判断的含糊（比如「用户数」指哪个口径）放在下一步的同一次模型调用里，一次调用同时给 SQL 或反问'],
+    writes:{stage:'clarification', timings:{clarification:0}}, events:['stage'], tags:[],
+    branch:['若需要反问：写入 ctx.clarification、status = "clarify"，推送 explanation 事件，管道 break，直接跳到 record。用户点选项后带 clarification_message_id 重新提问，同一轮只问一次。']};
+}
+function genStep(turn, extra){
+  const {L, C, M} = common(turn);
+  return {node:'generate_sql', title:'generate_sql：一次模型调用', loc:'stages.py · GenerateSqlStage · prompts/sql_generation.v10.yaml', ms:timing(turn,'generate_sql'),
+    lead:'整条链路里最慢的一步（约 6–7 秒）。提示词带上问题、历史、检索结果、时间区间，模型返回一段 JSON：SQL、标题、解读、过滤条件、图表建议，或者反问 / 拒绝。',
+    does:['stream_call：思考过程以 reasoning 事件实时推给前端（思考面板）','输出用 Pydantic SqlOutput 校验；字段类型错、太长都容错，SQL 本身不容错','write_request = true → 直接拦截整个请求（不只回答其中的查询部分）','unanswerable 且是混合检索 → 换成全量 schema 再问一次，再不行才拒绝','反问的选项必须能对上可见的列或检索到的指标，对不上的选项丢掉', ...(extra||[])],
+    writes:{stage:'generate_sql', reasoning:T[turn].reasoning, generated_sql:L.generated_sql, title:C?.title, interpretation:M?.interpretation, filters:M?.filters, chart_hint:C ? {type:C.type, x:C.x, y:C.y, labels:C.labels, formats:C.formats} : null, model_id:L.model_id, prompt_versions:{sql_generation:L.prompt_versions?.sql_generation}, timings:{generate_sql:timing(turn,'generate_sql')}},
+    events:['stage', `reasoning ×${T[turn].n_reasoning}`], tags:['llm'],
+    tip:['为什么一次调用同时出 SQL、标题、图表和反问？','早期版本正常路径要 4 次调用（反问判断、生成 SQL、图表、解释），延迟高，几次输出之间还可能互相矛盾。合并后只剩「生成」和「回答」两次，图表建议在拿到真实结果后再校验。']};
+}
+function guardStep(turn){
+  const {L} = common(turn);
+  return {node:'sql_guard', title:'sql_guard：AST 级安全校验', loc:'core/sql/guard.py · SqlGuard.check', ms:timing(turn,'sql_guard'),
+    lead:'模型写的 SQL 一律不可信。用 sqlglot 解析成语法树逐项检查，任何一项不确定都拒绝（fail-closed）。只有 Guard 能产出带 HMAC 签名的 GuardedSql，执行器只认它。',
+    does:['只允许单条 SELECT；写入、DDL、多语句、锁、递归 CTE、查询级 SETTINGS 拒绝','每个表、每个字段解析到 scope；系统表、跨库、SELECT * 拒绝；被收回的列直接拒绝','函数三档：危险/未知 → 拒绝；常见但没审核 → 让模型改写一次；已审核 → 放行','血缘：每个输出列追溯到源字段，命中脱敏规则就带上（加工过的脱敏列整列遮蔽）','重新取一次 scope（生成期间授权可能变了），输出规范化 SQL + 签名'],
+    writes:{stage:'sql_guard', guarded_sql:{normalized_sql:L.normalized_sql, tables:['shop.orders'], columns:{'shop.orders': colsOf(L.normalized_sql)}, output_masks:{}, seal:'hmac-sha256(…)'}, timings:{sql_guard:timing(turn,'sql_guard')}},
+    events:['stage','sql'], tags:[],
+    branch:['字段写错（UnresolvedReference）→ 不报错，记 execution_error，交给纠错','未审核的标准函数 → 记下函数名，让模型改写一次（改写结果重新过整个 Guard）','越权、写操作、危险函数 → 抛 SqlBlocked，status = blocked，什么都不执行']};
+}
+function colsOf(sql){
+  const s = new Set(); for (const m of sql.matchAll(/"o"\."(\w+)"/g)) s.add(m[1]); return [...s].sort();
+}
+function execStep(turn){
+  const {D} = common(turn);
+  return {node:'execute', title:'execute：只读、限时、限行、限额', loc:'core/sql/executor.py · SqlExecutor.run', ms:timing(turn,'execute'),
+    lead:'先验签（不是 Guard 产出的 SQL 直接拒绝），再在只读事务里执行。整个过程只用了几毫秒，慢的从来不是数据库而是模型。',
+    does:['验签 + 数据源一致 + 只读连接','限流：每人并发 2、每分钟 30 次（Redis）；查看历史结果另有 120 次/分钟的独立额度','EXPLAIN 估算代价，超过上限拒绝；语句超时 30 秒；最多取 10,000 行（多取 1 行判断是否截断）','按 Guard 给的 output_masks 脱敏后再返回','数据库报错只保留标准错误码（SQLSTATE），不保留原文——原文可能带表名或数据'],
+    writes:{stage:'execute', result:{columns:D.columns, rows:D.rows, row_count:D.row_count, truncated:D.truncated}, execution_error:null, timings:{execute:timing(turn,'execute')}},
+    events:['stage'], tags:['db'],
+    branch:['SQL 本身错了（语法、分组、类型，SQLSTATE 42/22 类）→ 记 execution_error，进入纠错','超时、超代价、连接失败 → 直接失败，不纠错']};
+}
+function correctStep(turn){
+  return {node:'correction', title:'correction：没出错就什么都不做', loc:'stages.py · CorrectionStage', ms:timing(turn,'correction'),
+    lead:'只有「SQL 本身写错了」才纠错。这次 execution_error 为空，循环一次都没进。',
+    does:['最多 3 轮；每轮把错误类别（不是数据库原文）和完整可见 schema 交给模型','改好的 SQL 重新过 Guard、重新执行','越权、写操作、危险函数是最终结果，不进入纠错'],
+    writes:{stage:'correction', retries:[], timings:{correction:0}}, events:['stage'], tags:[],
+    tip:['消融实验的结论','当前提示词下纠错很少触发（280 次回答触发 1 次），收益在随机波动以内——它是兜底，不是主力。']};
+}
+function presentStep(turn){
+  const {L, C, M} = common(turn);
+  const ans = T[turn].answer;
+  return {node:'presentation', title:'presentation：图表、口径、结论', loc:'presentation.py · PresentationStage · chart_heuristics.py · prompts/answer.v3.yaml', ms:timing(turn,'presentation'),
+    lead:'先把数据、图表、口径一次推给前端（用户先看到图），再做第二次模型调用，基于真实结果流式写一句结论。',
+    does:['chart_from_hint：模型的图表建议用真实列校验，不合法就按数据形状兜底（warnings 记 chart_fallback）','meta：解读、过滤条件、这次用到的业务词/指标（带作用域）、时间区间','结论只看前若干行结果；空结果不调模型，直接给固定句子','结论调用失败就退化成「共 N 行结果」，不影响数据展示'],
+    writes:{stage:'presentation', chart:C, meta:{interpretation:M.interpretation, filters:M.filters, definitions:M.definitions.map(d => `${d.kind}「${d.name}」${d.scope}`), time_ranges:M.time_ranges, notes:M.notes}, explanation:ans, warnings:[], prompt_versions:L.prompt_versions, tokens_in:L.tokens_in, tokens_out:L.tokens_out, timings:{presentation:timing(turn,'presentation')}},
+    events:['stage','data','chart','explanation', `answer ×${T[turn].n_answer}`], tags:['llm'],
+    extraHtml: barChart(turn)};
+}
+function barChart(turn){
+  const D = dataEv(turn); if (!D) return '';
+  const y = D.columns[1], x = D.columns[0], max = Math.max(...D.rows.map(r => r[y]));
+  return '<div class="sec">前端画出的图（真实结果）</div><div class="bars">' + D.rows.map(r =>
+    `<div class="bar"><span>${esc(r[x])}</span><i style="width:${Math.max(2, r[y] / max * 240)}px"></i><em>${r[y]}</em></div>`).join('') + '</div>';
+}
+function recordStep(turn){
+  const {L, done} = common(turn);
+  return {node:'record', title:'record：无论成败都写查询日志', loc:'stages.py · RecordStage · querylog 模块', ms:0,
+    lead:'放在 finally 里：成功、失败、反问、用户中途停止，都会写一条查询日志。日志内容由 ctx.snapshot() 白名单决定。',
+    does:['记录：状态、阶段耗时、token、提示词版本、规范化 SQL、结果行数和预览、检索统计、诊断','不记录：密码、模型原始报错、被拒绝的 SQL、完整结果','用户断开连接时在独立的数据库会话里写，并用 asyncio.shield 防止被再次取消'],
+    writes:{stage:'record', query_run_id:done.query_run_id, timings:L.stage_timings},
+    events:['stage'], tags:['db'],
+    extraHtml: `<div class="sec">这一条日志的阶段耗时（ms）</div>${timingTable(turn)}`};
+}
+function timingTable(turn){
+  const t = T[turn].log.stage_timings || {};
+  const order = ['load_context','visible_scope','retrieval','clarification','generate_sql','sql_guard','execute','correction','presentation','record'];
+  return '<table class="mini">' + order.filter(k => k in t).map(k => `<tr><td>${k}</td><td class="n">${t[k]}</td></tr>`).join('') +
+    `<tr><th>总耗时</th><th class="n">${T[turn].log.duration_ms}</th></tr></table>`;
+}
+function finishStep(turn){
+  const {done} = common(turn);
+  return {node:'finish', title:'ChatService.finish：存回答和结果快照', loc:'service.py · finish() · snapshot_of()', ms:null,
+    lead:'管道跑完回到 service：保存助手消息，把这次的结果（已脱敏、最多 500 行）存成快照，以后切回会话直接显示，不再重新查询。',
+    does:['add_message(assistant)：结论、图表、口径、规范化 SQL','message_result 快照：列、行、来源字段、是否脱敏、查询时间','重新打开会话时按当前权限复核：来源字段被收回 → 整轮隐藏并提示哪些表的哪些字段不可见；新增脱敏 → 隐藏结论、重新遮蔽快照','第一轮自动给会话起标题（title 事件）；最后推 done，带 query_run_id 和 message_id'],
+    writes:{}, events: turn === 0 ? ['title','done'] : ['done'], tags:['db']};
+}
+function renderStep(turn){
+  return {node:'render', title:'前端渲染', loc:'ChatPage.tsx · components/result.tsx · ReasoningPanel', ms:null,
+    lead:'前端按事件类型逐步拼出一轮回答，用户在模型还没写完结论时就能看到 SQL、表格和图。',
+    does:['stage → 进度条文案（理解问题 / 生成 SQL / 校验 / 执行 …）','reasoning → 思考面板实时滚动；结论开始输出后自动折叠','sql → SQL 区块；data → 表格；chart → 自绘 SVG 图；explanation → 口径和过滤条件','answer → 结论逐字出现；done → 结束「停止」按钮，刷新会话列表和缓存','error → 按错误码显示中文标题和建议（后端只给错误码，文案在前端）'],
+    writes:{}, events:[], tags:[]};
+}
+
+function scenarioA(){
+  return [frontStep(0), prepareStep(0), loadStep(0, [], false), scopeStep(0), retrievalStep(0), clarifyStep(0), genStep(0), guardStep(0), execStep(0), correctStep(0), presentStep(0), recordStep(0), finishStep(0), renderStep(0)];
+}
+function scenarioB(){
+  const prev = T[0].log.normalized_sql;
+  const hist = [
+    {role:'user', content:T[0].question},
+    {role:'assistant', content:firstLine(T[0].answer), sql:prev},
+  ];
+  const s = [frontStep(1), prepareStep(1), loadStep(1, hist, true), scopeStep(1, prev),
+    retrievalStep(1, ['追问：上一轮问题文本参与检索；上一轮 SQL 用到的表整表保留（keep_tables），保证「按渠道拆开」还能找到 orders']),
+    clarifyStep(1), genStep(1, ['history 里带着上一轮的 SQL，inherited_sql 作为可继承的候选；是否继承由模型判断']),
+    guardStep(1), execStep(1), correctStep(1), presentStep(1), recordStep(1), finishStep(1), renderStep(1)];
+  s[2].lead = '这是同一个会话里的第二个问题。历史里有上一轮的问题和回答（回答只留第一行，SQL 单独带），follow_up = true。时间区间这次为空——问题里没有时间词，「上个月」要靠继承上一轮的 SQL。';
+  s[3].lead += ' 追问时还有一件事：上一轮的 SQL 用当前权限重新过一遍 Guard，通过了才作为 inherited_sql 交给模型。';
+  s[6].lead = '模型看到历史和 inherited_sql，理解「只看华东，按渠道拆开」是在上一轮基础上加条件、换分组：时间沿用 2026-09，口径沿用有效订单的实付金额。';
+  return s;
+}
+function scenarioC(){
+  const L = T[2].log, diag = T[2].snapshot.diagnostic;
+  const s = [frontStep(2), prepareStep(2), loadStep(2, '（前两轮历史，略）', true), scopeStep(2), retrievalStep(2), clarifyStep(2)];
+  s[4].lead = '和正常问题一样做检索（日志里看不到结果，原因见 record 节点）。';
+  s.push({node:'generate_sql', title:'generate_sql：模型标记为写操作', loc:'stages.py · GenerateSqlStage', ms:timing(2,'generate_sql'),
+    lead:'模型按提示词规则识别出这是修改数据的请求，返回 write_request = true，没有写任何 SQL。管道直接抛 SqlBlocked(SQL_NOT_SELECT, rule = write_request)。',
+    does:['不尝试「只回答其中的查询部分」，整个请求拒绝','即使模型漏判、真写出了 DELETE，下一步 Guard 也会因为不是 SELECT 而拦下——两道防线互不依赖','输出 token 只有 ' + L.tokens_out + ' 个：模型只回了一个标记'],
+    writes:{stage:'generate_sql', model_id:L.model_id, prompt_versions:L.prompt_versions, tokens_in:L.tokens_in, tokens_out:L.tokens_out, timings:{generate_sql:timing(2,'generate_sql')}},
+    events:['stage'], tags:['llm']});
+  for (const n of ['sql_guard','execute','correction','presentation']) s.push({node:n, skip:true});
+  s.push({node:'except', title:'异常处理：分类成 blocked', loc:'pipeline.py · QueryPipeline._run', ms:null,
+    lead:'阶段循环外层的 except 把异常归类：SqlBlocked 或 SQL_ 开头的错误码（执行错误除外）→ blocked；其余 → failed。诊断信息只保留安全的事实。',
+    does:['diagnose()：阶段、错误码、异常类型、Guard 规则——从不包含 SQL、数据、异常原文或看不到的对象名','error_code 决定前端显示的中文提示','被拦截的请求一条 SQL 都没执行'],
+    writes:{status:'blocked', error_code:'SQL_NOT_SELECT', diagnostic:diag, explanation:'MESSAGES[SQL_NOT_SELECT]（前端按错误码显示中文）'},
+    events:[], tags:[], err:true});
+  s.push({node:'record', title:'record：清空后再记录', loc:'stages.py · RecordStage', ms:0,
+    lead:'blocked 时先把 generated_sql、guarded_sql、result、retrieval、history、inherited_sql 全部清空，日志里只留类别（blocked_code + diagnostic）。这就是为什么这条日志看不到检索结果。',
+    does:['被拒绝的 SQL 可能包含越权的表名字段名，所以不落库','纠错过程中如果出现过一次合法的 GuardedSql，也一并清掉，避免误用','管理员在查询日志里能看到：哪一步、什么规则拦的'],
+    writes:{stage:'record', retrieval:'RetrievalBundle()  // 已清空', history:[], inherited_sql:null, generated_sql:null, query_run_id:doneEv(2).query_run_id, timings:L.stage_timings},
+    events:['stage','error','done'], tags:['db'], err:true, extraHtml:`<div class="sec">这一条日志的阶段耗时（ms）</div>${timingTable(2)}`});
+  s.push({...renderStep(2), lead:'前端收到 error 事件，按错误码显示「只能查询数据，不能修改」和建议；没有 SQL、表格和图。'});
+  return s;
+}
+const SCENARIOS = [
+  {name:'首次提问', build:scenarioA, turn:0, note:'新会话里的第一个问题'},
+  {name:'追问', build:scenarioB, turn:1, note:'接着上一题追问：沿用时间和口径'},
+  {name:'写操作被拦截', build:scenarioC, turn:2, note:'修改数据的请求'},
+];
+
+// rail definition
+const RAIL = [
+  ['g','入口'], ['frontend','前端发起','fetch + SSE'], ['prepare','prepare','ChatService'],
+  ['g','管道 QueryPipeline（10 个阶段）'],
+  ['load_context','加载上下文','load_context'], ['visible_scope','可见范围','visible_scope'], ['retrieval','混合检索','retrieval'],
+  ['clarification','确定性反问','clarification'], ['generate_sql','生成 SQL','generate_sql'], ['sql_guard','SQL Guard','sql_guard'],
+  ['execute','执行','execute'], ['correction','自动纠错','correction'], ['presentation','图表与结论','presentation'],
+  ['except','异常分类','except'], ['record','记录日志','record'],
+  ['g','收尾'], ['finish','finish','ChatService'], ['render','前端渲染','ChatPage'],
+];
+
+// ---------- state ----------
+let scen = 0, steps = [], idx = 0, timer = null;
+function visible(){ return steps.map((s, i) => [s, i]).filter(([s]) => !s.skip); }
+
+function ctxAt(n){
+  // apply writes of steps[0..n]; return {ctx, changed:{field:'new'|'chg'|'clr'}}
+  const ctx = {}; let changed = {};
+  for (const [s, i] of visible()) {
+    if (i > n) break;
+    const cur = {};
+    for (const [k, v] of Object.entries(s.writes || {})) {
+      let val = v;
+      if (k === 'timings') val = {...(ctx.timings || {}), ...v};
+      const before = k in ctx ? ctx[k] : (k in DEFAULTS ? DEFAULTS[k] : undefined);
+      const was = JSON.stringify(before), now = JSON.stringify(val);
+      if (i === n && was !== now) cur[k] = (before === undefined || isEmpty(before)) ? 'new' : (isEmpty(val) ? 'clr' : 'chg');
+      ctx[k] = val;
+    }
+    if (i === n) changed = cur;
+  }
+  return {ctx, changed};
+}
+
+function render(){
+  const step = steps[idx];
+  const vis = visible().map(([, i]) => i);
+  const pos = vis.indexOf(idx);
+  document.getElementById('count').textContent = `${pos + 1} / ${vis.length}`;
+  document.getElementById('prev').disabled = pos <= 0;
+  document.getElementById('next').disabled = pos >= vis.length - 1;
+  // question
+  const sc = SCENARIOS[scen];
+  document.getElementById('who').textContent = 'he.yu（经营分析部 · 员工）';
+  document.getElementById('q').textContent = T[sc.turn].question;
+  document.getElementById('qnote').textContent = sc.note;
+  // rail
+  const nodesInScen = new Set(steps.map(s => s.node));
+  const statusOf = {};
+  steps.forEach((s, i) => { statusOf[s.node] = s.skip ? 'skip' : (i < idx ? (s.err ? 'err' : 'done') : i === idx ? 'cur' : ''); });
+  let n = 0;
+  document.getElementById('rail').innerHTML = RAIL.map(([k, name, small]) => {
+    if (k === 'g') return `<li class="group">${name}</li>`;
+    if (!nodesInScen.has(k)) return '';
+    n += 1;
+    const st = statusOf[k] || '';
+    const s = steps.find(x => x.node === k);
+    const ms = s && s.ms != null && !s.skip ? `${s.ms} ms` : '';
+    return `<li class="${st}" data-node="${k}"><span class="dot">${n}</span><span class="nm">${name}<small>${small}</small></span><span class="ms">${ms}</span></li>`;
+  }).join('');
+  document.querySelectorAll('#rail li[data-node]').forEach(li => li.onclick = () => {
+    const i = steps.findIndex(s => s.node === li.dataset.node && !s.skip); if (i >= 0) { idx = i; stop(); render(); }
+  });
+  // detail
+  const tagName = {llm:'调用模型', db:'读写数据库/缓存'};
+  const writes = Object.keys(step.writes || {});
+  let h = `<h3>${esc(step.title)}</h3><div class="loc">${esc(step.loc)}</div><p class="lead">${esc(step.lead)}</p>`;
+  if (step.tags?.length || step.ms != null) h += `<div class="chips">${(step.tags||[]).map(t => `<span class="chip ${t}">${tagName[t]}</span>`).join('')}${step.ms != null ? `<span class="chip">耗时 ${step.ms} ms</span>` : ''}</div>`;
+  h += `<div class="sec">做了什么</div><ul>${step.does.map(d => `<li>${esc(d)}</li>`).join('')}</ul>`;
+  if (writes.length) h += `<div class="sec">写入 QueryContext</div><div class="chips">${writes.map(w => `<span class="chip w">${w}</span>`).join('')}</div>`;
+  if (step.events?.length) h += `<div class="sec">推给前端的 SSE 事件</div><div class="chips">${step.events.map(e => `<span class="chip ev">${esc(e)}</span>`).join('')}</div>`;
+  if (step.node === 'generate_sql' && step.writes.generated_sql) h += `<div class="sec">模型生成的 SQL</div><pre class="code">${sqlHtml(step.writes.generated_sql)}</pre>`;
+  if (step.node === 'generate_sql' && T[sc.turn].reasoning) h += `<div class="sec">思考过程（reasoning 事件拼起来）</div><pre class="code">${esc(T[sc.turn].reasoning)}</pre>`;
+  if (step.node === 'sql_guard' && step.writes.guarded_sql) h += `<div class="sec">规范化后的 SQL（执行的就是它）</div><pre class="code">${sqlHtml(step.writes.guarded_sql.normalized_sql)}</pre>`;
+  if (step.extraHtml) h += step.extraHtml;
+  if (step.node === 'presentation') h += `<div class="sec">流式结论（answer 事件拼起来）</div><pre class="code">${esc(T[sc.turn].answer)}</pre>`;
+  if (step.branch) h += `<div class="callout warn"><b>其他走向</b>${step.branch.map(esc).join('<br>')}</div>`;
+  if (step.tip) h += `<div class="callout tip"><b>${esc(step.tip[0])}</b>${esc(step.tip[1])}</div>`;
+  if (step.err) h += `<div class="callout bad"><b>status = blocked</b>后面的 Guard、执行、纠错、展示都没有运行。</div>`;
+  document.getElementById('detail').innerHTML = h;
+  // ctx
+  const {ctx, changed} = ctxAt(idx);
+  let c = '';
+  for (const [g, fields] of GROUPS) {
+    c += `<div class="grp">${g}</div>`;
+    for (const f of fields) {
+      const has = f in ctx;
+      const v = has ? ctx[f] : DEFAULTS[f];
+      const empty = v === undefined || isEmpty(v);
+      const cls = changed[f] || (empty ? 'empty' : '');
+      const tag = changed[f] ? `<span class="tag">${{new:'新写入', chg:'更新', clr:'清空'}[changed[f]]}</span>` : '';
+      const shown = v === undefined ? '—' : (f.endsWith('sql') && typeof v === 'string' ? v : pretty(v));
+      c += `<div class="f ${cls}"><div class="k">${f}${tag}</div><div class="v">${esc(shown)}</div></div>`;
+    }
+  }
+  const box = document.getElementById('ctx');
+  box.innerHTML = c;
+  const first = box.querySelector('.f.new,.f.chg,.f.clr');
+  if (first) first.scrollIntoView({block:'nearest', behavior:'smooth'});
+  renderTimeline();
+}
+
+const COLORS = {load_context:'#a1a1aa', visible_scope:'#71717a', retrieval:'#3589c0', clarification:'#d4d4d8', generate_sql:'#d55e00', sql_guard:'#00866a', execute:'#b07600', correction:'#d4d4d8', presentation:'#1f5f99', record:'#52525b'};
+function renderTimeline(){
+  const sc = SCENARIOS[scen], turn = sc.turn, ev = T[turn].events;
+  const total = Math.max(...ev.map(e => e.t)) || 1;
+  const stages = ev.filter(e => e.event === 'stage');
+  const tl = document.getElementById('tl');
+  const step = steps[idx];
+  let h = '<div class="axis"></div>';
+  stages.forEach((s, i) => {
+    const end = i + 1 < stages.length ? stages[i + 1].t : total;
+    const left = s.t / total * 100, w = Math.max(.3, (end - s.t) / total * 100);
+    const on = s.data.name === step.node;
+    h += `<div class="seg2" style="left:${left}%;width:${w}%;background:${COLORS[s.data.name] || '#999'};${on ? 'outline:2px solid var(--action);outline-offset:1px' : ''}" title="${s.data.name} ${end - s.t}ms"></div>`;
+  });
+  const marks = ev.filter(e => e.event !== 'stage');
+  const seen = {};
+  marks.forEach(e => {
+    const left = e.t / total * 100;
+    const key = Math.round(left);
+    const row = seen[key] = (seen[key] || 0) + 1;
+    if (row > 1) return;
+    const label = marks.filter(x => Math.round(x.t / total * 100) === key).map(x => x.event).join('·');
+    h += `<div class="tick" style="left:${left}%"></div><div class="mk ${step.events?.some(x => label.includes(x.split(' ')[0])) ? 'on' : ''}" style="left:${Math.min(97, Math.max(3, left))}%">${label} ${e.t}</div>`;
+  });
+  tl.innerHTML = h;
+  document.getElementById('legend').innerHTML = Object.entries(COLORS).filter(([k]) => stages.some(s => s.data.name === k)).map(([k, v]) => `<span><i style="background:${v}"></i>${k}</span>`).join('') + `<span>· 总 ${total} ms</span>`;
+  const r = T[turn];
+  const parts = [];
+  for (const e of ev) {
+    if (e.event === 'stage') parts.push(`<b>stage</b>:${e.data.name}`);
+    else parts.push(`<b>${e.event}</b>`);
+  }
+  document.getElementById('stream').innerHTML = `事件顺序：${parts.join(' → ')}（另有 reasoning ×${r.n_reasoning}、answer ×${r.n_answer} 个增量事件穿插其中）`;
+}
+
+function go(d){
+  const vis = visible().map(([, i]) => i);
+  const pos = vis.indexOf(idx) + d;
+  if (pos < 0 || pos >= vis.length) { stop(); return false; }
+  idx = vis[pos]; render(); return true;
+}
+function stop(){ if (timer) { clearInterval(timer); timer = null; } document.getElementById('play').textContent = '自动播放'; }
+function play(){
+  if (timer) { stop(); return; }
+  if (!go(1)) { idx = visible()[0][1]; render(); }
+  document.getElementById('play').textContent = '暂停';
+  timer = setInterval(() => { if (!go(1)) stop(); }, 3200);
+}
+function setScen(i){
+  scen = i; steps = SCENARIOS[i].build(); idx = 0; stop();
+  document.querySelectorAll('#scen button').forEach((b, j) => b.classList.toggle('on', j === i));
+  render();
+}
+document.getElementById('scen').innerHTML = SCENARIOS.map((s, i) => `<button>${s.name}</button>`).join('');
+document.querySelectorAll('#scen button').forEach((b, i) => b.onclick = () => setScen(i));
+document.getElementById('prev').onclick = () => { stop(); go(-1); };
+document.getElementById('next').onclick = () => { stop(); go(1); };
+document.getElementById('play').onclick = play;
+document.getElementById('hideEmpty').onchange = e => document.getElementById('ctx').classList.toggle('hidden-empty', e.target.checked);
+document.addEventListener('keydown', e => { if (e.key === 'ArrowRight') { stop(); go(1); } if (e.key === 'ArrowLeft') { stop(); go(-1); } if (e.key === ' ') { e.preventDefault(); play(); } });
+setScen(0);
+</script>
+</body>
+</html>
